@@ -14,5 +14,5 @@ dependencyResolutionManagement {
         maven { url "https://maven.mozilla.org/maven2/" }
     }
 }
-rootProject.name = "GeckoKeepAliveBrowser"
+rootProject.name = "SpoonGecko"
 include ':app'
