@@ -1,6 +1,7 @@
 package com.gecko.keepalive;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -33,10 +34,17 @@ public class MainActivity extends AppCompatActivity {
             startService(serviceIntent);
         }
 
-        // 2. Request to ignore battery optimizations (Crucial for OEMs)
+        // 2. Request Battery Optimization Exemption
         requestBatteryOptimizationExemption();
 
-        // 3. Build the UI programmatically (to avoid needing XML layout files)
+        // 3. Request Notification Permission (Required for Android 13+ to keep the service alive)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 101);
+            }
+        }
+
+        // 4. Build the UI programmatically
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
 
@@ -58,7 +66,7 @@ public class MainActivity extends AppCompatActivity {
         
         setContentView(layout);
 
-        // 4. Initialize GeckoView
+        // 5. Initialize GeckoView
         initializeGeckoView();
 
         goButton.setOnClickListener(new View.OnClickListener() {
@@ -71,6 +79,17 @@ public class MainActivity extends AppCompatActivity {
                 session.loadUri(url);
             }
         });
+    }
+
+    // Handles the physical/tablet back button to go back in web history
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        if (session != null && session.canGoBack()) {
+            session.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private void initializeGeckoView() {
@@ -87,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
             geckoView.setSession(session);
         }
         
-        // Load default URL
         session.loadUri("https://www.google.com");
     }
 
