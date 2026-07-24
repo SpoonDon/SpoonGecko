@@ -16,6 +16,7 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.TrackingProtectionPolicy;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -120,6 +121,9 @@ public class MainActivity extends AppCompatActivity {
             settingsBuilder.remoteDebuggingEnabled(false);
             settingsBuilder.webFontsEnabled(true);
             settingsBuilder.automaticFontSizeAdjustment(true);
+            settingsBuilder.trackingProtectionPolicy(TrackingProtectionPolicy.recommended());
+            settingsBuilder.telemetryEnabled(false);
+            settingsBuilder.aboutConfigEnabled(false);
             runtime = GeckoRuntime.create(this, settingsBuilder.build());
         }
 
