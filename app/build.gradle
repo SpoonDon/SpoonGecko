@@ -31,5 +31,5 @@ dependencies {
     implementation 'androidx.core:core:1.12.0'
     
     // GeckoView Engine (Using a stable recent version)
-    implementation 'org.mozilla.geckoview:geckoview-omni:124.0.20240328.1'
+    implementation 'org.mozilla.geckoview:geckoview-omni:153.0.20260715202819'
 }
