@@ -14,7 +14,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import org.mozilla.geckoview.GeckoRuntime;
-import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebResponse;
@@ -116,15 +115,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initializeGeckoView() {
-        if (runtime == null) {
-            GeckoRuntimeSettings.Builder settingsBuilder = new GeckoRuntimeSettings.Builder();
-            settingsBuilder.javaScriptEnabled(true);
-            settingsBuilder.remoteDebuggingEnabled(false);
-            settingsBuilder.webFontsEnabled(true);
-            settingsBuilder.automaticFontSizeAdjustment(true);
-            settingsBuilder.aboutConfigEnabled(false);
-            runtime = GeckoRuntime.create(this, settingsBuilder.build());
-        }
+        runtime = SpoonGeckoApplication.getGeckoRuntime();
 
         if (session == null) {
             session = new GeckoSession();
@@ -158,6 +149,8 @@ public class MainActivity extends AppCompatActivity {
                     DownloadHandler.handleDownload(MainActivity.this, url, filename, "application/octet-stream", -1);
                 }
             });
+        } else {
+            geckoView.setSession(session);
         }
 
         session.loadUri("https://search.brave.com");
