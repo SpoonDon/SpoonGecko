@@ -12,7 +12,7 @@
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:label="Gecko KeepAlive"
+        android:label="Spoon Gecko"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar"
         android:largeHeap="true"
         android:extractNativeLibs="true"> <!-- CRITICAL: Forces extraction of GeckoView C++/Rust libraries -->
