@@ -10,13 +10,13 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.TrackingProtectionPolicy;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -121,8 +121,6 @@ public class MainActivity extends AppCompatActivity {
             settingsBuilder.remoteDebuggingEnabled(false);
             settingsBuilder.webFontsEnabled(true);
             settingsBuilder.automaticFontSizeAdjustment(true);
-            settingsBuilder.trackingProtectionPolicy(TrackingProtectionPolicy.recommended());
-            settingsBuilder.telemetryEnabled(false);
             settingsBuilder.aboutConfigEnabled(false);
             runtime = GeckoRuntime.create(this, settingsBuilder.build());
         }
@@ -136,6 +134,13 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onCanGoBack(GeckoSession session, boolean canGoBack) {
                     MainActivity.this.canGoBack = canGoBack;
+                }
+            });
+
+            session.setContentDelegate(new GeckoSession.ContentDelegate() {
+                @Override
+                public void onExternalResponse(@NonNull GeckoSession session, @NonNull GeckoSession.WebResponseInfo response) {
+                    DownloadHandler.handleDownload(MainActivity.this, response.uri, response.filename, response.contentType, response.contentLength);
                 }
             });
         }
