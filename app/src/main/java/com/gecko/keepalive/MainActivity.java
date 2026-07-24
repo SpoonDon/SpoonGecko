@@ -81,11 +81,10 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // Handles the physical/tablet back button to go back in web history
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
-        if (session != null && session.canGoBack()) {
+        if (session != null) {
             session.goBack();
         } else {
             super.onBackPressed();
