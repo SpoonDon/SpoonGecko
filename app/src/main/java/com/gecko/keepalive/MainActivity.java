@@ -17,6 +17,7 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebResponse;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -139,8 +140,22 @@ public class MainActivity extends AppCompatActivity {
 
             session.setContentDelegate(new GeckoSession.ContentDelegate() {
                 @Override
-                public void onExternalResponse(@NonNull GeckoSession session, @NonNull GeckoSession.WebResponseInfo response) {
-                    DownloadHandler.handleDownload(MainActivity.this, response.uri, response.filename, response.contentType, response.contentLength);
+                public void onExternalResponse(@NonNull GeckoSession session, @NonNull WebResponse response) {
+                    String url = response.uri;
+                    String filename = "download_file";
+                    
+                    if (url != null && !url.isEmpty()) {
+                        String[] parts = url.split("/");
+                        filename = parts[parts.length - 1];
+                        if (filename.contains("?")) {
+                            filename = filename.split("\\?")[0];
+                        }
+                        if (filename.isEmpty()) {
+                            filename = "download_" + System.currentTimeMillis();
+                        }
+                    }
+                    
+                    DownloadHandler.handleDownload(MainActivity.this, url, filename, "application/octet-stream", -1);
                 }
             });
         }
