@@ -47,8 +47,8 @@ public class MainActivity extends AppCompatActivity {
         layout.setOrientation(LinearLayout.VERTICAL);
 
         final EditText urlInput = new EditText(this);
-        urlInput.setHint("Enter URL (e.g., https://google.com)");
-        urlInput.setText("https://www.google.com");
+        urlInput.setHint("Search with Brave or enter URL");
+        urlInput.setText("");
         urlInput.setSingleLine(true);
 
         Button goButton = new Button(this);
@@ -71,12 +71,17 @@ public class MainActivity extends AppCompatActivity {
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String url = urlInput.getText().toString().trim();
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    url = "https://" + url;
-                }
-                if (session != null) {
-                    session.loadUri(url);
+                String input = urlInput.getText().toString().trim();
+                if (!input.isEmpty() && session != null) {
+                    if (input.startsWith("http://") || input.startsWith("https://")) {
+                        session.loadUri(input);
+                    } else if (input.contains(".") && !input.contains(" ")) {
+                        session.loadUri("https://" + input);
+                    } else {
+                        session.loadUri("https://search.brave.com/search?q=" + Uri.encode(input));
+                    }
+                    urlInput.setText("");
+                    urlInput.clearFocus();
                 }
             }
         });
@@ -113,7 +118,6 @@ public class MainActivity extends AppCompatActivity {
             GeckoRuntimeSettings.Builder settingsBuilder = new GeckoRuntimeSettings.Builder();
             settingsBuilder.javaScriptEnabled(true);
             settingsBuilder.remoteDebuggingEnabled(false);
-            settingsBuilder.consoleOutputEnabled(false);
             settingsBuilder.webFontsEnabled(true);
             settingsBuilder.automaticFontSizeAdjustment(true);
             runtime = GeckoRuntime.create(this, settingsBuilder.build());
@@ -132,7 +136,7 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        session.loadUri("https://www.google.com");
+        session.loadUri("https://search.brave.com");
     }
 
     @Override
