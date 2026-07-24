@@ -6,16 +6,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Required for Android 13+ to show the Keep-Alive notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".SpoonGeckoApplication"
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="Spoon Gecko"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar"
         android:largeHeap="true"
-        android:extractNativeLibs="true"> <!-- CRITICAL: Forces extraction of GeckoView C++/Rust libraries -->
+        android:extractNativeLibs="true">
 
         <activity
             android:name=".MainActivity"
