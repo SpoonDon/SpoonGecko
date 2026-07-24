@@ -21,7 +21,7 @@ jobs:
 
     # --- THE FIX: Use GitHub's built-in Gradle to generate the wrapper ---
     - name: Generate Gradle Wrapper
-      run: gradle wrapper --gradle-version 8.2
+      run: gradle wrapper --gradle-version 8.11
     # --------------------------------------------------------------------
 
     - name: Grant execute permission for gradlew
