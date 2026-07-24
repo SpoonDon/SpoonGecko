@@ -22,15 +22,12 @@ public class MainActivity extends AppCompatActivity {
     private GeckoView geckoView;
     private GeckoSession session;
     private GeckoRuntime runtime;
-    
-    // This variable tracks if there is web history to go back to
-    private boolean canGoBack = false; 
+    private boolean canGoBack = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // 1. Start the Keep-Alive Foreground Service
+
         Intent serviceIntent = new Intent(this, KeepAliveService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
@@ -38,81 +35,76 @@ public class MainActivity extends AppCompatActivity {
             startService(serviceIntent);
         }
 
-        // 2. Request Battery Optimization Exemption
         requestBatteryOptimizationExemption();
 
-        // 3. Request Notification Permission (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 101);
             }
         }
 
-        // 4. Build the UI
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
 
         final EditText urlInput = new EditText(this);
         urlInput.setHint("Enter URL (e.g., https://google.com)");
         urlInput.setText("https://www.google.com");
-        
+        urlInput.setSingleLine(true);
+
         Button goButton = new Button(this);
         goButton.setText("Go");
 
         geckoView = new GeckoView(this);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 
-                LinearLayout.LayoutParams.MATCH_PARENT);
-        
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.0f);
+
         layout.addView(urlInput);
         layout.addView(goButton);
         layout.addView(geckoView, params);
-        
+
         setContentView(layout);
 
-        // 5. Initialize GeckoView
         initializeGeckoView();
 
         goButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String url = urlInput.getText().toString();
+                String url = urlInput.getText().toString().trim();
                 if (!url.startsWith("http://") && !url.startsWith("https://")) {
                     url = "https://" + url;
                 }
-                session.loadUri(url);
+                if (session != null) {
+                    session.loadUri(url);
+                }
             }
         });
     }
 
-    // Handles the physical back button AND the swipe back gesture
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
-        if (canGoBack) {
-            // If there is history, go back in the browser
+        if (canGoBack && session != null) {
             session.goBack();
         } else {
-            // If no history (first page), show the exit confirmation dialog
             showExitDialog();
         }
     }
 
-    // The Exit Confirmation Dialog
     private void showExitDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("Exit Browser?")
+            .setTitle("Exit Spoon Gecko?")
             .setMessage("You are on the first page. Do you want to exit the app?")
             .setPositiveButton("Exit", (dialog, which) -> {
                 Intent serviceIntent = new Intent(MainActivity.this, KeepAliveService.class);
                 stopService(serviceIntent);
-                
                 finishAndRemoveTask();
             })
             .setNegativeButton("Stay", (dialog, which) -> {
-                dialog.dismiss(); 
+                dialog.dismiss();
             })
-            .setCancelable(false) // Forces the user to tap one of the buttons
+            .setCancelable(false)
             .show();
     }
 
@@ -121,6 +113,9 @@ public class MainActivity extends AppCompatActivity {
             GeckoRuntimeSettings.Builder settingsBuilder = new GeckoRuntimeSettings.Builder();
             settingsBuilder.javaScriptEnabled(true);
             settingsBuilder.remoteDebuggingEnabled(false);
+            settingsBuilder.consoleOutputEnabled(false);
+            settingsBuilder.webFontsEnabled(true);
+            settingsBuilder.automaticFontSizeAdjustment(true);
             runtime = GeckoRuntime.create(this, settingsBuilder.build());
         }
 
@@ -129,7 +124,6 @@ public class MainActivity extends AppCompatActivity {
             session.open(runtime);
             geckoView.setSession(session);
 
-            // THE HISTORY TRACKER: Updates our 'canGoBack' variable automatically
             session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
                 @Override
                 public void onCanGoBack(GeckoSession session, boolean canGoBack) {
@@ -137,8 +131,17 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         }
-        
+
         session.loadUri("https://www.google.com");
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (session != null) {
+            session.close();
+            session = null;
+        }
     }
 
     private void requestBatteryOptimizationExemption() {
