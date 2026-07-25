@@ -110,7 +110,6 @@ public class MainActivity extends AppCompatActivity {
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .remoteDebuggingEnabled(false)
-                .setAboutConfigEnabled(false)
                 .build();
 
         runtime = GeckoRuntime.create(this, settings);
@@ -141,7 +140,6 @@ public class MainActivity extends AppCompatActivity {
         });
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
             public void onLocationChange(@NonNull GeckoSession session, @NonNull String url) {
                 runOnUiThread(() -> urlBar.setText(url));
             }
