@@ -33,7 +33,12 @@ public class MainActivity extends AppCompatActivity {
     private GeckoRuntime runtime;
     private EditText urlBar;
     private ProgressBar progressBar;
-    private ImageButton btnBack, btnForward, btnReload;
+    private ImageButton btnBack;
+    private ImageButton btnForward;
+    private ImageButton btnReload;
+
+    private boolean canGoBack = false;
+    private boolean canGoForward = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,7 +109,6 @@ public class MainActivity extends AppCompatActivity {
     private void setupGeckoView() {
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
-                .allowInternetPermissions(true)
                 .remoteDebuggingEnabled(false)
                 .useHardwareAcceleration(true)
                 .setAboutConfigEnabled(false)
@@ -143,13 +147,13 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> urlBar.setText(url));
             }
 
-            @Override
             public void onCanGoBack(@NonNull GeckoSession session, boolean canGoBack) {
+                MainActivity.this.canGoBack = canGoBack;
                 runOnUiThread(() -> btnBack.setEnabled(canGoBack));
             }
 
-            @Override
             public void onCanGoForward(@NonNull GeckoSession session, boolean canGoForward) {
+                MainActivity.this.canGoForward = canGoForward;
                 runOnUiThread(() -> btnForward.setEnabled(canGoForward));
             }
         });
@@ -167,13 +171,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupNavigationButtons() {
         btnBack.setOnClickListener(v -> {
-            if (session != null && session.canGoBack()) {
+            if (canGoBack) {
                 session.goBack();
             }
         });
 
         btnForward.setOnClickListener(v -> {
-            if (session != null && session.canGoForward()) {
+            if (canGoForward) {
                 session.goForward();
             }
         });
@@ -219,7 +223,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (session != null && session.canGoBack()) {
+        if (canGoBack) {
             session.goBack();
         } else {
             super.onBackPressed();
