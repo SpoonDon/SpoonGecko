@@ -194,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (session != null) {
+        if (session != null && !session.isOpen()) {
             session.open(runtime);
         }
     }
@@ -202,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (session != null) {
+        if (session != null && session.isOpen()) {
             session.close();
         }
     }
@@ -211,10 +211,14 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (session != null) {
-            session.close();
+            if (session.isOpen()) {
+                session.close();
+            }
+            session = null;
         }
         if (runtime != null) {
             runtime.shutdown();
+            runtime = null;
         }
     }
 
