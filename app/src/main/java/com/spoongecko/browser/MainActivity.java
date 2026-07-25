@@ -110,7 +110,6 @@ public class MainActivity extends AppCompatActivity {
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .remoteDebuggingEnabled(false)
-                .useHardwareAcceleration(true)
                 .setAboutConfigEnabled(false)
                 .build();
 
