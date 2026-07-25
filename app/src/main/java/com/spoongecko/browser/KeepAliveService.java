@@ -42,7 +42,7 @@ public class KeepAliveService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 startForegroundService(restartIntent);
-            } catch (IllegalStateException | ForegroundServiceStartNotAllowedException e) {
+            } catch (IllegalStateException e) {
                 startService(restartIntent);
             }
         } else {
