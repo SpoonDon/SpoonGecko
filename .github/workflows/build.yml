@@ -23,7 +23,17 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    # No wrapper generation needed – gradlew will fetch the distribution automatically
+    # ---- Generate wrapper if missing ----
+    - name: Generate Gradle Wrapper
+      run: |
+        if [ ! -f gradlew ]; then
+          echo "📦 gradlew not found – generating wrapper..."
+          wget -q https://services.gradle.org/distributions/gradle-8.10-bin.zip
+          unzip -q gradle-8.10-bin.zip
+          export PATH=$PWD/gradle-8.10/bin:$PATH
+          gradle wrapper
+        fi
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
