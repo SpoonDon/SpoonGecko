@@ -29,8 +29,8 @@ jobs:
         if [ ! -f gradlew ]; then
           echo "📦 gradlew not found – generating wrapper..."
           wget -q https://services.gradle.org/distributions/gradle-8.10-bin.zip
-          unzip -q gradle-8.10-bin.zip
-          export PATH=$PWD/gradle-8.10/bin:$PATH
+          unzip -q gradle-8.11.1-bin.zip
+          export PATH=$PWD/gradle-8.11.1/bin:$PATH
           gradle wrapper
         fi
 
