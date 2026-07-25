@@ -2,7 +2,7 @@ name: Build Spoon Gecko APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -23,12 +23,15 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    # ---- Generate wrapper if missing ----
-    - name: Generate Gradle Wrapper
+    - name: Generate Gradle Wrapper (if missing)
       run: |
         if [ ! -f gradlew ]; then
-          echo "📦 gradlew not found – generating wrapper..."
-          wget -q https://services.gradle.org/distributions/gradle-8.10-bin.zip
+          echo "📦 gradlew not found – downloading Gradle..."
+          curl -L --retry 3 --retry-delay 5 -O https://services.gradle.org/distributions/gradle-8.11.1-bin.zip
+          if [ ! -f gradle-8.11.1-bin.zip ]; then
+            echo "❌ Download failed – check network"
+            exit 1
+          fi
           unzip -q gradle-8.11.1-bin.zip
           export PATH=$PWD/gradle-8.11.1/bin:$PATH
           gradle wrapper
