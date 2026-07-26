@@ -2,6 +2,8 @@ package com.spoongecko.browser;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -9,10 +11,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.TextUtils;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
@@ -45,17 +52,29 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        initializeViews();
         checkPermissions();
         startKeepAliveService();
         requestBatteryOptimizationExemption();
 
-        initializeViews();
         setupGeckoView();
 
-        urlBar.setText("https://duckduckgo.com");
-        loadUrl("https://duckduckgo.com");
+        // Default homepage
+        String homepage = "https://duckduckgo.com";
+        urlBar.setText(homepage);
+        loadUrl(homepage);
 
         setupNavigationButtons();
+    }
+
+    private void initializeViews() {
+        geckoView = findViewById(R.id.geckoView);
+        urlBar = findViewById(R.id.urlBar);
+        progressBar = findViewById(R.id.progressBar);
+        progressBar.setMax(100);
+        btnBack = findViewById(R.id.btnBack);
+        btnForward = findViewById(R.id.btnForward);
+        btnReload = findViewById(R.id.btnReload);
     }
 
     private void checkPermissions() {
@@ -69,17 +88,40 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            // Handle POST_NOTIFICATIONS result if needed
+            if (permissions.length > 0 && Manifest.permission.POST_NOTIFICATIONS.equals(permissions[0])) {
+                boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                if (!granted) {
+                    // optional: inform user notifications are disabled
+                }
+            }
+        }
+    }
+
     private void requestBatteryOptimizationExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm == null) return;
             if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
                 new AlertDialog.Builder(this)
                         .setTitle("Keep Alive")
                         .setMessage("Allow Spoon Gecko to run in the background for better RAM persistence?")
                         .setPositiveButton("Allow", (dialog, which) -> {
-                            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                            intent.setData(Uri.parse("package:" + getPackageName()));
-                            startActivity(intent);
+                            try {
+                                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                                intent.setData(Uri.parse("package:" + getPackageName()));
+                                startActivity(intent);
+                            } catch (ActivityNotFoundException ex) {
+                                // Fallback: open app settings
+                                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                intent.setData(Uri.parse("package:" + getPackageName()));
+                                startActivity(intent);
+                            }
                         })
                         .setNegativeButton("Later", null)
                         .show();
@@ -90,23 +132,20 @@ public class MainActivity extends AppCompatActivity {
     private void startKeepAliveService() {
         Intent serviceIntent = new Intent(this, KeepAliveService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
+            try {
+                startForegroundService(serviceIntent);
+            } catch (IllegalStateException e) {
+                // Fallback to startService if startForegroundService is not allowed
+                startService(serviceIntent);
+            }
         } else {
             startService(serviceIntent);
         }
     }
 
-    private void initializeViews() {
-        geckoView = findViewById(R.id.geckoView);
-        urlBar = findViewById(R.id.urlBar);
-        progressBar = findViewById(R.id.progressBar);
-        btnBack = findViewById(R.id.btnBack);
-        btnForward = findViewById(R.id.btnForward);
-        btnReload = findViewById(R.id.btnReload);
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     private void setupGeckoView() {
+        // GeckoRuntimeSettings and runtime creation (GeckoView 153 compatible)
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .remoteDebuggingEnabled(false)
@@ -115,7 +154,13 @@ public class MainActivity extends AppCompatActivity {
         runtime = GeckoRuntime.create(this, settings);
 
         session = new GeckoSession();
-        session.open(runtime);
+        try {
+            session.open(runtime);
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to open Gecko session", Toast.LENGTH_SHORT).show();
+            session = null;
+            return;
+        }
 
         geckoView.setSession(session);
 
@@ -140,15 +185,18 @@ public class MainActivity extends AppCompatActivity {
         });
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override
             public void onLocationChange(@NonNull GeckoSession session, @NonNull String url) {
                 runOnUiThread(() -> urlBar.setText(url));
             }
 
+            @Override
             public void onCanGoBack(@NonNull GeckoSession session, boolean canGoBack) {
                 MainActivity.this.canGoBack = canGoBack;
                 runOnUiThread(() -> btnBack.setEnabled(canGoBack));
             }
 
+            @Override
             public void onCanGoForward(@NonNull GeckoSession session, boolean canGoForward) {
                 MainActivity.this.canGoForward = canGoForward;
                 runOnUiThread(() -> btnForward.setEnabled(canGoForward));
@@ -156,78 +204,117 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void loadUrl(String url) {
-        if (session != null) {
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                url = "https://" + url;
-            }
-            session.loadUri(url);
-            urlBar.setText(url);
-        }
-    }
-
     private void setupNavigationButtons() {
         btnBack.setOnClickListener(v -> {
-            if (canGoBack) {
-                session.goBack();
+            if (canGoBack && session != null) {
+                try {
+                    session.goBack();
+                } catch (Exception ignored) {}
             }
         });
 
         btnForward.setOnClickListener(v -> {
-            if (canGoForward) {
-                session.goForward();
+            if (canGoForward && session != null) {
+                try {
+                    session.goForward();
+                } catch (Exception ignored) {}
             }
         });
 
         btnReload.setOnClickListener(v -> {
             if (session != null) {
-                session.reload();
+                try {
+                    session.reload();
+                } catch (Exception ignored) {}
             }
         });
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            loadUrl(urlBar.getText().toString());
-            return true;
+            boolean handled = false;
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE
+                    || (event != null && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                String input = urlBar.getText() != null ? urlBar.getText().toString().trim() : "";
+                if (!TextUtils.isEmpty(input)) {
+                    loadUrl(input);
+                    // hide keyboard
+                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
+                }
+                handled = true;
+            }
+            return handled;
         });
+    }
+
+    private void loadUrl(String url) {
+        if (session == null) return;
+        if (TextUtils.isEmpty(url)) return;
+
+        url = url.trim();
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            if (url.contains(" ")) {
+                url = "https://duckduckgo.com/?q=" + Uri.encode(url);
+            } else {
+                url = "https://" + url;
+            }
+        }
+
+        try {
+            session.loadUri(url);
+            runOnUiThread(() -> urlBar.setText(url));
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to load URL", Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (session != null && !session.isOpen()) {
-            session.open(runtime);
+        // GeckoSession does not always require explicit resume; keep safe checks
+        if (session == null && runtime != null) {
+            session = new GeckoSession();
+            try {
+                session.open(runtime);
+                geckoView.setSession(session);
+            } catch (Exception ignored) {
+                session = null;
+            }
         }
     }
 
     @Override
     protected void onPause() {
+        // Keep session open for faster resume; close only in onDestroy
         super.onPause();
-        if (session != null && session.isOpen()) {
-            session.close();
-        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         if (session != null) {
-            if (session.isOpen()) {
-                session.close();
-            }
+            try {
+                if (session.isOpen()) {
+                    session.close();
+                }
+            } catch (Exception ignored) {}
             session = null;
         }
         if (runtime != null) {
-            runtime.shutdown();
+            try {
+                runtime.shutdown();
+            } catch (Exception ignored) {}
             runtime = null;
         }
     }
 
     @Override
     public void onBackPressed() {
-        if (canGoBack) {
-            session.goBack();
-        } else {
-            super.onBackPressed();
+        if (canGoBack && session != null) {
+            try {
+                session.goBack();
+                return;
+            } catch (Exception ignored) {}
         }
+        super.onBackPressed();
     }
 }
