@@ -2,7 +2,9 @@ package com.spoongecko.browser;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.ActivityNotFoundException;
+import android.app.JobInfo;
+import android.app.JobScheduler;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -31,6 +33,7 @@ import org.mozilla.geckoview.GeckoView;
 
 public class MainActivity extends AppCompatActivity {
     private static final int PERMISSION_REQUEST_CODE = 100;
+    private static final int KEEPALIVE_JOB_ID = 42;
 
     private GeckoView geckoView;
     private GeckoSession session;
@@ -51,8 +54,9 @@ public class MainActivity extends AppCompatActivity {
 
         initializeViews();
         checkNotificationPermissionIfNeeded();
-        startKeepAliveService(); // intentional keep-alive
+        startKeepAliveService();
         requestBatteryOptimizationExemption();
+        schedulePersistedJob();
 
         setupGeckoRuntimeAndSession();
 
@@ -123,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
                                 Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                                 intent.setData(Uri.parse("package:" + getPackageName()));
                                 startActivity(intent);
-                            } catch (ActivityNotFoundException ex) {
+                            } catch (Exception ex) {
                                 Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                                 intent.setData(Uri.parse("package:" + getPackageName()));
                                 startActivity(intent);
@@ -131,6 +135,24 @@ public class MainActivity extends AppCompatActivity {
                         })
                         .setNegativeButton("Later", null)
                         .show();
+            }
+        }
+    }
+
+    private void schedulePersistedJob() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            JobScheduler js = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
+            if (js == null) return;
+
+            ComponentName comp = new ComponentName(this, KeepAliveJobService.class);
+            JobInfo.Builder builder = new JobInfo.Builder(KEEPALIVE_JOB_ID, comp)
+                    .setPersisted(true)
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_NONE);
+
+            // Many devices enforce a minimum periodic interval; we avoid setPeriodic here to keep it simple.
+            try {
+                js.schedule(builder.build());
+            } catch (Exception ignored) {
             }
         }
     }
@@ -155,20 +177,18 @@ public class MainActivity extends AppCompatActivity {
 
         if (geckoView != null) geckoView.setSession(session);
 
-        // Progress delegate: use final copies where needed
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            public void onPageStart(final GeckoSession session, final String url) {
-                final String finalUrl = url;
+            public void onPageStart(final GeckoSession s, final String url) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (urlBar != null) urlBar.setText(finalUrl);
+                        if (urlBar != null) urlBar.setText(url);
                         if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
                     }
                 });
             }
 
-            public void onPageStop(final GeckoSession session, final boolean success) {
+            public void onPageStop(final GeckoSession s, final boolean success) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -177,30 +197,27 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
 
-            public void onProgressChange(final GeckoSession session, final int progress) {
-                final int finalProgress = progress;
+            public void onProgressChange(final GeckoSession s, final int progress) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (progressBar != null) progressBar.setProgress(finalProgress);
+                        if (progressBar != null) progressBar.setProgress(progress);
                     }
                 });
             }
         });
 
-        // Navigation delegate: use final copies where needed
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            public void onLocationChange(final GeckoSession session, final String url) {
-                final String finalUrl = url;
+            public void onLocationChange(final GeckoSession s, final String url) {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (urlBar != null) urlBar.setText(finalUrl);
+                        if (urlBar != null) urlBar.setText(url);
                     }
                 });
             }
 
-            public void onCanGoBack(final GeckoSession session, final boolean canGoBack) {
+            public void onCanGoBack(final GeckoSession s, final boolean canGoBack) {
                 MainActivity.this.canGoBack = canGoBack;
                 runOnUiThread(new Runnable() {
                     @Override
@@ -210,7 +227,7 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
 
-            public void onCanGoForward(final GeckoSession session, final boolean canGoForward) {
+            public void onCanGoForward(final GeckoSession s, final boolean canGoForward) {
                 MainActivity.this.canGoForward = canGoForward;
                 runOnUiThread(new Runnable() {
                     @Override
@@ -278,7 +295,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        final String finalUrl = url; // make a final copy for inner class
+        final String finalUrl = url;
         try {
             session.loadUri(finalUrl);
             runOnUiThread(new Runnable() {
@@ -304,12 +321,6 @@ public class MainActivity extends AppCompatActivity {
                 session = null;
             }
         }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        // keep session open for faster resume; do not close here
     }
 
     @Override
