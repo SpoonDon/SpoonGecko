@@ -155,47 +155,65 @@ public class MainActivity extends AppCompatActivity {
 
         if (geckoView != null) geckoView.setSession(session);
 
-        // Progress delegate: do NOT use @Override here to avoid signature mismatch errors
+        // Progress delegate: use anonymous Runnable inside runOnUiThread to avoid lambda capture issues
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            public void onPageStart(GeckoSession session, String url) {
-                runOnUiThread(() -> {
-                    if (urlBar != null) urlBar.setText(url);
-                    if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
+            public void onPageStart(final GeckoSession session, final String url) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (urlBar != null) urlBar.setText(url);
+                        if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
+                    }
                 });
             }
 
-            public void onPageStop(GeckoSession session, boolean success) {
-                runOnUiThread(() -> {
-                    if (progressBar != null) progressBar.setVisibility(android.view.View.GONE);
+            public void onPageStop(final GeckoSession session, final boolean success) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (progressBar != null) progressBar.setVisibility(android.view.View.GONE);
+                    }
                 });
             }
 
-            public void onProgressChange(GeckoSession session, int progress) {
-                runOnUiThread(() -> {
-                    if (progressBar != null) progressBar.setProgress(progress);
+            public void onProgressChange(final GeckoSession session, final int progress) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (progressBar != null) progressBar.setProgress(progress);
+                    }
                 });
             }
         });
 
-        // Navigation delegate: avoid @Override to prevent compile mismatch
+        // Navigation delegate: same pattern
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            public void onLocationChange(GeckoSession session, String url) {
-                runOnUiThread(() -> {
-                    if (urlBar != null) urlBar.setText(url);
+            public void onLocationChange(final GeckoSession session, final String url) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (urlBar != null) urlBar.setText(url);
+                    }
                 });
             }
 
-            public void onCanGoBack(GeckoSession session, boolean canGoBack) {
+            public void onCanGoBack(final GeckoSession session, final boolean canGoBack) {
                 MainActivity.this.canGoBack = canGoBack;
-                runOnUiThread(() -> {
-                    if (btnBack != null) btnBack.setEnabled(canGoBack);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (btnBack != null) btnBack.setEnabled(canGoBack);
+                    }
                 });
             }
 
-            public void onCanGoForward(GeckoSession session, boolean canGoForward) {
+            public void onCanGoForward(final GeckoSession session, final boolean canGoForward) {
                 MainActivity.this.canGoForward = canGoForward;
-                runOnUiThread(() -> {
-                    if (btnForward != null) btnForward.setEnabled(canGoForward);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (btnForward != null) btnForward.setEnabled(canGoForward);
+                    }
                 });
             }
         });
@@ -259,8 +277,11 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             session.loadUri(url);
-            runOnUiThread(() -> {
-                if (urlBar != null) urlBar.setText(url);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (urlBar != null) urlBar.setText(url);
+                }
             });
         } catch (Exception e) {
             Toast.makeText(this, "Failed to load URL", Toast.LENGTH_SHORT).show();
