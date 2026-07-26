@@ -139,9 +139,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Schedule a persisted JobScheduler job as a fallback to help revive the keepalive service.
+     * Guarded by API level checks and uses Context.JOB_SCHEDULER_SERVICE for compatibility.
+     */
     private void schedulePersistedJob() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            JobScheduler js = (JobScheduler) getSystemService(JOB_SCHEDULER_SERVICE);
+            JobScheduler js = (JobScheduler) getSystemService(Context.JOB_SCHEDULER_SERVICE);
             if (js == null) return;
 
             ComponentName comp = new ComponentName(this, KeepAliveJobService.class);
@@ -149,10 +153,10 @@ public class MainActivity extends AppCompatActivity {
                     .setPersisted(true)
                     .setRequiredNetworkType(JobInfo.NETWORK_TYPE_NONE);
 
-            // Many devices enforce a minimum periodic interval; we avoid setPeriodic here to keep it simple.
             try {
                 js.schedule(builder.build());
             } catch (Exception ignored) {
+                // Some OEMs restrict JobScheduler behavior; ignore failures gracefully.
             }
         }
     }
