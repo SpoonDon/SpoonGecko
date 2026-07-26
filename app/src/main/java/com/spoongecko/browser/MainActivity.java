@@ -2,7 +2,6 @@ package com.spoongecko.browser;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -50,16 +49,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_main); // ensure layout exists with matching IDs
 
         initializeViews();
-        checkPermissions();
-        startKeepAliveService();
+        checkNotificationPermissionIfNeeded();
+        startKeepAliveService(); // keep-alive is intentional
         requestBatteryOptimizationExemption();
 
-        setupGeckoView();
+        setupGeckoRuntimeAndSession();
 
-        // Default homepage
         String homepage = "https://duckduckgo.com";
         urlBar.setText(homepage);
         loadUrl(homepage);
@@ -71,13 +69,13 @@ public class MainActivity extends AppCompatActivity {
         geckoView = findViewById(R.id.geckoView);
         urlBar = findViewById(R.id.urlBar);
         progressBar = findViewById(R.id.progressBar);
-        progressBar.setMax(100);
+        if (progressBar != null) progressBar.setMax(100);
         btnBack = findViewById(R.id.btnBack);
         btnForward = findViewById(R.id.btnForward);
         btnReload = findViewById(R.id.btnReload);
     }
 
-    private void checkPermissions() {
+    private void checkNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -93,13 +91,25 @@ public class MainActivity extends AppCompatActivity {
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            // Handle POST_NOTIFICATIONS result if needed
             if (permissions.length > 0 && Manifest.permission.POST_NOTIFICATIONS.equals(permissions[0])) {
                 boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
                 if (!granted) {
-                    // optional: inform user notifications are disabled
+                    Toast.makeText(this, "Notifications disabled", Toast.LENGTH_SHORT).show();
                 }
             }
+        }
+    }
+
+    private void startKeepAliveService() {
+        Intent serviceIntent = new Intent(this, KeepAliveService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                startForegroundService(serviceIntent);
+            } catch (IllegalStateException e) {
+                startService(serviceIntent);
+            }
+        } else {
+            startService(serviceIntent);
         }
     }
 
@@ -117,7 +127,6 @@ public class MainActivity extends AppCompatActivity {
                                 intent.setData(Uri.parse("package:" + getPackageName()));
                                 startActivity(intent);
                             } catch (ActivityNotFoundException ex) {
-                                // Fallback: open app settings
                                 Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
                                 intent.setData(Uri.parse("package:" + getPackageName()));
                                 startActivity(intent);
@@ -129,23 +138,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void startKeepAliveService() {
-        Intent serviceIntent = new Intent(this, KeepAliveService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                startForegroundService(serviceIntent);
-            } catch (IllegalStateException e) {
-                // Fallback to startService if startForegroundService is not allowed
-                startService(serviceIntent);
-            }
-        } else {
-            startService(serviceIntent);
-        }
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
-    private void setupGeckoView() {
-        // GeckoRuntimeSettings and runtime creation (GeckoView 153 compatible)
+    private void setupGeckoRuntimeAndSession() {
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .remoteDebuggingEnabled(false)
@@ -157,7 +151,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             session.open(runtime);
         } catch (Exception e) {
-            Toast.makeText(this, "Failed to open Gecko session", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Unable to start Gecko session", Toast.LENGTH_LONG).show();
             session = null;
             return;
         }
@@ -168,82 +162,99 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageStart(@NonNull GeckoSession session, @NonNull String url) {
                 runOnUiThread(() -> {
-                    urlBar.setText(url);
-                    progressBar.setVisibility(View.VISIBLE);
+                    if (urlBar != null) urlBar.setText(url);
+                    if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
                 });
             }
 
             @Override
             public void onPageStop(@NonNull GeckoSession session, boolean success) {
-                runOnUiThread(() -> progressBar.setVisibility(View.GONE));
+                runOnUiThread(() -> {
+                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                });
             }
 
             @Override
             public void onProgressChange(@NonNull GeckoSession session, int progress) {
-                runOnUiThread(() -> progressBar.setProgress(progress));
+                runOnUiThread(() -> {
+                    if (progressBar != null) progressBar.setProgress(progress);
+                });
             }
         });
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override
             public void onLocationChange(@NonNull GeckoSession session, @NonNull String url) {
-                runOnUiThread(() -> urlBar.setText(url));
+                runOnUiThread(() -> {
+                    if (urlBar != null) urlBar.setText(url);
+                });
             }
 
             @Override
             public void onCanGoBack(@NonNull GeckoSession session, boolean canGoBack) {
                 MainActivity.this.canGoBack = canGoBack;
-                runOnUiThread(() -> btnBack.setEnabled(canGoBack));
+                runOnUiThread(() -> {
+                    if (btnBack != null) btnBack.setEnabled(canGoBack);
+                });
             }
 
             @Override
             public void onCanGoForward(@NonNull GeckoSession session, boolean canGoForward) {
                 MainActivity.this.canGoForward = canGoForward;
-                runOnUiThread(() -> btnForward.setEnabled(canGoForward));
+                runOnUiThread(() -> {
+                    if (btnForward != null) btnForward.setEnabled(canGoForward);
+                });
             }
         });
     }
 
     private void setupNavigationButtons() {
-        btnBack.setOnClickListener(v -> {
-            if (canGoBack && session != null) {
-                try {
-                    session.goBack();
-                } catch (Exception ignored) {}
-            }
-        });
-
-        btnForward.setOnClickListener(v -> {
-            if (canGoForward && session != null) {
-                try {
-                    session.goForward();
-                } catch (Exception ignored) {}
-            }
-        });
-
-        btnReload.setOnClickListener(v -> {
-            if (session != null) {
-                try {
-                    session.reload();
-                } catch (Exception ignored) {}
-            }
-        });
-
-        urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            boolean handled = false;
-            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE
-                    || (event != null && event.getAction() == KeyEvent.ACTION_DOWN)) {
-                String input = urlBar.getText() != null ? urlBar.getText().toString().trim() : "";
-                if (!TextUtils.isEmpty(input)) {
-                    loadUrl(input);
-                    // hide keyboard
-                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-                    if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
+        if (btnBack != null) {
+            btnBack.setOnClickListener(v -> {
+                if (canGoBack && session != null) {
+                    try {
+                        session.goBack();
+                    } catch (Exception ignored) {}
                 }
-                handled = true;
-            }
-            return handled;
-        });
+            });
+        }
+
+        if (btnForward != null) {
+            btnForward.setOnClickListener(v -> {
+                if (canGoForward && session != null) {
+                    try {
+                        session.goForward();
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        if (btnReload != null) {
+            btnReload.setOnClickListener(v -> {
+                if (session != null) {
+                    try {
+                        session.reload();
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        if (urlBar != null) {
+            urlBar.setOnEditorActionListener((v, actionId, event) -> {
+                boolean handled = false;
+                if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE
+                        || (event != null && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    String input = urlBar.getText() != null ? urlBar.getText().toString().trim() : "";
+                    if (!TextUtils.isEmpty(input)) {
+                        loadUrl(input);
+                        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                        if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
+                    }
+                    handled = true;
+                }
+                return handled;
+            });
+        }
     }
 
     private void loadUrl(String url) {
@@ -261,7 +272,9 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             session.loadUri(url);
-            runOnUiThread(() -> urlBar.setText(url));
+            runOnUiThread(() -> {
+                if (urlBar != null) urlBar.setText(url);
+            });
         } catch (Exception e) {
             Toast.makeText(this, "Failed to load URL", Toast.LENGTH_SHORT).show();
         }
@@ -270,8 +283,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // GeckoSession does not always require explicit resume; keep safe checks
-        if (session == null && runtime != null) {
+        if ((session == null || !session.isOpen()) && runtime != null) {
             session = new GeckoSession();
             try {
                 session.open(runtime);
@@ -284,7 +296,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
-        // Keep session open for faster resume; close only in onDestroy
         super.onPause();
     }
 
@@ -293,9 +304,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         if (session != null) {
             try {
-                if (session.isOpen()) {
-                    session.close();
-                }
+                if (session.isOpen()) session.close();
             } catch (Exception ignored) {}
             session = null;
         }
