@@ -12,7 +12,6 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -49,17 +48,17 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main); // ensure layout exists with matching IDs
+        setContentView(R.layout.activity_main);
 
         initializeViews();
         checkNotificationPermissionIfNeeded();
-        startKeepAliveService(); // keep-alive is intentional
+        startKeepAliveService(); // intentional keep-alive
         requestBatteryOptimizationExemption();
 
         setupGeckoRuntimeAndSession();
 
         String homepage = "https://duckduckgo.com";
-        urlBar.setText(homepage);
+        if (urlBar != null) urlBar.setText(homepage);
         loadUrl(homepage);
 
         setupNavigationButtons();
@@ -156,21 +155,21 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        geckoView.setSession(session);
+        if (geckoView != null) geckoView.setSession(session);
 
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
             public void onPageStart(@NonNull GeckoSession session, @NonNull String url) {
                 runOnUiThread(() -> {
                     if (urlBar != null) urlBar.setText(url);
-                    if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+                    if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
                 });
             }
 
             @Override
             public void onPageStop(@NonNull GeckoSession session, boolean success) {
                 runOnUiThread(() -> {
-                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                    if (progressBar != null) progressBar.setVisibility(android.view.View.GONE);
                 });
             }
 
@@ -212,9 +211,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnBack != null) {
             btnBack.setOnClickListener(v -> {
                 if (canGoBack && session != null) {
-                    try {
-                        session.goBack();
-                    } catch (Exception ignored) {}
+                    try { session.goBack(); } catch (Exception ignored) {}
                 }
             });
         }
@@ -222,9 +219,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnForward != null) {
             btnForward.setOnClickListener(v -> {
                 if (canGoForward && session != null) {
-                    try {
-                        session.goForward();
-                    } catch (Exception ignored) {}
+                    try { session.goForward(); } catch (Exception ignored) {}
                 }
             });
         }
@@ -232,9 +227,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnReload != null) {
             btnReload.setOnClickListener(v -> {
                 if (session != null) {
-                    try {
-                        session.reload();
-                    } catch (Exception ignored) {}
+                    try { session.reload(); } catch (Exception ignored) {}
                 }
             });
         }
@@ -287,7 +280,7 @@ public class MainActivity extends AppCompatActivity {
             session = new GeckoSession();
             try {
                 session.open(runtime);
-                geckoView.setSession(session);
+                if (geckoView != null) geckoView.setSession(session);
             } catch (Exception ignored) {
                 session = null;
             }
@@ -297,21 +290,18 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        // keep session open for faster resume; do not close here
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         if (session != null) {
-            try {
-                if (session.isOpen()) session.close();
-            } catch (Exception ignored) {}
+            try { if (session.isOpen()) session.close(); } catch (Exception ignored) {}
             session = null;
         }
         if (runtime != null) {
-            try {
-                runtime.shutdown();
-            } catch (Exception ignored) {}
+            try { runtime.shutdown(); } catch (Exception ignored) {}
             runtime = null;
         }
     }
@@ -319,10 +309,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onBackPressed() {
         if (canGoBack && session != null) {
-            try {
-                session.goBack();
-                return;
-            } catch (Exception ignored) {}
+            try { session.goBack(); return; } catch (Exception ignored) {}
         }
         super.onBackPressed();
     }
