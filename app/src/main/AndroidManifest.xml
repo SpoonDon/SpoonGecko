@@ -2,15 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.spoongecko.browser">
 
-    <!-- Minimum required permissions -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <!-- Optional: restrict cleartext if you don't need HTTP -->
-    <!-- <application android:usesCleartextTraffic="false" ...> -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- POST_NOTIFICATIONS required at runtime on Android 13+; still declare here -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -20,6 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SpoonGecko">
 
+        <!-- Main launcher activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,18 +40,43 @@
             </intent-filter>
         </activity>
 
-        <!-- Your foreground keep-alive service -->
+        <!-- Foreground keep-alive service (no specific foregroundServiceType) -->
         <service
             android:name=".KeepAliveService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:exported="false" />
 
-        <!-- GeckoView internal service: include only if required by your GeckoView build -->
+        <!-- Restart receiver used by KeepAliveService to schedule a restart via AlarmManager -->
+        <receiver
+            android:name=".KeepAliveRestartReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Optional: Boot receiver to re-schedule jobs/alarms after reboot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- JobService fallback for JobScheduler (persisted jobs) -->
+        <service
+            android:name=".KeepAliveJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- If your GeckoView build requires it, include GeckoService; otherwise remove -->
+        <!--
         <service
             android:name="org.mozilla.geckoview.GeckoService"
             android:enabled="true"
             android:exported="false" />
+        -->
 
     </application>
 </manifest>
