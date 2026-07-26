@@ -2,9 +2,10 @@ package com.spoongecko.browser;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.JobInfo;
-import android.app.JobScheduler;
+import android.app.job.JobInfo;
+import android.app.job.JobScheduler;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
