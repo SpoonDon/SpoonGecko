@@ -94,4 +94,3 @@ jobs:
             app/build/outputs/bundle/release/*.aab
             universal.apk
             size-report.txt
-            
