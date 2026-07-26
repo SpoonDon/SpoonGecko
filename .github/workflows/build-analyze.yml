@@ -1,0 +1,97 @@
+name: Build and Analyze Android Bundle
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-analyze:
+    runs-on: ubuntu-latest
+    env:
+      JAVA_HOME_11: /usr/lib/jvm/java-11-openjdk-amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Install Android SDK tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip wget
+          mkdir -p $HOME/android-sdk
+          export ANDROID_SDK_ROOT=$HOME/android-sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d $HOME/android-sdk/cmdline-tools
+          mkdir -p $HOME/android-sdk/cmdline-tools/latest
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools/* $HOME/android-sdk/cmdline-tools/latest/
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/android-sdk "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
+        shell: bash
+
+      - name: Export Android SDK env
+        run: |
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/build-tools/33.0.2" >> $GITHUB_PATH
+
+      - name: Show Java and Gradle versions
+        run: |
+          java -version
+          ./gradlew -v
+
+      - name: Build release AAB
+        run: |
+          # Ensure you have signing config for release in gradle or use debug signing for analysis
+          ./gradlew clean bundleRelease --no-daemon --stacktrace
+
+      - name: Download bundletool
+        run: |
+          BUNDLETOOL=bundletool.jar
+          wget -q https://github.com/google/bundletool/releases/download/1.14.0/bundletool-all-1.14.0.jar -O $BUNDLETOOL
+          echo "BUNDLETOOL=$PWD/$BUNDLETOOL" >> $GITHUB_ENV
+
+      - name: Create universal APK from AAB (for analysis)
+        run: |
+          AAB=$(find . -type f -path "*/app/build/outputs/bundle/release/*.aab" | head -n1)
+          if [ -z "$AAB" ]; then
+            echo "AAB not found"
+            exit 1
+          fi
+          echo "Found AAB: $AAB"
+          java -jar $BUNDLETOOL build-apks --bundle="$AAB" --output=app.apks --mode=universal
+          unzip -q app.apks universal.apk -d .
+          ls -lh universal.apk
+
+      - name: Run apkanalyzer and produce size report
+        run: |
+          # apkanalyzer is part of build-tools; ensure path includes it
+          APK=universal.apk
+          echo "APK: $APK"
+          echo "=== apkanalyzer file-size ===" > size-report.txt
+          apkanalyzer apk file-size "$APK" >> size-report.txt 2>&1 || true
+          echo "" >> size-report.txt
+          echo "=== apkanalyzer tree (top lines) ===" >> size-report.txt
+          apkanalyzer apk tree "$APK" | sed -n '1,200p' >> size-report.txt 2>&1 || true
+          echo "" >> size-report.txt
+          echo "=== unzip listing top 200 ===" >> size-report.txt
+          unzip -l "$APK" | sort -k3 -n -r | sed -n '1,200p' >> size-report.txt 2>&1 || true
+          echo "Generated size-report.txt"
+          ls -lh size-report.txt
+
+      - name: Upload artifacts (AAB, universal APK, size report)
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            app/build/outputs/bundle/release/*.aab
+            universal.apk
+            size-report.txt
+            
