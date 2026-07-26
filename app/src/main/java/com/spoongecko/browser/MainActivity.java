@@ -19,7 +19,6 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -86,8 +85,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (permissions.length > 0 && Manifest.permission.POST_NOTIFICATIONS.equals(permissions[0])) {
@@ -157,48 +155,44 @@ public class MainActivity extends AppCompatActivity {
 
         if (geckoView != null) geckoView.setSession(session);
 
+        // Progress delegate: do NOT use @Override here to avoid signature mismatch errors
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            @Override
-            public void onPageStart(@NonNull GeckoSession session, @NonNull String url) {
+            public void onPageStart(GeckoSession session, String url) {
                 runOnUiThread(() -> {
                     if (urlBar != null) urlBar.setText(url);
                     if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
                 });
             }
 
-            @Override
-            public void onPageStop(@NonNull GeckoSession session, boolean success) {
+            public void onPageStop(GeckoSession session, boolean success) {
                 runOnUiThread(() -> {
                     if (progressBar != null) progressBar.setVisibility(android.view.View.GONE);
                 });
             }
 
-            @Override
-            public void onProgressChange(@NonNull GeckoSession session, int progress) {
+            public void onProgressChange(GeckoSession session, int progress) {
                 runOnUiThread(() -> {
                     if (progressBar != null) progressBar.setProgress(progress);
                 });
             }
         });
 
+        // Navigation delegate: avoid @Override to prevent compile mismatch
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
-            public void onLocationChange(@NonNull GeckoSession session, @NonNull String url) {
+            public void onLocationChange(GeckoSession session, String url) {
                 runOnUiThread(() -> {
                     if (urlBar != null) urlBar.setText(url);
                 });
             }
 
-            @Override
-            public void onCanGoBack(@NonNull GeckoSession session, boolean canGoBack) {
+            public void onCanGoBack(GeckoSession session, boolean canGoBack) {
                 MainActivity.this.canGoBack = canGoBack;
                 runOnUiThread(() -> {
                     if (btnBack != null) btnBack.setEnabled(canGoBack);
                 });
             }
 
-            @Override
-            public void onCanGoForward(@NonNull GeckoSession session, boolean canGoForward) {
+            public void onCanGoForward(GeckoSession session, boolean canGoForward) {
                 MainActivity.this.canGoForward = canGoForward;
                 runOnUiThread(() -> {
                     if (btnForward != null) btnForward.setEnabled(canGoForward);
