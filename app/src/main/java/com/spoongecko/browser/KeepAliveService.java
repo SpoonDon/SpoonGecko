@@ -27,19 +27,16 @@ public class KeepAliveService extends Service {
         super.onCreate();
         createNotificationChannel();
         acquireWakeLock();
-        // startForeground is called in onStartCommand to avoid platform restrictions on some OEMs
+        // startForeground is performed in onStartCommand for best compatibility
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Ensure we are running as a foreground service as soon as possible
         try {
             startForeground(NOTIFICATION_ID, createNotification());
         } catch (IllegalStateException ignored) {
-            // Best-effort: some OEMs may throw if startForeground is not allowed here
+            // Best-effort: some OEMs may restrict startForeground here
         }
-
-        // Keep service sticky so system may restart it when resources allow
         return START_STICKY;
     }
 
@@ -47,8 +44,7 @@ public class KeepAliveService extends Service {
     public void onDestroy() {
         super.onDestroy();
         releaseWakeLock();
-        // Do not attempt to restart the service directly here.
-        // If you need guaranteed restart, schedule via AlarmManager or JobScheduler.
+        // Do not restart directly here; rely on START_STICKY or schedule via AlarmManager/JobScheduler if needed
     }
 
     @Nullable
@@ -71,9 +67,7 @@ public class KeepAliveService extends Service {
             channel.enableLights(false);
 
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
+            if (manager != null) manager.createNotificationChannel(channel);
         }
     }
 
@@ -82,16 +76,12 @@ public class KeepAliveService extends Service {
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
 
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, flags);
 
         int color = 0;
-        try {
-            color = ContextCompat.getColor(this, R.color.primary);
-        } catch (Exception ignored) {}
+        try { color = ContextCompat.getColor(this, R.color.primary); } catch (Exception ignored) {}
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Spoon Gecko")
@@ -112,11 +102,9 @@ public class KeepAliveService extends Service {
         try {
             if (wakeLock == null) {
                 wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SpoonGecko:KeepAlive");
-                // Acquire with timeout to avoid permanent hold if something goes wrong
                 wakeLock.acquire(WAKELOCK_TIMEOUT_MS);
             }
         } catch (SecurityException se) {
-            // WAKE_LOCK permission missing or denied; ignore gracefully
             wakeLock = null;
         } catch (Exception ignored) {
             wakeLock = null;
@@ -125,9 +113,7 @@ public class KeepAliveService extends Service {
 
     private void releaseWakeLock() {
         try {
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-            }
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         } catch (Exception ignored) {
         } finally {
             wakeLock = null;
