@@ -155,13 +155,14 @@ public class MainActivity extends AppCompatActivity {
 
         if (geckoView != null) geckoView.setSession(session);
 
-        // Progress delegate: use anonymous Runnable inside runOnUiThread to avoid lambda capture issues
+        // Progress delegate: use final copies where needed
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             public void onPageStart(final GeckoSession session, final String url) {
+                final String finalUrl = url;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (urlBar != null) urlBar.setText(url);
+                        if (urlBar != null) urlBar.setText(finalUrl);
                         if (progressBar != null) progressBar.setVisibility(android.view.View.VISIBLE);
                     }
                 });
@@ -177,22 +178,24 @@ public class MainActivity extends AppCompatActivity {
             }
 
             public void onProgressChange(final GeckoSession session, final int progress) {
+                final int finalProgress = progress;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (progressBar != null) progressBar.setProgress(progress);
+                        if (progressBar != null) progressBar.setProgress(finalProgress);
                     }
                 });
             }
         });
 
-        // Navigation delegate: same pattern
+        // Navigation delegate: use final copies where needed
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             public void onLocationChange(final GeckoSession session, final String url) {
+                final String finalUrl = url;
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (urlBar != null) urlBar.setText(url);
+                        if (urlBar != null) urlBar.setText(finalUrl);
                     }
                 });
             }
@@ -275,12 +278,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        final String finalUrl = url; // make a final copy for inner class
         try {
-            session.loadUri(url);
+            session.loadUri(finalUrl);
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    if (urlBar != null) urlBar.setText(url);
+                    if (urlBar != null) urlBar.setText(finalUrl);
                 }
             });
         } catch (Exception e) {
