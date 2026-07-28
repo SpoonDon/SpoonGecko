@@ -100,7 +100,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
-            override fun onLocationChange(session: GeckoSession, url: String?) {
+            // The signature changed in GeckoView v125+ to include permissions and user gesture tracking
+            override fun onLocationChange(
+                session: GeckoSession, 
+                url: String?, 
+                perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean
+            ) {
                 url?.let {
                     tab.url = it
                     if (tab == activeTab) {
@@ -115,7 +121,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
+    
     private fun switchToSession(tab: TabInfo) {
         if (geckoView.session != tab.session) {
             geckoView.setSession(tab.session)
