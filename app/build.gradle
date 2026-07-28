@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'com.spoongecko.app'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.spoongecko.app"
         minSdk 34
-        targetSdk 35
+        targetSdk 36
         versionCode 1
         versionName "1.0.0"
         
@@ -36,24 +36,13 @@ android {
     }
 }
 
-// MAGIC BULLET: Force stable AndroidX versions to prevent rogue alpha dependencies from breaking the build
-configurations.all {
-    resolutionStrategy {
-        force 'androidx.core:core:1.13.1'
-        force 'androidx.core:core-ktx:1.13.1'
-        force 'androidx.appcompat:appcompat:1.7.0'
-    }
-}
-
 dependencies {
-    // Core AndroidX
-    implementation 'androidx.core:core-ktx:1.13.1'
+    // Modern AndroidX versions required by GeckoView 153
+    implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    
-    // Minimal Material 3 UI
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'com.google.android.material:material:1.12.0'
 
-    // Verified Stable GeckoView
-    implementation 'org.mozilla.geckoview:geckoview:130.0.20241007143137'
+    // GeckoView 153 (Stable, Modern, Verified)
+    implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
 }
