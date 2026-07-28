@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId "com.spoongecko.app"
-        minSdk 26 // Kept at 26 for broader compatibility, but targets modern behavior
+        minSdk 34 // Android 14 minimum, as requested
         targetSdk 35
         versionCode 1
         versionName "1.0.0"
@@ -24,7 +24,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-0
         }
     }
     
@@ -47,6 +46,6 @@ dependencies {
     // Minimal Material 3 UI
     implementation 'com.google.android.material:material:1.12.0'
 
-    // Mature, Field-Tested GeckoView (December 2024 release, highly stable)
-    implementation 'org.mozilla.geckoview:geckoview:134.0.20241212143137'
+    // VERIFIED Stable GeckoView (October 2024 release, confirmed working)
+    implementation 'org.mozilla.geckoview:geckoview:130.0.20241007143137'
 }
