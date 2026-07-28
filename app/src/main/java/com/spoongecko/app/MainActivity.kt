@@ -105,20 +105,22 @@ class MainActivity : AppCompatActivity() {
         val constraintSet = ConstraintSet()
         constraintSet.clone(mainLayout)
         
+        // SAFE CLEAR: Properly remove existing vertical constraints to prevent "undefined" crashes
+        constraintSet.clear(R.id.bottom_nav, ConstraintSet.TOP)
+        constraintSet.clear(R.id.bottom_nav, ConstraintSet.BOTTOM)
+        constraintSet.clear(R.id.gecko_view, ConstraintSet.TOP)
+        constraintSet.clear(R.id.gecko_view, ConstraintSet.BOTTOM)
+
         if (isBottom) {
             // Nav at Bottom
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, ConstraintSet.UNSET, ConstraintSet.UNSET, 0)
-            
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, R.id.bottom_nav, ConstraintSet.TOP, 0)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM, 0)
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, R.id.bottom_nav, ConstraintSet.TOP)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
         } else {
             // Nav at Top (Below URL bar)
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM, 0)
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.UNSET, ConstraintSet.UNSET, 0)
-            
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.bottom_nav, ConstraintSet.BOTTOM, 0)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.bottom_nav, ConstraintSet.BOTTOM)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
         }
         
         constraintSet.applyTo(mainLayout)
@@ -128,7 +130,6 @@ class MainActivity : AppCompatActivity() {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
         
-        // Fixed regex pattern for URL detection
         val urlPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.]+\\.[a-zA-Z]{2,}$")
         val isUrl = trimmed.startsWith("http") || urlPattern.matcher(trimmed).matches()
 
