@@ -123,22 +123,24 @@ public class KeepAliveService extends Service {
     }
 
     private void scheduleRestartAlarm(long delayMs) {
-        try {
-            Intent restartIntent = new Intent(this, KeepAliveRestartReceiver.class);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
-            PendingIntent pi = PendingIntent.getBroadcast(this, 0, restartIntent, flags);
-
-            AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-            if (am == null) return;
-            long triggerAt = System.currentTimeMillis() + delayMs;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
-            } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "scheduleRestartAlarm failed: " + e.getMessage());
+    try {
+        Intent restartIntent = new Intent(this, KeepAliveRestartReceiver.class);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pi = PendingIntent.getBroadcast(this, 0, restartIntent, flags);
+        AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        long triggerAt = System.currentTimeMillis() + delayMs;
+        
+        // FIX: Use inexact alarms to prevent SecurityException crashes on Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+        } else {
+            am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
         }
+    } catch (Exception e) {
+        Log.w(TAG, "scheduleRestartAlarm failed: " + e.getMessage());
     }
+}
+    
 }
