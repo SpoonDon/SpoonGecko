@@ -10,8 +10,10 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -21,7 +23,6 @@ import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
 import java.util.regex.Pattern
 
-// Wrapper to hold session state and UI titles
 data class TabInfo(val session: GeckoSession, var title: String = "New Tab", var url: String = "")
 
 class MainActivity : AppCompatActivity() {
@@ -29,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var geckoView: GeckoView
     private lateinit var runtime: GeckoRuntime
     private lateinit var urlBar: EditText
+    private lateinit var mainLayout: ConstraintLayout
     
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
@@ -37,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        mainLayout = findViewById(R.id.main_layout)
         geckoView = findViewById(R.id.gecko_view)
         urlBar = findViewById(R.id.url_bar)
 
@@ -48,11 +51,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupUIListeners()
-        createNewSession() // Start with one tab
+        applyMenuPosition() // Apply saved menu position on startup
+        createNewSession()
     }
 
     private fun setupUIListeners() {
-        // URL Bar Search/Load
         urlBar.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
                 loadUrlOrSearch(v.text.toString())
@@ -63,17 +66,70 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btn_back).setOnClickListener { activeTab.session.goBack() }
         findViewById<ImageButton>(R.id.btn_forward).setOnClickListener { activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
+        
+        // Menu Button: Show Dialog to toggle position
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { 
-            Toast.makeText(this, "Settings coming in Phase 5", Toast.LENGTH_SHORT).show() 
+            showMenuOptions()
         }
+    }
+
+    private fun showMenuOptions() {
+        val prefs = getSharedPreferences("SpoonGeckoPrefs", Context.MODE_PRIVATE)
+        val isCurrentlyBottom = prefs.getBoolean("menu_at_bottom", true)
+        
+        val options = arrayOf(
+            if (isCurrentlyBottom) "✓ Menu at Bottom" else "Move Menu to Bottom",
+            if (!isCurrentlyBottom) "✓ Menu at Top" else "Move Menu to Top"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Toolbar Position")
+            .setItems(options) { _, which ->
+                val newValue = when (which) {
+                    0 -> true  // Bottom
+                    1 -> false // Top
+                    else -> true
+                }
+                if (newValue != isCurrentlyBottom) {
+                    prefs.edit().putBoolean("menu_at_bottom", newValue).apply()
+                    applyMenuPosition()
+                }
+            }
+            .show()
+    }
+
+    private fun applyMenuPosition() {
+        val prefs = getSharedPreferences("SpoonGeckoPrefs", Context.MODE_PRIVATE)
+        val isBottom = prefs.getBoolean("menu_at_bottom", true)
+        
+        val constraintSet = ConstraintSet()
+        constraintSet.clone(mainLayout)
+        
+        if (isBottom) {
+            // Nav at Bottom
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, ConstraintSet.UNSET, ConstraintSet.UNSET, 0)
+            
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, R.id.bottom_nav, ConstraintSet.TOP, 0)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM, 0)
+        } else {
+            // Nav at Top (Below URL bar)
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM, 0)
+            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.UNSET, ConstraintSet.UNSET, 0)
+            
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.bottom_nav, ConstraintSet.BOTTOM, 0)
+            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, 0)
+        }
+        
+        constraintSet.applyTo(mainLayout)
     }
 
     private fun loadUrlOrSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
         
-        // Simple regex to check if it's a URL or a search query
-        val urlPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.] +\\.[a-zA-Z]{2,}$")
+        // Fixed regex pattern for URL detection
+        val urlPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.]+\\.[a-zA-Z]{2,}$")
         val isUrl = trimmed.startsWith("http") || urlPattern.matcher(trimmed).matches()
 
         if (isUrl) {
@@ -100,7 +156,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
-            // The signature changed in GeckoView v125+ to include permissions and user gesture tracking
             override fun onLocationChange(
                 session: GeckoSession, 
                 url: String?, 
@@ -121,7 +176,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    
+
     private fun switchToSession(tab: TabInfo) {
         if (geckoView.session != tab.session) {
             geckoView.setSession(tab.session)
@@ -157,7 +212,7 @@ class MainActivity : AppCompatActivity() {
             onClose = { tabToClose ->
                 closeSession(tabToClose)
                 bottomSheet.dismiss()
-                openTabManager() // Refresh the sheet
+                openTabManager() 
             }
         )
 
