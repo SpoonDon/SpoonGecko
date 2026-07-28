@@ -22,23 +22,28 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import org.mozilla.geckoview.AllowOrDeny;
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
 public class MainActivity extends AppCompatActivity {
+
     private static final int PERMISSION_REQUEST_CODE = 100;
     private static final int KEEPALIVE_JOB_ID = 42;
 
     private GeckoView geckoView;
     private GeckoSession session;
     private GeckoRuntime runtime;
+
     private EditText urlBar;
     private ProgressBar progressBar;
     private ImageButton btnBack;
@@ -58,7 +63,6 @@ public class MainActivity extends AppCompatActivity {
         startKeepAliveService();
         requestBatteryOptimizationExemption();
         schedulePersistedJob();
-
         setupGeckoRuntimeAndSession();
 
         String homepage = "https://duckduckgo.com";
@@ -148,12 +152,10 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             JobScheduler js = (JobScheduler) getSystemService(Context.JOB_SCHEDULER_SERVICE);
             if (js == null) return;
-
             ComponentName comp = new ComponentName(this, KeepAliveJobService.class);
             JobInfo.Builder builder = new JobInfo.Builder(KEEPALIVE_JOB_ID, comp)
                     .setPersisted(true)
                     .setRequiredNetworkType(JobInfo.NETWORK_TYPE_NONE);
-
             try {
                 js.schedule(builder.build());
             } catch (Exception ignored) {
@@ -170,8 +172,8 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         runtime = GeckoRuntime.create(this, settings);
-
         session = new GeckoSession();
+
         try {
             session.open(runtime);
         } catch (Exception e) {
@@ -240,6 +242,12 @@ public class MainActivity extends AppCompatActivity {
                         if (btnForward != null) btnForward.setEnabled(canGoForward);
                     }
                 });
+            }
+
+            // FIX APPLIED: Allows the browser to actually load clicked links
+            @Override
+            public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession session, @NonNull LoadRequest request) {
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW);
             }
         });
     }
@@ -335,10 +343,7 @@ public class MainActivity extends AppCompatActivity {
             try { if (session.isOpen()) session.close(); } catch (Exception ignored) {}
             session = null;
         }
-        if (runtime != null) {
-            try { runtime.shutdown(); } catch (Exception ignored) {}
-            runtime = null;
-        }
+        // FIX APPLIED: REMOVED runtime.shutdown() to prevent crashes on screen rotation!
     }
 
     @Override
