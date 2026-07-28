@@ -21,8 +21,8 @@ jobs:
 
       - name: Generate Gradle Wrapper
         run: |
-          # Explicitly generate wrapper for 8.9 to match AGP 8.7.3 requirements
-          gradle wrapper --gradle-version 8.9
+          # AGP 8.9.1 requires Gradle 8.11.1
+          gradle wrapper --gradle-version 8.11.1
           chmod +x gradlew
 
       - name: Build Debug APK
