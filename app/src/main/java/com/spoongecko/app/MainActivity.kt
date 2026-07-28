@@ -6,25 +6,40 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
+import java.util.regex.Pattern
+
+// Wrapper to hold session state and UI titles
+data class TabInfo(val session: GeckoSession, var title: String = "New Tab", var url: String = "")
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: GeckoView
-    private lateinit var session: GeckoSession
     private lateinit var runtime: GeckoRuntime
+    private lateinit var urlBar: EditText
+    
+    private val tabs = mutableListOf<TabInfo>()
+    private lateinit var activeTab: TabInfo
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         geckoView = findViewById(R.id.gecko_view)
+        urlBar = findViewById(R.id.url_bar)
 
-        // Request Battery Optimization Exemption (Crucial for OEM RAM persistence)
         requestBatteryExemption()
 
         if (!::runtime.isInitialized) {
@@ -32,20 +47,121 @@ class MainActivity : AppCompatActivity() {
             runtime = GeckoRuntime.create(this, runtimeSettings)
         }
 
-        if (!::session.isInitialized) {
-            session = GeckoSession()
-            session.open(runtime)
+        setupUIListeners()
+        createNewSession() // Start with one tab
+    }
+
+    private fun setupUIListeners() {
+        // URL Bar Search/Load
+        urlBar.setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
+                loadUrlOrSearch(v.text.toString())
+                true
+            } else false
         }
 
-        geckoView.setSession(session)
+        findViewById<ImageButton>(R.id.btn_back).setOnClickListener { activeTab.session.goBack() }
+        findViewById<ImageButton>(R.id.btn_forward).setOnClickListener { activeTab.session.goForward() }
+        findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
+        findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { 
+            Toast.makeText(this, "Settings coming in Phase 5", Toast.LENGTH_SHORT).show() 
+        }
+    }
+
+    private fun loadUrlOrSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
         
-        val intentData = intent?.data
-        val startUrl = intentData?.toString() ?: "https://www.startpage.com/"
+        // Simple regex to check if it's a URL or a search query
+        val urlPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.] +\\.[a-zA-Z]{2,}$")
+        val isUrl = trimmed.startsWith("http") || urlPattern.matcher(trimmed).matches()
+
+        if (isUrl) {
+            val finalUrl = if (trimmed.startsWith("http")) trimmed else "https://$trimmed"
+            activeTab.session.loadUri(finalUrl)
+        } else {
+            activeTab.session.loadUri("https://www.startpage.com/sp/search?query=$trimmed")
+        }
         
-        session.loadUri(startUrl)
+        urlBar.clearFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(urlBar.windowToken, 0)
+    }
+
+    private fun createNewSession() {
+        val session = GeckoSession()
+        session.open(runtime)
+        val tab = TabInfo(session)
+        tabs.add(tab)
+        setupDelegates(tab)
+        switchToSession(tab)
+        session.loadUri("https://www.startpage.com/")
+    }
+
+    private fun setupDelegates(tab: TabInfo) {
+        tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+            override fun onLocationChange(session: GeckoSession, url: String?) {
+                url?.let {
+                    tab.url = it
+                    if (tab == activeTab) {
+                        runOnUiThread { urlBar.setText(it) }
+                    }
+                }
+            }
+        }
+        tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
+            override fun onTitleChange(session: GeckoSession, title: String?) {
+                title?.let { tab.title = it }
+            }
+        }
+    }
+
+    private fun switchToSession(tab: TabInfo) {
+        if (geckoView.session != tab.session) {
+            geckoView.setSession(tab.session)
+        }
+        activeTab = tab
+        urlBar.setText(tab.url)
+        tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+    }
+
+    private fun closeSession(tab: TabInfo) {
+        tab.session.close()
+        tabs.remove(tab)
+        if (tabs.isEmpty()) {
+            createNewSession()
+        } else {
+            switchToSession(tabs.last())
+        }
+    }
+
+    private fun openTabManager() {
+        val bottomSheet = BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.sheet_tabs, null)
+        val recycler = view.findViewById<RecyclerView>(R.id.recycler_tabs)
         
-        // Set High Priority to prevent GeckoView engine from freezing the session
-        session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+        recycler.layoutManager = LinearLayoutManager(this)
+        recycler.adapter = TabAdapter(
+            tabs, 
+            activeTab,
+            onClick = { selectedTab ->
+                switchToSession(selectedTab)
+                bottomSheet.dismiss()
+            },
+            onClose = { tabToClose ->
+                closeSession(tabToClose)
+                bottomSheet.dismiss()
+                openTabManager() // Refresh the sheet
+            }
+        )
+
+        view.findViewById<ImageButton>(R.id.btn_new_tab).setOnClickListener {
+            createNewSession()
+            bottomSheet.dismiss()
+        }
+
+        bottomSheet.setContentView(view)
+        bottomSheet.show()
     }
 
     private fun requestBatteryExemption() {
@@ -57,7 +173,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 startActivity(intent)
             } catch (e: Exception) {
-                // Fallback for aggressive OEMs that block the direct intent
                 val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 startActivity(fallbackIntent)
             }
@@ -66,33 +181,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Stop the keep-alive service when the app is opened/foregrounded
         val serviceIntent = Intent(this, KeepAliveService::class.java)
         stopService(serviceIntent)
-        
-        if (::session.isInitialized) {
-            session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
-        }
     }
 
     override fun onStop() {
         super.onStop()
-        // Start the keep-alive service when the app is minimized
         val serviceIntent = Intent(this, KeepAliveService::class.java)
         startForegroundService(serviceIntent)
-        
-        // Maintain high priority so the engine doesn't discard background tabs
-        if (::session.isInitialized) {
-            session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
-        }
-    }
-
-    override fun onNewIntent(intent: android.content.Intent?) {
-        super.onNewIntent(intent)
-        intent?.data?.let { uri ->
-            if (::session.isInitialized) {
-                session.loadUri(uri.toString())
-            }
-        }
     }
 }
