@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'com.spoongecko.app'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.spoongecko.app"
         minSdk 34 // Android 14 minimum, as requested
-        targetSdk 35
+        targetSdk 36
         versionCode 1
         versionName "1.0.0"
         
@@ -38,14 +38,14 @@ android {
 }
 
 dependencies {
-    // Core AndroidX (Stable, non-conflicting versions)
-    implementation 'androidx.core:core-ktx:1.13.1'
+    // Core AndroidX (Updated to match SDK 36 requirements)
+    implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     
     // Minimal Material 3 UI
     implementation 'com.google.android.material:material:1.12.0'
 
-    // VERIFIED Stable GeckoView (October 2024 release, confirmed working)
-    implementation 'org.mozilla.geckoview:geckoview:130.0.20241007143137'
+    // VERIFIED Stable GeckoView 153 (Directly extracted from live Mozilla Maven Repo)
+    implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
 }
