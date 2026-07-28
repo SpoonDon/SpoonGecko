@@ -5,16 +5,15 @@ plugins {
 
 android {
     namespace 'com.spoongecko.app'
-    compileSdk 36
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.spoongecko.app"
-        minSdk 34 // Android 14 minimum, as requested
-        targetSdk 36
+        minSdk 34
+        targetSdk 35
         versionCode 1
         versionName "1.0.0"
         
-        // Build ONLY for 64-bit ARM (massive APK size reduction)
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -37,15 +36,24 @@ android {
     }
 }
 
+// MAGIC BULLET: Force stable AndroidX versions to prevent rogue alpha dependencies from breaking the build
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.core:core:1.13.1'
+        force 'androidx.core:core-ktx:1.13.1'
+        force 'androidx.appcompat:appcompat:1.7.0'
+    }
+}
+
 dependencies {
-    // Core AndroidX (Updated to match SDK 36 requirements)
-    implementation 'androidx.core:core-ktx:1.15.0'
+    // Core AndroidX
+    implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     
     // Minimal Material 3 UI
     implementation 'com.google.android.material:material:1.12.0'
 
-    // VERIFIED Stable GeckoView 153 (Directly extracted from live Mozilla Maven Repo)
-    implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
+    // Verified Stable GeckoView
+    implementation 'org.mozilla.geckoview:geckoview:130.0.20241007143137'
 }
