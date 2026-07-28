@@ -36,6 +36,22 @@ android {
     }
 }
 
+// MAGIC BULLET: Force specific versions to prevent transitive dependencies from pulling in incompatible bleeding-edge libraries
+configurations.all {
+    resolutionStrategy {
+        // Force Kotlin stdlib to match our compiler (2.0.21) to fix the "metadata version 2.3.0" crash
+        force 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21'
+        force 'org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21'
+        
+        // Force stable AndroidX versions compatible with SDK 36
+        force 'androidx.core:core:1.15.0'
+        force 'androidx.core:core-ktx:1.15.0'
+        force 'androidx.appcompat:appcompat:1.7.0'
+    }
+}
+
 dependencies {
     // Modern AndroidX versions required by GeckoView 153
     implementation 'androidx.core:core-ktx:1.15.0'
