@@ -9,10 +9,12 @@ android {
 
     defaultConfig {
         applicationId "com.spoongecko.app"
-        minSdk 26
+        minSdk 26 // Kept at 26 for broader compatibility, but targets modern behavior
         targetSdk 35
         versionCode 1
         versionName "1.0.0"
+        
+        // Build ONLY for 64-bit ARM (massive APK size reduction)
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -22,6 +24,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+0
         }
     }
     
@@ -35,17 +38,8 @@ android {
     }
 }
 
-// FORCE STABLE VERSIONS: This prevents transitive dependencies from pulling in alpha/beta libraries that require unreleased SDKs.
-configurations.all {
-    resolutionStrategy {
-        force 'androidx.core:core:1.13.1'
-        force 'androidx.core:core-ktx:1.13.1'
-        force 'androidx.appcompat:appcompat:1.7.0'
-    }
-}
-
 dependencies {
-    // Core AndroidX (Stable versions)
+    // Core AndroidX (Stable, non-conflicting versions)
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
@@ -53,6 +47,6 @@ dependencies {
     // Minimal Material 3 UI
     implementation 'com.google.android.material:material:1.12.0'
 
-    // Latest Stable GeckoView (Version 134.0 - Highly stable and secure)
+    // Mature, Field-Tested GeckoView (December 2024 release, highly stable)
     implementation 'org.mozilla.geckoview:geckoview:134.0.20241212143137'
 }
