@@ -13,15 +13,24 @@ android {
         targetSdk 36
         versionCode 1
         versionName "1.0.0"
-        
-        ndk {
-            abiFilters 'arm64-v8a'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    // Inject GitHub Secrets into the build process
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("KEYSTORE_FILE") ?: "dummy.jks")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "dummy"
+            keyAlias System.getenv("KEY_ALIAS") ?: "dummy"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "dummy"
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            signingConfig signingConfigs.release
+            minifyEnabled true     // Activates R8 Code Shrinking
+            shrinkResources true   // Removes unused images
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -30,22 +39,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+    kotlinOptions { jvmTarget = '17' }
 }
 
-// MAGIC BULLET: Force specific versions to prevent transitive dependencies from pulling in incompatible bleeding-edge libraries
 configurations.all {
     resolutionStrategy {
-        // Force Kotlin stdlib to match our compiler (2.0.21) to fix the "metadata version 2.3.0" crash
         force 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
         force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21'
         force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21'
-        
-        // Force stable AndroidX versions compatible with SDK 36
         force 'androidx.core:core:1.15.0'
         force 'androidx.core:core-ktx:1.15.0'
         force 'androidx.appcompat:appcompat:1.7.0'
@@ -53,12 +54,9 @@ configurations.all {
 }
 
 dependencies {
-    // Modern AndroidX versions required by GeckoView 153
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'com.google.android.material:material:1.12.0'
-
-    // GeckoView 153 (Stable, Modern, Verified)
     implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
 }
