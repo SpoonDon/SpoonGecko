@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- POST_NOTIFICATIONS required at runtime on Android 13+; still declare here -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -64,11 +65,11 @@
         </receiver>
 
         <!-- JobService fallback for JobScheduler (persisted jobs) -->
-        <service
-            android:name=".KeepAliveJobService"
-            android:permission="android.permission.BIND_JOB_SERVICE"
-            android:enabled="true"
-            android:exported="false" />
+        <service    
+            android:name=".KeepAliveService"    
+            android:enabled="true"    
+            android:exported="false"    
+            android:foregroundServiceType="dataSync" />
 
         <!-- If your GeckoView build requires it, include GeckoService; otherwise remove -->
         <!--
