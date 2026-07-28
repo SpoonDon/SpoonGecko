@@ -5,20 +5,14 @@ plugins {
 
 android {
     namespace 'com.spoongecko.app'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.spoongecko.app"
         minSdk 26
-        targetSdk 34
+        targetSdk 35
         versionCode 1
         versionName "1.0.0"
-        
-        // Optional: Explicitly define the ABI if you want a smaller APK later. 
-        // For now, the default 'geckoview' dependency includes all architectures (arm64, x86_64, etc.)
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
-        }
     }
 
     buildTypes {
@@ -38,15 +32,24 @@ android {
     }
 }
 
+// FORCE STABLE VERSIONS: This prevents transitive dependencies from pulling in alpha/beta libraries that require unreleased SDKs.
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.core:core:1.13.1'
+        force 'androidx.core:core-ktx:1.13.1'
+        force 'androidx.appcompat:appcompat:1.7.0'
+    }
+}
+
 dependencies {
-    // Core AndroidX
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
+    // Core AndroidX (Stable versions)
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     
     // Minimal Material 3 UI
-    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'com.google.android.material:material:1.12.0'
 
-    // Latest Stable GeckoView (Version 153.0)
-    implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
+    // Latest Stable GeckoView (Version 134.0 - Highly stable and secure)
+    implementation 'org.mozilla.geckoview:geckoview:134.0.20241212143137'
 }
