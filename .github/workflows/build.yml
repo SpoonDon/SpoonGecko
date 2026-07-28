@@ -22,7 +22,7 @@ jobs:
       - name: Generate Gradle Wrapper
         run: |
           # The ubuntu runner has gradle pre-installed. We use it to generate the missing gradlew script.
-          gradle wrapper --gradle-version 8.4
+          gradle wrapper --gradle-version 8.9
           chmod +x gradlew
 
       - name: Build Debug APK
