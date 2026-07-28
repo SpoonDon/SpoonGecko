@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Spoon Gecko</string>
-    <string name="url_hint">Search or enter URL</string>
-    <string name="back">Back</string>
-    <string name="forward">Forward</string>
-    <string name="reload">Reload</string>
-</resources>
