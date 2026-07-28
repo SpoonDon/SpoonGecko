@@ -9,38 +9,27 @@ on:
 jobs:
   build-and-analyze:
     runs-on: ubuntu-latest
-    env:
-      JAVA_HOME_11: /usr/lib/jvm/java-11-openjdk-amd64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 11
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
+          cache: gradle
 
-      - name: Install Android SDK tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip wget
-          mkdir -p $HOME/android-sdk
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d $HOME/android-sdk/cmdline-tools
-          mkdir -p $HOME/android-sdk/cmdline-tools/latest
-          mv $HOME/android-sdk/cmdline-tools/cmdline-tools/* $HOME/android-sdk/cmdline-tools/latest/
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/android-sdk "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
-        shell: bash
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Export Android SDK env
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Inject debug signing for release analysis
         run: |
-          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/build-tools/33.0.2" >> $GITHUB_PATH
+          # Injects debug signing into release build so bundleRelease doesn't fail on CI
+          sed -i 's/release {/release {\n            signingConfig signingConfigs.debug/g' app/build.gradle
 
       - name: Show Java and Gradle versions
         run: |
@@ -49,13 +38,12 @@ jobs:
 
       - name: Build release AAB
         run: |
-          # Ensure you have signing config for release in gradle or use debug signing for analysis
           ./gradlew clean bundleRelease --no-daemon --stacktrace
 
       - name: Download bundletool
         run: |
           BUNDLETOOL=bundletool.jar
-          wget -q https://github.com/google/bundletool/releases/download/1.14.0/bundletool-all-1.14.0.jar -O $BUNDLETOOL
+          wget -q https://github.com/google/bundletool/releases/download/1.17.0/bundletool-all-1.17.0.jar -O $BUNDLETOOL
           echo "BUNDLETOOL=$PWD/$BUNDLETOOL" >> $GITHUB_ENV
 
       - name: Create universal APK from AAB (for analysis)
@@ -70,9 +58,18 @@ jobs:
           unzip -q app.apks universal.apk -d .
           ls -lh universal.apk
 
+      - name: Add apkanalyzer to PATH
+        run: |
+          BUILD_TOOLS_PATH=$(ls -d $ANDROID_SDK_ROOT/build-tools/* 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$BUILD_TOOLS_PATH" ]; then
+            echo "Adding $BUILD_TOOLS_PATH to PATH"
+            echo "$BUILD_TOOLS_PATH" >> $GITHUB_PATH
+          else
+            echo "Warning: Could not find build-tools path"
+          fi
+
       - name: Run apkanalyzer and produce size report
         run: |
-          # apkanalyzer is part of build-tools; ensure path includes it
           APK=universal.apk
           echo "APK: $APK"
           echo "=== apkanalyzer file-size ===" > size-report.txt
