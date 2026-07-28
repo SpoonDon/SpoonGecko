@@ -21,7 +21,7 @@ jobs:
 
       - name: Generate Gradle Wrapper
         run: |
-          # The ubuntu runner has gradle pre-installed. We use it to generate the missing gradlew script.
+          # Explicitly generate wrapper for 8.9 to match AGP 8.7.3 requirements
           gradle wrapper --gradle-version 8.9
           chmod +x gradlew
 
