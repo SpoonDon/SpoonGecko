@@ -27,13 +27,27 @@ data class TabInfo(val session: GeckoSession, var title: String = "New Tab", var
 
 class MainActivity : AppCompatActivity() {
 
+    // Singleton to prevent "Only one GeckoRuntime instance is allowed" crash on Activity recreation
+    companion object {
+        private var geckoRuntime: GeckoRuntime? = null
+    }
+
     private lateinit var geckoView: GeckoView
-    private lateinit var runtime: GeckoRuntime
     private lateinit var urlBar: EditText
     private lateinit var mainLayout: ConstraintLayout
     
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
+
+    // Safely retrieves or creates the global runtime instance exactly once
+    private val runtime: GeckoRuntime
+        get() {
+            if (geckoRuntime == null) {
+                // We use applicationContext to prevent memory leaks
+                geckoRuntime = GeckoRuntime.create(applicationContext, GeckoRuntimeSettings.Builder().build())
+            }
+            return geckoRuntime!!
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,11 +58,6 @@ class MainActivity : AppCompatActivity() {
         urlBar = findViewById(R.id.url_bar)
 
         requestBatteryExemption()
-
-        if (!::runtime.isInitialized) {
-            val runtimeSettings = GeckoRuntimeSettings.Builder().build()
-            runtime = GeckoRuntime.create(this, runtimeSettings)
-        }
 
         setupUIListeners()
         applyMenuPosition() // Apply saved menu position on startup
@@ -67,7 +76,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btn_forward).setOnClickListener { activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         
-        // Menu Button: Show Dialog to toggle position
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { 
             showMenuOptions()
         }
@@ -105,19 +113,16 @@ class MainActivity : AppCompatActivity() {
         val constraintSet = ConstraintSet()
         constraintSet.clone(mainLayout)
         
-        // SAFE CLEAR: Properly remove existing vertical constraints to prevent "undefined" crashes
         constraintSet.clear(R.id.bottom_nav, ConstraintSet.TOP)
         constraintSet.clear(R.id.bottom_nav, ConstraintSet.BOTTOM)
         constraintSet.clear(R.id.gecko_view, ConstraintSet.TOP)
         constraintSet.clear(R.id.gecko_view, ConstraintSet.BOTTOM)
 
         if (isBottom) {
-            // Nav at Bottom
             constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
             constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, R.id.bottom_nav, ConstraintSet.TOP)
             constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
         } else {
-            // Nav at Top (Below URL bar)
             constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
             constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.bottom_nav, ConstraintSet.BOTTOM)
             constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
@@ -147,7 +152,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun createNewSession() {
         val session = GeckoSession()
-        session.open(runtime)
+        session.open(runtime) // Uses the singleton getter
         val tab = TabInfo(session)
         tabs.add(tab)
         setupDelegates(tab)
