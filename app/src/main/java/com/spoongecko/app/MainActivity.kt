@@ -19,13 +19,9 @@ class MainActivity : AppCompatActivity() {
 
         geckoView = findViewById(R.id.gecko_view)
 
-        // Initialize GeckoRuntime with minimal settings (No telemetry)
+        // Initialize GeckoRuntime with default, minimal settings (No deprecated methods)
         if (!::runtime.isInitialized) {
-            val runtimeSettings = GeckoRuntimeSettings.Builder()
-                .telemetryEnabled(false) // Explicitly disable telemetry
-                .consoleOutputEnabled(true) // Keep for debugging, can disable later
-                .build()
-            
+            val runtimeSettings = GeckoRuntimeSettings.Builder().build()
             runtime = GeckoRuntime.create(this, runtimeSettings)
         }
 
@@ -52,11 +48,5 @@ class MainActivity : AppCompatActivity() {
                 session.loadUri(uri.toString())
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // We do not close the session here to allow for potential future 
-        // background/foreground lifecycle management.
     }
 }
