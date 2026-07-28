@@ -13,6 +13,12 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0.0"
+        
+        // Optional: Explicitly define the ABI if you want a smaller APK later. 
+        // For now, the default 'geckoview' dependency includes all architectures (arm64, x86_64, etc.)
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
     }
 
     buildTypes {
@@ -21,10 +27,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    
     kotlinOptions {
         jvmTarget = '17'
     }
@@ -39,6 +47,6 @@ dependencies {
     // Minimal Material 3 UI
     implementation 'com.google.android.material:material:1.11.0'
 
-    // Latest Stable GeckoView (Version 128.0)
-    implementation 'org.mozilla.geckoview:geckoview:128.0.20240704.20240704153038'
+    // Latest Stable GeckoView (Version 153.0)
+    implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
 }
