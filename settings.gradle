@@ -10,7 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Mozilla's Maven repository for GeckoView
         maven { url "https://maven.mozilla.org/maven2/" }
     }
 }
