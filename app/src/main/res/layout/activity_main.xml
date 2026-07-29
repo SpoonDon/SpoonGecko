@@ -8,7 +8,7 @@
     android:fitsSystemWindows="true"
     android:background="?attr/colorSurface">
 
-    <!-- Top URL Bar with integrated Menu Button -->
+    <!-- Top URL Bar with integrated Back, Forward, and Menu Buttons -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/top_bar"
         android:layout_width="0dp"
@@ -26,6 +26,24 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <ImageButton
+                android:id="@+id/btn_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_back"
+                android:contentDescription="Back"
+                android:alpha="0.5"/>
+
+            <ImageButton
+                android:id="@+id/btn_forward"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_forward"
+                android:contentDescription="Forward"
+                android:alpha="0.5"/>
+
             <EditText
                 android:id="@+id/url_bar"
                 android:layout_width="0dp"
@@ -35,7 +53,7 @@
                 android:hint="Search or enter URL"
                 android:imeOptions="actionGo"
                 android:inputType="textUri"
-                android:paddingStart="16dp"
+                android:paddingStart="8dp"
                 android:paddingEnd="8dp"
                 android:singleLine="true"
                 android:textSize="16sp" />
@@ -61,7 +79,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/top_bar" />
 
-    <!-- Bottom Navigation (Back, Forward, Tabs) -->
+    <!-- Bottom Navigation (Now only contains Tabs) -->
     <LinearLayout
         android:id="@+id/bottom_nav"
         android:layout_width="0dp"
@@ -72,26 +90,6 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
-
-        <ImageButton
-            android:id="@+id/btn_back"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_back"
-            android:contentDescription="Back"
-            android:alpha="0.5"/> <!-- Visually disabled by default -->
-
-        <ImageButton
-            android:id="@+id/btn_forward"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_forward"
-            android:contentDescription="Forward"
-            android:alpha="0.5"/> <!-- Visually disabled by default -->
 
         <ImageButton
             android:id="@+id/btn_tabs"
