@@ -10,6 +10,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -17,11 +18,15 @@ import androidx.constraintlayout.widget.ConstraintSet
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
-import org.mozilla.geckoview.GeckoSessionSettings // Added missing import
+import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.WebExtension
+import org.mozilla.geckoview.WebExtensionController
 import java.util.regex.Pattern
 
 data class TabInfo(val session: GeckoSession, var title: String = "New Tab", var url: String = "")
@@ -42,7 +47,21 @@ class MainActivity : AppCompatActivity() {
     private val runtime: GeckoRuntime
         get() {
             if (geckoRuntime == null) {
-                geckoRuntime = GeckoRuntime.create(applicationContext, GeckoRuntimeSettings.Builder().build())
+                val cbSettings = org.mozilla.geckoview.ContentBlocking.Settings.Builder()
+                    .categories(
+                        org.mozilla.geckoview.ContentBlocking.ANTI_TRACKING or 
+                        org.mozilla.geckoview.ContentBlocking.ANTI_CRYPTO_MINING or 
+                        org.mozilla.geckoview.ContentBlocking.ANTI_FINGERPRINTING or 
+                        org.mozilla.geckoview.ContentBlocking.SAFE_BROWSING_ALL
+                    )
+                    .cookieBehavior(org.mozilla.geckoview.ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
+                    .build()
+
+                val runtimeSettings = GeckoRuntimeSettings.Builder()
+                    .contentBlocking(cbSettings)
+                    .build()
+
+                geckoRuntime = GeckoRuntime.create(applicationContext, runtimeSettings)
             }
             return geckoRuntime!!
         }
@@ -58,8 +77,58 @@ class MainActivity : AppCompatActivity() {
         requestBatteryExemption()
 
         setupUIListeners()
+        setupExtensionPrompts() // NEW: Enables native AMO installation
         applyMenuPosition() 
         createNewSession()
+        
+        // Keep this if you still want uBlock bundled, or remove it to rely entirely on the store
+        installBundledExtensions() 
+    }
+
+    private fun setupExtensionPrompts() {
+        // Intercepts "Add to Firefox" clicks from the AMO website
+        runtime.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
+            override fun onInstallPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
+                val result = GeckoResult<AllowOrDeny>()
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Install Extension?")
+                        .setMessage("Do you want to install ${extension.metaData.name}?")
+                        .setPositiveButton("Install") { _, _ -> result.complete(AllowOrDeny.ALLOW) }
+                        .setNegativeButton("Cancel") { _, _ -> result.complete(AllowOrDeny.DENY) }
+                        .setCancelable(false)
+                        .show()
+                }
+                return result
+            }
+
+            override fun onOptionalPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
+                // Auto-allow permission requests (like "access data on all websites") to keep UX smooth
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+            }
+        })
+
+        runtime.webExtensionController.setWebExtensionDelegate(object : WebExtensionController.WebExtensionDelegate {
+            override fun onExtensionInstalled(extension: WebExtension) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Installed: ${extension.metaData.name}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+    }
+
+    private fun installBundledExtensions() {
+        val extensionUrls = listOf(
+            "resource://android/assets/extensions/ublock.xpi"
+        )
+        
+        for (url in extensionUrls) {
+            runtime.webExtensionController.installBuiltIn(url).accept { extension ->
+                runOnUiThread {
+                    Toast.makeText(this, "Loaded: ${extension.metaData.name}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     private fun setupUIListeners() {
@@ -85,20 +154,70 @@ class MainActivity : AppCompatActivity() {
         
         val options = arrayOf(
             if (isCurrentlyBottom) "✓ Menu at Bottom" else "Move Menu to Bottom",
-            if (!isCurrentlyBottom) "✓ Menu at Top" else "Move Menu to Top"
+            if (!isCurrentlyBottom) "✓ Menu at Top" else "Move Menu to Top",
+            "Add-ons Store",         // Opens AMO
+            "Check for Updates",     // Triggers auto-updates
+            "Extensions Dashboard",  // Opens extension settings
+            "Clear Browsing Data"    // Placeholder
         )
 
         AlertDialog.Builder(this)
-            .setTitle("Toolbar Position")
+            .setTitle("Settings")
             .setItems(options) { _, which ->
-                val newValue = when (which) {
-                    0 -> true  
-                    1 -> false 
-                    else -> true
-                }
-                if (newValue != isCurrentlyBottom) {
-                    prefs.edit().putBoolean("menu_at_bottom", newValue).apply()
-                    applyMenuPosition()
+                when (which) {
+                    0, 1 -> {
+                        val newValue = (which == 0)
+                        if (newValue != isCurrentlyBottom) {
+                            prefs.edit().putBoolean("menu_at_bottom", newValue).apply()
+                            applyMenuPosition()
+                        }
+                    }
+                    2 -> { // Add-ons Store
+                        createNewSession()
+                        activeTab.session.loadUri("https://addons.mozilla.org/android/")
+                    }
+                    3 -> { // Check for Updates
+                        runtime.webExtensionController.list().accept { extensions ->
+                            if (extensions.isEmpty()) {
+                                runOnUiThread { Toast.makeText(this@MainActivity, "No extensions to update.", Toast.LENGTH_SHORT).show() }
+                                return@accept
+                            }
+                            
+                            var pendingUpdates = extensions.size
+                            for (ext in extensions) {
+                                try {
+                                    runtime.webExtensionController.update(ext).accept { updated ->
+                                        pendingUpdates--
+                                        if (updated != null) {
+                                            runOnUiThread { Toast.makeText(this@MainActivity, "Updated: ${updated.metaData.name}", Toast.LENGTH_SHORT).show() }
+                                        }
+                                        if (pendingUpdates == 0) {
+                                            runOnUiThread { Toast.makeText(this@MainActivity, "All extensions up to date.", Toast.LENGTH_SHORT).show() }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    pendingUpdates--
+                                    if (pendingUpdates == 0) {
+                                        runOnUiThread { Toast.makeText(this@MainActivity, "All extensions up to date.", Toast.LENGTH_SHORT).show() }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    4 -> { // Extensions Dashboard
+                        runtime.webExtensionController.list().accept { extensions ->
+                            if (extensions.isNotEmpty()) {
+                                runtime.webExtensionController.openOptionsPage(extensions[0])
+                            } else {
+                                runOnUiThread {
+                                    Toast.makeText(this, "No extensions installed.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                    5 -> {
+                        Toast.makeText(this, "Coming in Phase 5!", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .show()
@@ -149,10 +268,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession() {
-        // Engine-Level Optimizations
         val settings = GeckoSessionSettings.Builder()
-            .useTrackingProtection(true) // Blocks trackers natively (Speed & Privacy)
-            .suspendMediaWhenInactive(true) // Pauses video/audio in background tabs (Battery Saver)
+            .suspendMediaWhenInactive(true)
             .build()
             
         val session = GeckoSession(settings)
@@ -189,7 +306,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchToSession(tab: TabInfo) {
-        // FREEZE MECHANISM: Suspend inactive tabs to save CPU/RAM
         for (t in tabs) {
             t.session.setActive(t == tab) 
         }
