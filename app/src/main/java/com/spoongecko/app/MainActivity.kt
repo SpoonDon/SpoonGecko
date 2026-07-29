@@ -151,8 +151,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession() {
-        val session = GeckoSession()
-        session.open(runtime) // Uses the singleton getter
+        // Engine-Level Optimizations
+        val settings = GeckoSessionSettings.Builder()
+            .useTrackingProtection(true) // Blocks ads/trackers at the engine level (Massive speed boost)
+            .useMultiprocess(true)       // Isolates tabs so one crash doesn't kill the whole app
+            .build()
+            
+        val session = GeckoSession(settings)
+        session.open(runtime) 
+        
         val tab = TabInfo(session)
         tabs.add(tab)
         setupDelegates(tab)
@@ -184,11 +191,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchToSession(tab: TabInfo) {
+        // FREEZE MECHANISM: Iterate through all tabs and suspend the inactive ones
+        for (t in tabs) {
+            // setActive(false) stops JS timers, CSS animations, and network requests for background tabs
+            t.session.setActive(t == tab) 
+        }
+
         if (geckoView.session != tab.session) {
             geckoView.setSession(tab.session)
         }
         activeTab = tab
         urlBar.setText(tab.url)
+        
+        // Ensure the active tab has high priority for the OS
         tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
     }
 
@@ -229,6 +244,22 @@ class MainActivity : AppCompatActivity() {
 
         bottomSheet.setContentView(view)
         bottomSheet.show()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // When the app is minimized or the screen turns off, freeze the active tab to save battery
+        if (::activeTab.isInitialized) {
+            activeTab.session.setActive(false)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Wake the tab back up when the user returns to the app
+        if (::activeTab.isInitialized) {
+            activeTab.session.setActive(true)
+        }
     }
 
     private fun requestBatteryExemption() {
