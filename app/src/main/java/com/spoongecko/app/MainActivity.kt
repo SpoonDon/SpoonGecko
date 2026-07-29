@@ -301,14 +301,13 @@ class MainActivity : AppCompatActivity() {
     private fun showExtensionActions(extension: WebExtension) {
         val options = mutableListOf<String>()
         val baseUrl = extension.metaData.baseUrl
-        val action = extensionManager.getBrowserAction(extension.id)
 
-        // Option 1: Open the extension's popup (for Bitwarden, password managers, etc.)
-        if (action?.popupUrl != null || baseUrl != null) {
+        // Offer popup if the extension has a base URL (most extensions do)
+        if (baseUrl != null) {
             options.add("Open Extension Popup")
         }
 
-        // Option 2: Open settings/options page
+        // Offer settings if available
         if (extension.metaData.optionsPageUrl != null) {
             options.add("Open Settings")
         }
@@ -336,18 +335,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openExtensionPopup(extension: WebExtension) {
-        val action = extensionManager.getBrowserAction(extension.id)
-        val popupUrl = action?.popupUrl
-            ?: extension.metaData.baseUrl?.let { "${it}popup/index.html" }
-
-        if (popupUrl == null) {
+        val baseUrl = extension.metaData.baseUrl
+        if (baseUrl == null) {
             Toast.makeText(this, "No popup available for this extension.", Toast.LENGTH_SHORT).show()
             return
         }
 
+        // Construct popup URL from the extension's base URL
+        // Most extensions (Bitwarden, Dark Reader, etc.) use popup/index.html
+        val popupUrl = "${baseUrl}popup/index.html"
+
+        // Create a SEPARATE session for the popup (NOT a new tab)
+        // The login page tab must remain "active" so the extension's
+        // content script can detect the form and communicate with the popup
         val popupSession = GeckoSession()
         popupSession.open(runtime)
 
+        // Create a GeckoView to render the popup inside a BottomSheet
         val popupView = org.mozilla.geckoview.GeckoView(this)
         popupView.layoutParams = android.view.ViewGroup.LayoutParams(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -363,7 +367,7 @@ class MainActivity : AppCompatActivity() {
         }
         bottomSheet.show()
     }
-
+    
     private fun updateNavButtons() {
         btnBack.alpha = if (::activeTab.isInitialized && activeTab.canGoBack) 1.0f else 0.5f
         btnForward.alpha = if (::activeTab.isInitialized && activeTab.canGoForward) 1.0f else 0.5f
