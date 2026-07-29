@@ -53,7 +53,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        Thread { GeckoRuntimeManager.getRuntime(applicationContext) }.start()
 
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
