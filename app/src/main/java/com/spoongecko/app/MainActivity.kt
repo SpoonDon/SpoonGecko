@@ -79,6 +79,12 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
 
+        urlBar.setOnFocusChangeListener { v, hasFocus ->
+            if (hasFocus) {
+                (v as EditText).selectAll()
+            }
+        }
+        
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { 
             if (::activeTab.isInitialized && activeTab.canGoForward) {
