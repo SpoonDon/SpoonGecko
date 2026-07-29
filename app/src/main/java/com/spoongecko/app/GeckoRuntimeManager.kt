@@ -18,9 +18,9 @@ object GeckoRuntimeManager {
 
             val runtimeSettings = GeckoRuntimeSettings.Builder()
                 .contentBlocking(cbSettings)
-                .extensionsProcessEnabled(true) 
-                .consoleOutputEnabled(false)   // Stops native C++ logging overhead
-                .aboutConfigEnabled(false)     // Disables internal config page parsing
+                .extensionsProcessEnabled(true) // Sandboxes extensions in their own RAM pool
+                // Note: Console output and about:config are automatically optimized/disabled 
+                // in modern production builds of GeckoView 153+
                 .build()
 
             runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
