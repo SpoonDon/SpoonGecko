@@ -19,6 +19,8 @@ import androidx.constraintlayout.widget.ConstraintSet
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSessionSettings
 import java.util.regex.Pattern
@@ -65,7 +67,6 @@ class MainActivity : AppCompatActivity() {
         createNewSession()
     }
 
-    // Intercepts Android System Back Gesture / Hardware Button
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -82,9 +83,7 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
 
-        // Both UI Back Button and System Back Button trigger the same logic
         btnBack.setOnClickListener { handleBackNavigation() }
-        
         btnForward.setOnClickListener { 
             if (::activeTab.isInitialized && activeTab.canGoForward) {
                 activeTab.session.goForward() 
@@ -96,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleBackNavigation() {
         if (!::activeTab.isInitialized) {
-            finishApp()
+            exitApp()
             return
         }
 
@@ -118,14 +117,16 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Exit Spoon Gecko?")
             .setMessage("Are you sure you want to close the browser?")
-            .setPositiveButton("Exit") { _, _ -> finishApp() }
+            .setPositiveButton("Exit") { _, _ -> exitApp() }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun finishApp() {
+    private fun exitApp() {
         GeckoRuntimeManager.shutdown() // Clean C++ engine shutdown
-        finishAffinity() // Closes all activities in the app stack
+        finishAndRemoveTask() // Removes app from recent apps list
+        // Force kill the process to ensure heavy C++ threads don't linger in OEM memory
+        android.os.Process.killProcess(android.os.Process.myPid()) 
     }
 
     private fun showMenuOptions() {
@@ -135,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         val options = arrayOf(
             if (isCurrentlyBottom) "✓ Navigation Bar at Bottom" else "Move Navigation Bar to Bottom",
             if (!isCurrentlyBottom) "✓ Navigation Bar at Top" else "Move Navigation Bar to Top",
-            "Extensions...", 
+            "Extensions", 
             "Clear Browsing Data",
             "Exit App"
         )
@@ -153,7 +154,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     2 -> showExtensionsMenu()
                     3 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                    4 -> showExitConfirmation()
+                    4 -> exitApp() // Direct exit, no confirmation
                 }
             }
             .show()
@@ -170,7 +171,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Extensions")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> { createNewSession(); activeTab.session.loadUri("https://addons.mozilla.org/android/") }
+                    0 -> { createNewSession(); activeTab.session.loadUri("https://addons.mozilla.org/firefox/") } // Desktop site for better compatibility
                     1 -> { extensionManager.checkForUpdates(); Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
                     2 -> { 
                         extensionManager.openFirstExtensionDashboard(
@@ -235,6 +236,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+            override fun onLoadRequest(
+                session: GeckoSession,
+                request: GeckoSession.NavigationDelegate.LoadRequest
+            ): GeckoResult<AllowOrDeny>? {
+                // Intercept .xpi file downloads and install them directly (Fixes AMO installation issues)
+                if (request.uri.endsWith(".xpi", ignoreCase = true)) {
+                    runtime.webExtensionController.install(request.uri)
+                        .accept { ext ->
+                            runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
+                        }
+                    return GeckoResult.fromValue(AllowOrDeny.DENY) // Stop the browser from trying to render the XPI
+                }
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+            }
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let { tab.url = it; if (tab == activeTab) runOnUiThread { urlBar.setText(it) } }
             }
@@ -263,7 +279,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeSession(tab: TabInfo) {
         tab.session.close(); tabs.remove(tab)
-        if (tabs.isEmpty()) createNewSession() else switchToSession(tabs.last())
+        if (tabs.isEmpty()) {
+            exitApp() // Exit if last tab is closed
+        } else {
+            switchToSession(tabs.last())
+        }
     }
 
     private fun openTabManager() {
