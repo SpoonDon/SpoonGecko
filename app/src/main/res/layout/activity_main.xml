@@ -8,7 +8,7 @@
     android:fitsSystemWindows="true"
     android:background="?attr/colorSurface">
 
-    <!-- Top URL Bar -->
+    <!-- Top URL Bar with integrated Menu Button -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/top_bar"
         android:layout_width="0dp"
@@ -20,18 +20,35 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <EditText
-            android:id="@+id/url_bar"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:background="@android:color/transparent"
-            android:hint="Search or enter URL"
-            android:imeOptions="actionGo"
-            android:inputType="textUri"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:textSize="16sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/url_bar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:hint="Search or enter URL"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:paddingStart="16dp"
+                android:paddingEnd="8dp"
+                android:singleLine="true"
+                android:textSize="16sp" />
+
+            <ImageButton
+                android:id="@+id/btn_menu"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_menu"
+                android:contentDescription="Menu"
+                android:layout_marginEnd="4dp"/>
+        </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
     <!-- GeckoView Engine -->
@@ -44,7 +61,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/top_bar" />
 
-    <!-- Bottom Navigation (Will be dynamically moved by Kotlin) -->
+    <!-- Bottom Navigation (Back, Forward, Tabs) -->
     <LinearLayout
         android:id="@+id/bottom_nav"
         android:layout_width="0dp"
@@ -63,7 +80,8 @@
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_back"
-            android:contentDescription="Back" />
+            android:contentDescription="Back"
+            android:alpha="0.5"/> <!-- Visually disabled by default -->
 
         <ImageButton
             android:id="@+id/btn_forward"
@@ -72,7 +90,8 @@
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_forward"
-            android:contentDescription="Forward" />
+            android:contentDescription="Forward"
+            android:alpha="0.5"/> <!-- Visually disabled by default -->
 
         <ImageButton
             android:id="@+id/btn_tabs"
@@ -82,15 +101,6 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_tabs"
             android:contentDescription="Tabs" />
-
-        <ImageButton
-            android:id="@+id/btn_menu"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_menu"
-            android:contentDescription="Menu" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
