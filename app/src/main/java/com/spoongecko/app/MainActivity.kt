@@ -14,8 +14,6 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.constraintlayout.widget.ConstraintSet
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -37,7 +35,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
     private lateinit var urlBar: EditText
-    private lateinit var mainLayout: ConstraintLayout
     private lateinit var extensionManager: ExtensionManager
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
@@ -54,7 +51,6 @@ class MainActivity : AppCompatActivity() {
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
 
-        mainLayout = findViewById(R.id.main_layout)
         geckoView = findViewById(R.id.gecko_view)
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
@@ -63,7 +59,6 @@ class MainActivity : AppCompatActivity() {
         requestBatteryExemption()
         setupUIListeners()
         setupSystemBackButton()
-        applyMenuPosition() 
         createNewSession()
     }
 
@@ -102,12 +97,9 @@ class MainActivity : AppCompatActivity() {
         if (activeTab.canGoBack) {
             activeTab.session.goBack()
         } else {
-            // No history left in this tab
             if (tabs.size > 1) {
-                // Close current tab and fall back to the previous one
                 closeSession(activeTab)
             } else {
-                // Last tab, no history. Prompt to exit.
                 showExitConfirmation()
             }
         }
@@ -123,19 +115,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exitApp() {
-        GeckoRuntimeManager.shutdown() // Clean C++ engine shutdown
-        finishAndRemoveTask() // Removes app from recent apps list
-        // Force kill the process to ensure heavy C++ threads don't linger in OEM memory
+        GeckoRuntimeManager.shutdown()
+        finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid()) 
     }
 
     private fun showMenuOptions() {
-        val prefs = getSharedPreferences("SpoonGeckoPrefs", Context.MODE_PRIVATE)
-        val isCurrentlyBottom = prefs.getBoolean("menu_at_bottom", true)
-        
         val options = arrayOf(
-            if (isCurrentlyBottom) "✓ Navigation Bar at Bottom" else "Move Navigation Bar to Bottom",
-            if (!isCurrentlyBottom) "✓ Navigation Bar at Top" else "Move Navigation Bar to Top",
             "Extensions", 
             "Clear Browsing Data",
             "Exit App"
@@ -145,16 +131,9 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Settings")
             .setItems(options) { _, which ->
                 when (which) {
-                    0, 1 -> {
-                        val newValue = (which == 0)
-                        if (newValue != isCurrentlyBottom) {
-                            prefs.edit().putBoolean("menu_at_bottom", newValue).apply()
-                            applyMenuPosition()
-                        }
-                    }
-                    2 -> showExtensionsMenu()
-                    3 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                    4 -> exitApp() // Direct exit, no confirmation
+                    0 -> showExtensionsMenu()
+                    1 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
+                    2 -> exitApp()
                 }
             }
             .show()
@@ -171,7 +150,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Extensions")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> { createNewSession(); activeTab.session.loadUri("https://addons.mozilla.org/firefox/") } // Desktop site for better compatibility
+                    0 -> { createNewSession(); activeTab.session.loadUri("https://addons.mozilla.org/firefox/") }
                     1 -> { extensionManager.checkForUpdates(); Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
                     2 -> { 
                         extensionManager.openFirstExtensionDashboard(
@@ -182,26 +161,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .show()
-    }
-
-    private fun applyMenuPosition() {
-        val prefs = getSharedPreferences("SpoonGeckoPrefs", Context.MODE_PRIVATE)
-        val isBottom = prefs.getBoolean("menu_at_bottom", true)
-        val constraintSet = ConstraintSet().apply { clone(mainLayout) }
-        
-        constraintSet.clear(R.id.bottom_nav, ConstraintSet.TOP); constraintSet.clear(R.id.bottom_nav, ConstraintSet.BOTTOM)
-        constraintSet.clear(R.id.gecko_view, ConstraintSet.TOP); constraintSet.clear(R.id.gecko_view, ConstraintSet.BOTTOM)
-
-        if (isBottom) {
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, R.id.bottom_nav, ConstraintSet.TOP)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
-        } else {
-            constraintSet.connect(R.id.bottom_nav, ConstraintSet.TOP, R.id.top_bar, ConstraintSet.BOTTOM)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.TOP, R.id.bottom_nav, ConstraintSet.BOTTOM)
-            constraintSet.connect(R.id.gecko_view, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
-        }
-        constraintSet.applyTo(mainLayout)
     }
 
     private fun updateNavButtons() {
@@ -236,17 +195,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+            // ROBUST XPI INTERCEPTOR: Catches direct .xpi links AND AMO download redirects
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: GeckoSession.NavigationDelegate.LoadRequest
             ): GeckoResult<AllowOrDeny>? {
-                // Intercept .xpi file downloads and install them directly (Fixes AMO installation issues)
-                if (request.uri.endsWith(".xpi", ignoreCase = true)) {
-                    runtime.webExtensionController.install(request.uri)
+                val uri = request.uri
+                if (uri.endsWith(".xpi", ignoreCase = true) || 
+                    (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
+                    
+                    runtime.webExtensionController.install(uri)
                         .accept { ext ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
                         }
-                    return GeckoResult.fromValue(AllowOrDeny.DENY) // Stop the browser from trying to render the XPI
+                        .exceptionally { throwable ->
+                            runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable.message}", Toast.LENGTH_SHORT).show() }
+                            null
+                        }
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
@@ -279,11 +245,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeSession(tab: TabInfo) {
         tab.session.close(); tabs.remove(tab)
-        if (tabs.isEmpty()) {
-            exitApp() // Exit if last tab is closed
-        } else {
-            switchToSession(tabs.last())
-        }
+        if (tabs.isEmpty()) exitApp() else switchToSession(tabs.last())
     }
 
     private fun openTabManager() {
