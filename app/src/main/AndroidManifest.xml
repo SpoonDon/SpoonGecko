@@ -17,7 +17,7 @@
         android:label="Spoon Gecko"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+        android:theme="@style/Theme.SpoonGecko"
         android:usesCleartextTraffic="true">
         
         <activity
