@@ -220,13 +220,13 @@ class MainActivity : AppCompatActivity() {
                 if (uri.endsWith(".xpi", ignoreCase = true) || 
                     (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     
-                    // FIX: Use the two-argument accept() to handle success and error cleanly
                     runtime.webExtensionController.install(uri).accept(
                         { ext ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
                         },
                         { throwable ->
-                            runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable.message}", Toast.LENGTH_SHORT).show() }
+                            // FIX: Added safe call (?.) for nullable Throwable from Java
+                            runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() }
                         }
                     )
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
