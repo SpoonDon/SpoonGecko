@@ -6,10 +6,14 @@ import androidx.appcompat.app.AlertDialog
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
 import org.mozilla.geckoview.WebExtensionController
 
 class ExtensionManager(private val runtime: GeckoRuntime, private val activity: Activity) {
+
+    // Store browser actions (icons, popups, badges) for each extension
+    private val browserActions = mutableMapOf<String, WebExtension.Action>()
 
     fun setupDelegates() {
         runtime.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
@@ -39,25 +43,29 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
                 activity.runOnUiThread { Toast.makeText(activity, "Installed: ${extension.metaData.name}", Toast.LENGTH_SHORT).show() }
             }
         })
+
+        // Capture browser actions (popup URLs, icons, badges) from extensions
+        runtime.webExtensionController.setActionDelegate(object : WebExtensionController.ActionDelegate {
+            override fun onBrowserAction(extension: WebExtension, session: GeckoSession?, action: WebExtension.Action) {
+                browserActions[extension.id] = action
+            }
+        })
     }
+
+    fun getBrowserAction(extensionId: String): WebExtension.Action? = browserActions[extensionId]
 
     fun checkForUpdates() {
         runtime.webExtensionController.list().accept { extensions ->
             if (extensions.isNullOrEmpty()) return@accept
             for (ext in extensions) {
-                try { runtime.webExtensionController.update(ext) } catch (e: Exception) { /* Silent fail */ }
+                try { runtime.webExtensionController.update(ext) } catch (e: Exception) { }
             }
         }
     }
 
     fun openFirstExtensionDashboard(onSuccess: (String) -> Unit, onError: (String) -> Unit) {
         runtime.webExtensionController.list().accept { extensions ->
-            if (extensions.isNullOrEmpty()) {
-                onError("No extensions installed.")
-                return@accept
-            }
-            
-            // Safely find an extension with a standard options page URL
+            if (extensions.isNullOrEmpty()) { onError("No extensions installed."); return@accept }
             val extWithDashboard = extensions.firstOrNull { it.metaData.optionsPageUrl != null }
             if (extWithDashboard != null) {
                 onSuccess(extWithDashboard.metaData.optionsPageUrl!!)
