@@ -20,6 +20,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.GeckoSessionSettings // Added missing import
 import org.mozilla.geckoview.GeckoView
 import java.util.regex.Pattern
 
@@ -27,7 +28,6 @@ data class TabInfo(val session: GeckoSession, var title: String = "New Tab", var
 
 class MainActivity : AppCompatActivity() {
 
-    // Singleton to prevent "Only one GeckoRuntime instance is allowed" crash on Activity recreation
     companion object {
         private var geckoRuntime: GeckoRuntime? = null
     }
@@ -39,11 +39,9 @@ class MainActivity : AppCompatActivity() {
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
 
-    // Safely retrieves or creates the global runtime instance exactly once
     private val runtime: GeckoRuntime
         get() {
             if (geckoRuntime == null) {
-                // We use applicationContext to prevent memory leaks
                 geckoRuntime = GeckoRuntime.create(applicationContext, GeckoRuntimeSettings.Builder().build())
             }
             return geckoRuntime!!
@@ -60,7 +58,7 @@ class MainActivity : AppCompatActivity() {
         requestBatteryExemption()
 
         setupUIListeners()
-        applyMenuPosition() // Apply saved menu position on startup
+        applyMenuPosition() 
         createNewSession()
     }
 
@@ -94,8 +92,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Toolbar Position")
             .setItems(options) { _, which ->
                 val newValue = when (which) {
-                    0 -> true  // Bottom
-                    1 -> false // Top
+                    0 -> true  
+                    1 -> false 
                     else -> true
                 }
                 if (newValue != isCurrentlyBottom) {
@@ -153,8 +151,8 @@ class MainActivity : AppCompatActivity() {
     private fun createNewSession() {
         // Engine-Level Optimizations
         val settings = GeckoSessionSettings.Builder()
-            .useTrackingProtection(true) // Blocks ads/trackers at the engine level (Massive speed boost)
-            .useMultiprocess(true)       // Isolates tabs so one crash doesn't kill the whole app
+            .useTrackingProtection(true) // Blocks trackers natively (Speed & Privacy)
+            .suspendMediaWhenInactive(true) // Pauses video/audio in background tabs (Battery Saver)
             .build()
             
         val session = GeckoSession(settings)
@@ -191,9 +189,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchToSession(tab: TabInfo) {
-        // FREEZE MECHANISM: Iterate through all tabs and suspend the inactive ones
+        // FREEZE MECHANISM: Suspend inactive tabs to save CPU/RAM
         for (t in tabs) {
-            // setActive(false) stops JS timers, CSS animations, and network requests for background tabs
             t.session.setActive(t == tab) 
         }
 
@@ -202,8 +199,6 @@ class MainActivity : AppCompatActivity() {
         }
         activeTab = tab
         urlBar.setText(tab.url)
-        
-        // Ensure the active tab has high priority for the OS
         tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
     }
 
@@ -246,22 +241,6 @@ class MainActivity : AppCompatActivity() {
         bottomSheet.show()
     }
 
-    override fun onPause() {
-        super.onPause()
-        // When the app is minimized or the screen turns off, freeze the active tab to save battery
-        if (::activeTab.isInitialized) {
-            activeTab.session.setActive(false)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Wake the tab back up when the user returns to the app
-        if (::activeTab.isInitialized) {
-            activeTab.session.setActive(true)
-        }
-    }
-
     private fun requestBatteryExemption() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
@@ -287,5 +266,19 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         val serviceIntent = Intent(this, KeepAliveService::class.java)
         startForegroundService(serviceIntent)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::activeTab.isInitialized) {
+            activeTab.session.setActive(false)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::activeTab.isInitialized) {
+            activeTab.session.setActive(true)
+        }
     }
 }
