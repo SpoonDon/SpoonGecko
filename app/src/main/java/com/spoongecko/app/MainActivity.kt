@@ -150,7 +150,23 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Extensions")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> { createNewSession(); activeTab.session.loadUri("https://addons.mozilla.org/firefox/") }
+                    0 -> { 
+                        // Create a new session specifically configured to spoof Desktop Firefox
+                        val sessionSettings = GeckoSessionSettings.Builder()
+                            .userAgentMode(GeckoSessionSettings.USER_AGENT_MODE_DESKTOP) // The "IronFox" Trick
+                            .suspendMediaWhenInactive(true)
+                            .build()
+                            
+                        val session = GeckoSession(sessionSettings)
+                        session.open(runtime)
+                        val tab = TabInfo(session)
+                        tabs.add(tab)
+                        setupDelegates(tab)
+                        switchToSession(tab)
+                        
+                        // Load the desktop AMO site, which serves direct .xpi links
+                        session.loadUri("https://addons.mozilla.org/firefox/")
+                    }
                     1 -> { extensionManager.checkForUpdates(); Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
                     2 -> { 
                         extensionManager.openFirstExtensionDashboard(
