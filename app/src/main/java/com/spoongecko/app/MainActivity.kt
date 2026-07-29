@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
     private lateinit var dbHelper: DatabaseHelper
+    private lateinit var vaultManager: SecureCredentialManager
 
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
@@ -57,6 +58,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         dbHelper = DatabaseHelper(this)
+        vaultManager = SecureCredentialManager(this)
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
 
@@ -124,6 +126,7 @@ class MainActivity : AppCompatActivity() {
         val options = arrayOf<CharSequence>(
             normal("History"),
             normal("Bookmarks"),
+            normal("Vault"),
             normal("Extensions"),
             normal("Clear Browsing Data"),
             redText
@@ -135,15 +138,82 @@ class MainActivity : AppCompatActivity() {
                 when (which) {
                     0 -> openHistoryManager()
                     1 -> openBookmarkManager()
-                    2 -> showExtensionsMenu()
-                    3 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                    4 -> exitApp()
+                    2 -> showVaultForCurrentSite()
+                    3 -> showExtensionsMenu()
+                    4 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
+                    5 -> exitApp()
                 }
             }
             .show()
     }
 
-    // ==================== HISTORY MANAGER ====================
+    private fun showVaultForCurrentSite() {
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") {
+            Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
+        val accountsJson = vaultManager.getAllAccountsForHost(host)
+
+        if (accountsJson == "[]") {
+            Toast.makeText(this, "No saved passwords for $host", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val accountsArray = org.json.JSONArray(accountsJson)
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+
+            val layout = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(48, 32, 48, 16)
+            }
+
+            val title = android.widget.TextView(this).apply {
+                text = "Vault: $host"
+                textSize = 18f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 24)
+            }
+            layout.addView(title)
+
+            for (i in 0 until accountsArray.length()) {
+                val acc = accountsArray.getJSONObject(i)
+                val user = acc.optString("username", "")
+                val pass = acc.optString("password", "")
+
+                val userBtn = android.widget.Button(this).apply {
+                    text = "Copy ID: $user"
+                    isAllCaps = false
+                    setOnClickListener {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("username", user))
+                        Toast.makeText(this@MainActivity, "ID Copied", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                layout.addView(userBtn)
+
+                val passBtn = android.widget.Button(this).apply {
+                    text = "Copy Password"
+                    isAllCaps = false
+                    setOnClickListener {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("password", pass))
+                        Toast.makeText(this@MainActivity, "Password Copied", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                layout.addView(passBtn)
+            }
+
+            AlertDialog.Builder(this)
+                .setView(layout)
+                .setNegativeButton("Close", null)
+                .show()
+
+        } catch (e: Exception) {
+            Toast.makeText(this, "Vault error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
     private fun openHistoryManager() {
         val bottomSheet = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.sheet_history, null)
