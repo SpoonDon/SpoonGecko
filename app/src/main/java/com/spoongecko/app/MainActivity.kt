@@ -77,58 +77,65 @@ class MainActivity : AppCompatActivity() {
         requestBatteryExemption()
 
         setupUIListeners()
-        setupExtensionPrompts() // NEW: Enables native AMO installation
+        setupExtensionPrompts() 
         applyMenuPosition() 
         createNewSession()
-        
-        // Keep this if you still want uBlock bundled, or remove it to rely entirely on the store
-        installBundledExtensions() 
     }
 
     private fun setupExtensionPrompts() {
-        // Intercepts "Add to Firefox" clicks from the AMO website
+        // The modern GeckoView 153+ API for extension prompts
         runtime.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
-            override fun onInstallPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
-                val result = GeckoResult<AllowOrDeny>()
+            override fun onInstallPromptRequest(
+                extension: WebExtension,
+                permissions: Array<String>,
+                origins: Array<String>,
+                dataCollectionPermissions: Array<String>
+            ): GeckoResult<WebExtension.PermissionPromptResponse>? {
+                val result = GeckoResult<WebExtension.PermissionPromptResponse>()
                 runOnUiThread {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Install Extension?")
                         .setMessage("Do you want to install ${extension.metaData.name}?")
-                        .setPositiveButton("Install") { _, _ -> result.complete(AllowOrDeny.ALLOW) }
-                        .setNegativeButton("Cancel") { _, _ -> result.complete(AllowOrDeny.DENY) }
+                        .setPositiveButton("Install") { _, _ -> 
+                            // Grant all permissions for seamless installation
+                            result.complete(WebExtension.PermissionPromptResponse(true, false, false)) 
+                        }
+                        .setNegativeButton("Cancel") { _, _ -> 
+                            result.complete(WebExtension.PermissionPromptResponse(false, false, false)) 
+                        }
                         .setCancelable(false)
                         .show()
                 }
                 return result
             }
 
-            override fun onOptionalPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
-                // Auto-allow permission requests (like "access data on all websites") to keep UX smooth
+            override fun onOptionalPrompt(
+                extension: WebExtension,
+                permissions: Array<String>,
+                origins: Array<String>,
+                dataCollectionPermissions: Array<String>
+            ): GeckoResult<AllowOrDeny>? {
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+            }
+
+            override fun onUpdatePrompt(
+                extension: WebExtension,
+                newPermissions: Array<String>,
+                newOrigins: Array<String>,
+                newDataCollectionPermissions: Array<String>
+            ): GeckoResult<AllowOrDeny>? {
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
         })
 
-        runtime.webExtensionController.setWebExtensionDelegate(object : WebExtensionController.WebExtensionDelegate {
-            override fun onExtensionInstalled(extension: WebExtension) {
+        // The modern delegate for tracking installation state
+        runtime.webExtensionController.setAddonManagerDelegate(object : WebExtensionController.AddonManagerDelegate {
+            override fun onInstalled(extension: WebExtension) {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "Installed: ${extension.metaData.name}", Toast.LENGTH_SHORT).show()
                 }
             }
         })
-    }
-
-    private fun installBundledExtensions() {
-        val extensionUrls = listOf(
-            "resource://android/assets/extensions/ublock.xpi"
-        )
-        
-        for (url in extensionUrls) {
-            runtime.webExtensionController.installBuiltIn(url).accept { extension ->
-                runOnUiThread {
-                    Toast.makeText(this, "Loaded: ${extension.metaData.name}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
     }
 
     private fun setupUIListeners() {
@@ -155,10 +162,10 @@ class MainActivity : AppCompatActivity() {
         val options = arrayOf(
             if (isCurrentlyBottom) "✓ Menu at Bottom" else "Move Menu to Bottom",
             if (!isCurrentlyBottom) "✓ Menu at Top" else "Move Menu to Top",
-            "Add-ons Store",         // Opens AMO
-            "Check for Updates",     // Triggers auto-updates
-            "Extensions Dashboard",  // Opens extension settings
-            "Clear Browsing Data"    // Placeholder
+            "Add-ons Store",         
+            "Check for Updates",     
+            "Extensions Dashboard",  
+            "Clear Browsing Data"    
         )
 
         AlertDialog.Builder(this)
@@ -172,11 +179,11 @@ class MainActivity : AppCompatActivity() {
                             applyMenuPosition()
                         }
                     }
-                    2 -> { // Add-ons Store
+                    2 -> { 
                         createNewSession()
                         activeTab.session.loadUri("https://addons.mozilla.org/android/")
                     }
-                    3 -> { // Check for Updates
+                    3 -> { 
                         runtime.webExtensionController.list().accept { extensions ->
                             if (extensions.isEmpty()) {
                                 runOnUiThread { Toast.makeText(this@MainActivity, "No extensions to update.", Toast.LENGTH_SHORT).show() }
@@ -204,9 +211,10 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }
-                    4 -> { // Extensions Dashboard
+                    4 -> { 
                         runtime.webExtensionController.list().accept { extensions ->
                             if (extensions.isNotEmpty()) {
+                                // Open the first extension's options page (e.g. uBlock Origin)
                                 runtime.webExtensionController.openOptionsPage(extensions[0])
                             } else {
                                 runOnUiThread {
