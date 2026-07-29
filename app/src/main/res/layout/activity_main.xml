@@ -8,7 +8,7 @@
     android:fitsSystemWindows="true"
     android:background="?attr/colorSurface">
 
-    <!-- Top URL Bar with integrated Back, Forward, and Menu Buttons -->
+    <!-- Top URL Bar with integrated Back, Forward, Tabs, and Menu Buttons -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/top_bar"
         android:layout_width="0dp"
@@ -59,6 +59,14 @@
                 android:textSize="16sp" />
 
             <ImageButton
+                android:id="@+id/btn_tabs"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_tabs"
+                android:contentDescription="Tabs" />
+
+            <ImageButton
                 android:id="@+id/btn_menu"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
@@ -69,36 +77,14 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- GeckoView Engine -->
+    <!-- GeckoView Engine (Now takes up the full remaining screen) -->
     <org.mozilla.geckoview.GeckoView
         android:id="@+id/gecko_view"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintBottom_toTopOf="@id/bottom_nav"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/top_bar" />
-
-    <!-- Bottom Navigation (Now only contains Tabs) -->
-    <LinearLayout
-        android:id="@+id/bottom_nav"
-        android:layout_width="0dp"
-        android:layout_height="56dp"
-        android:background="?attr/colorSurfaceVariant"
-        android:gravity="center"
-        android:orientation="horizontal"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
-
-        <ImageButton
-            android:id="@+id/btn_tabs"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_tabs"
-            android:contentDescription="Tabs" />
-    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
