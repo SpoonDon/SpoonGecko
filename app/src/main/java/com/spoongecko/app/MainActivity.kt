@@ -21,6 +21,7 @@ import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSessionSettings
+import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
 data class TabInfo(
@@ -142,8 +143,8 @@ class MainActivity : AppCompatActivity() {
     private fun showExtensionsMenu() {
         val options = arrayOf(
             "Add-ons Store",
-            "Check for Updates",
-            "Extensions Dashboard"
+            "Manage Extensions",
+            "Check for Updates"
         )
 
         AlertDialog.Builder(this)
@@ -151,9 +152,8 @@ class MainActivity : AppCompatActivity() {
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> { 
-                        // Create a new session specifically configured to spoof Desktop Firefox
                         val sessionSettings = GeckoSessionSettings.Builder()
-                            .userAgentMode(GeckoSessionSettings.USER_AGENT_MODE_DESKTOP) // The "IronFox" Trick
+                            .userAgentMode(GeckoSessionSettings.USER_AGENT_MODE_DESKTOP)
                             .suspendMediaWhenInactive(true)
                             .build()
                             
@@ -163,15 +163,61 @@ class MainActivity : AppCompatActivity() {
                         tabs.add(tab)
                         setupDelegates(tab)
                         switchToSession(tab)
-                        
-                        // Load the desktop AMO site, which serves direct .xpi links
                         session.loadUri("https://addons.mozilla.org/firefox/")
                     }
-                    1 -> { extensionManager.checkForUpdates(); Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
-                    2 -> { 
-                        extensionManager.openFirstExtensionDashboard(
-                            onSuccess = { url -> createNewSession(); activeTab.session.loadUri(url) },
-                            onError = { msg -> runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() } }
+                    1 -> showManageExtensions()
+                    2 -> { extensionManager.checkForUpdates(); Toast.makeText(this, "Checking for updates...", Toast.LENGTH_SHORT).show() }
+                }
+            }
+            .show()
+    }
+
+    private fun showManageExtensions() {
+        runtime.webExtensionController.list().accept(
+            { extensions ->
+                runOnUiThread {
+                    if (extensions.isNullOrEmpty()) {
+                        Toast.makeText(this, "No extensions installed.", Toast.LENGTH_SHORT).show()
+                        return@runOnUiThread
+                    }
+
+                    val extNames = extensions.map { it.metaData.name ?: "Unknown Extension" }.toTypedArray()
+                    
+                    AlertDialog.Builder(this)
+                        .setTitle("Manage Extensions")
+                        .setItems(extNames) { _, which ->
+                            val selectedExt = extensions[which]
+                            showExtensionActions(selectedExt)
+                        }
+                        .setNegativeButton("Close", null)
+                        .show()
+                }
+            },
+            { throwable ->
+                runOnUiThread { Toast.makeText(this, "Failed to load list: ${throwable?.message}", Toast.LENGTH_SHORT).show() }
+            }
+        )
+    }
+
+    private fun showExtensionActions(extension: WebExtension) {
+        val options = mutableListOf<String>()
+        if (extension.metaData.optionsPageUrl != null) {
+            options.add("Open Settings")
+        }
+        options.add("Uninstall")
+
+        AlertDialog.Builder(this)
+            .setTitle(extension.metaData.name)
+            .setItems(options.toTypedArray()) { _, which ->
+                when (options[which]) {
+                    "Open Settings" -> {
+                        createNewSession()
+                        activeTab.session.loadUri(extension.metaData.optionsPageUrl!!)
+                    }
+                    "Uninstall" -> {
+                        runtime.webExtensionController.uninstall(extension).accept(
+                            { runOnUiThread { Toast.makeText(this, "Uninstalled.", Toast.LENGTH_SHORT).show() } },
+                            { throwable -> runOnUiThread { Toast.makeText(this, "Failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() } }
                         )
                     }
                 }
@@ -211,7 +257,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
-            // ROBUST XPI INTERCEPTOR
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: GeckoSession.NavigationDelegate.LoadRequest
@@ -225,7 +270,6 @@ class MainActivity : AppCompatActivity() {
                             runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
                         },
                         { throwable ->
-                            // FIX: Added safe call (?.) for nullable Throwable from Java
                             runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() }
                         }
                     )
