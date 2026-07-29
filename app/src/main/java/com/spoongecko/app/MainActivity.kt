@@ -258,7 +258,7 @@ class MainActivity : AppCompatActivity() {
         tabs.add(tab)
         setupDelegates(tab)
         switchToSession(tab)
-        session.loadUri("https://www.startpage.com/")
+        session.loadUri("about:blank") 
     }
 
     private fun setupDelegates(tab: TabInfo) {
@@ -285,7 +285,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
-                url?.let { tab.url = it; if (tab == activeTab) runOnUiThread { urlBar.setText(it) } }
+                url?.let { 
+                    tab.url = it
+                    if (tab == activeTab) {
+                        runOnUiThread { 
+                            // UI Polish: Hide "about:blank" from the user
+                            urlBar.setText(if (it == "about:blank") "" else it) 
+                        } 
+                    } 
+                }
             }
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
@@ -305,7 +313,9 @@ class MainActivity : AppCompatActivity() {
         for (t in tabs) { t.session.setActive(t == tab) }
         if (geckoView.session != tab.session) geckoView.setSession(tab.session)
         activeTab = tab
-        urlBar.setText(tab.url)
+        
+        urlBar.setText(if (tab.url == "about:blank") "" else tab.url)
+        
         tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
         updateNavButtons()
     }
