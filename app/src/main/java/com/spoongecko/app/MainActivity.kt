@@ -195,7 +195,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
-            // ROBUST XPI INTERCEPTOR: Catches direct .xpi links AND AMO download redirects
+            // ROBUST XPI INTERCEPTOR
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: GeckoSession.NavigationDelegate.LoadRequest
@@ -208,9 +208,10 @@ class MainActivity : AppCompatActivity() {
                         .accept { ext ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
                         }
-                        .exceptionally { throwable ->
+                        .exceptionally { throwable: Throwable ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable.message}", Toast.LENGTH_SHORT).show() }
-                            null
+                            // Explicitly cast null to satisfy Java Generics type inference in Kotlin
+                            null as org.mozilla.geckoview.WebExtension? 
                         }
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
