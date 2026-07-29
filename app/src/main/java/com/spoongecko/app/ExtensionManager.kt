@@ -52,11 +52,23 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
 
     fun openFirstExtensionDashboard(onSuccess: (String) -> Unit, onError: (String) -> Unit) {
         runtime.webExtensionController.list().accept { extensions ->
-            if (!extensions.isNullOrEmpty()) {
-                val optionsUrl = extensions[0].metaData.optionsPageUrl
-                if (optionsUrl != null) onSuccess(optionsUrl) else onError("No settings page available.")
-            } else {
+            if (extensions.isNullOrEmpty()) {
                 onError("No extensions installed.")
+                return@accept
+            }
+            
+            // Try to find an extension with a standard options page
+            val extWithDashboard = extensions.firstOrNull { it.metaData.optionsPageUrl != null }
+            if (extWithDashboard != null) {
+                onSuccess(extWithDashboard.metaData.optionsPageUrl!!)
+            } else {
+                // Fallback: Try to trigger the native openOptionsPage API for popup-based extensions
+                try {
+                    runtime.webExtensionController.openOptionsPage(extensions[0])
+                    onError("Opened extension popup.") // Technically a success, but we notify the user
+                } catch (e: Exception) {
+                    onError("This extension manages settings via its own UI.")
+                }
             }
         }
     }
