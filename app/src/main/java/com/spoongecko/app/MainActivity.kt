@@ -25,14 +25,19 @@ import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
 data class TabInfo(
-    val session: GeckoSession, 
-    var title: String = "New Tab", 
-    var url: String = "", 
+    val session: GeckoSession,
+    var title: String = "New Tab",
+    var url: String = "",
     var canGoBack: Boolean = false,
     var canGoForward: Boolean = false
 )
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        // Pure dark background to match Material 3 Dark theme and prevent white flash on new tabs
+        const val INTERNAL_HOME_URI = "data:text/html,<html><body style='background-color:%23121212;margin:0;'></body></html>"
+    }
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
     private lateinit var urlBar: EditText
@@ -78,13 +83,13 @@ class MainActivity : AppCompatActivity() {
                 true
             } else false
         }
-
+        
         urlBar.setOnFocusChangeListener { v, hasFocus ->
             if (hasFocus) {
                 (v as EditText).selectAll()
             }
         }
-        
+
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { 
             if (::activeTab.isInitialized && activeTab.canGoForward) {
@@ -241,11 +246,30 @@ class MainActivity : AppCompatActivity() {
     private fun loadUrlOrSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
-        val urlPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.]+\\.[a-zA-Z]{2,}$")
-        val isUrl = trimmed.startsWith("http") || urlPattern.matcher(trimmed).matches()
 
-        if (isUrl) activeTab.session.loadUri(if (trimmed.startsWith("http")) trimmed else "https://$trimmed")
-        else activeTab.session.loadUri("https://www.startpage.com/sp/search?query=$trimmed")
+        // Check if it's an IPv4 address (with optional port, e.g., 192.168.1.1:8080)
+        val ipv4Pattern = Pattern.compile("^(\\d{1,3}\\.){3}\\d{1,3}(:\\d+)?$")
+        val isIp = ipv4Pattern.matcher(trimmed).matches()
+
+        // Check if it's a standard domain (e.g., google.com)
+        val domainPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.]+\\.[a-zA-Z]{2,}$")
+        val isDomain = domainPattern.matcher(trimmed).matches()
+        
+        val isLocalhost = trimmed.equals("localhost", ignoreCase = true)
+
+        val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost
+
+        if (isUrl) {
+            val finalUrl = when {
+                trimmed.startsWith("http") -> trimmed
+                isIp || isLocalhost -> "http://$trimmed" // Local IPs and localhost usually require HTTP
+                else -> "https://$trimmed" // Standard domains default to HTTPS
+            }
+            activeTab.session.loadUri(finalUrl)
+        } else {
+            // Switched to Brave Search
+            activeTab.session.loadUri("https://search.brave.com/search?q=$trimmed")
+        }
         
         urlBar.clearFocus()
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(urlBar.windowToken, 0)
@@ -254,11 +278,12 @@ class MainActivity : AppCompatActivity() {
     private fun createNewSession() {
         val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
         session.open(runtime) 
-        val tab = TabInfo(session)
+        val tab = TabInfo(session, url = INTERNAL_HOME_URI)
         tabs.add(tab)
         setupDelegates(tab)
         switchToSession(tab)
-        session.loadUri("about:blank") 
+        // Load internal dark blank page instantly instead of hijacking the tab with a website
+        session.loadUri(INTERNAL_HOME_URI) 
     }
 
     private fun setupDelegates(tab: TabInfo) {
@@ -289,8 +314,8 @@ class MainActivity : AppCompatActivity() {
                     tab.url = it
                     if (tab == activeTab) {
                         runOnUiThread { 
-                            // UI Polish: Hide "about:blank" from the user
-                            urlBar.setText(if (it == "about:blank") "" else it) 
+                            // UI Polish: Hide internal home URI from the user
+                            urlBar.setText(if (it == INTERNAL_HOME_URI) "" else it) 
                         } 
                     } 
                 }
@@ -314,7 +339,8 @@ class MainActivity : AppCompatActivity() {
         if (geckoView.session != tab.session) geckoView.setSession(tab.session)
         activeTab = tab
         
-        urlBar.setText(if (tab.url == "about:blank") "" else tab.url)
+        // UI Polish: Hide internal home URI from the user
+        urlBar.setText(if (tab.url == INTERNAL_HOME_URI) "" else tab.url)
         
         tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
         updateNavButtons()
