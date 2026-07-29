@@ -216,9 +216,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun showExtensionActions(extension: WebExtension) {
         val options = mutableListOf<String>()
+        val baseUrl = extension.metaData.baseUrl
+        
         if (extension.metaData.optionsPageUrl != null) {
             options.add("Open Settings")
         }
+        
+        // For extensions like Bitwarden that use a popup as their main UI
+        if (baseUrl != null) {
+            options.add("Open Extension UI")
+        }
+        
         options.add("Uninstall")
 
         AlertDialog.Builder(this)
@@ -228,6 +236,11 @@ class MainActivity : AppCompatActivity() {
                     "Open Settings" -> {
                         createNewSession()
                         activeTab.session.loadUri(extension.metaData.optionsPageUrl!!)
+                    }
+                    "Open Extension UI" -> {
+                        createNewSession()
+                        // Try common popup paths used by extensions like Bitwarden
+                        activeTab.session.loadUri("${baseUrl}popup/index.html")
                     }
                     "Uninstall" -> {
                         runtime.webExtensionController.uninstall(extension).accept(
