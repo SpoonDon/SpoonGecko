@@ -31,6 +31,10 @@ import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
+// ============================================================================
+// DATA MODEL
+// ============================================================================
+
 data class TabInfo(
     val session: GeckoSession,
     var title: String = "New Tab",
@@ -39,22 +43,31 @@ data class TabInfo(
     var canGoForward: Boolean = false
 )
 
+// ============================================================================
+// MAIN ACTIVITY — UI Coordinator
+// ============================================================================
+
 class MainActivity : AppCompatActivity() {
 
+    // --- Views ---
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
 
+    // --- Managers ---
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
 
+    // --- Tabs ---
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
 
+    // --- Engine ---
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
 
+    // --- CSV Export/Import ---
     private var pendingExportData: String = ""
 
     private val exportLauncher = registerForActivityResult(
@@ -86,6 +99,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    // ========================================================================
+    // LIFECYCLE
+    // ========================================================================
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -119,11 +136,19 @@ class MainActivity : AppCompatActivity() {
     @Suppress("KotlinConstantConditions")
     override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
 
+    // ========================================================================
+    // SYSTEM BACK
+    // ========================================================================
+
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { handleBackNavigation() }
         })
     }
+
+    // ========================================================================
+    // UI LISTENERS
+    // ========================================================================
 
     private fun setupUIListeners() {
         urlBar.setOnEditorActionListener { v, actionId, _ ->
@@ -137,6 +162,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { showMenuOptions() }
     }
+
+    // ========================================================================
+    // NAVIGATION
+    // ========================================================================
 
     private fun handleBackNavigation() {
         if (!::activeTab.isInitialized) { exitApp(); return }
@@ -177,6 +206,10 @@ class MainActivity : AppCompatActivity() {
         btnForward.isEnabled = ::activeTab.isInitialized && activeTab.canGoForward
     }
 
+    // ========================================================================
+    // TAB MANAGEMENT
+    // ========================================================================
+
     private fun createNewSession() {
         val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
         session.open(runtime)
@@ -213,6 +246,10 @@ class MainActivity : AppCompatActivity() {
         view.findViewById<ImageButton>(R.id.btn_new_tab).setOnClickListener { createNewSession(); bottomSheet.dismiss() }
         bottomSheet.setContentView(view); bottomSheet.show()
     }
+
+    // ========================================================================
+    // AUTO-SAVE JS (injected into every page to detect login form submissions)
+    // ========================================================================
 
     private val AUTOSAVE_JS = """
         (function() {
@@ -251,16 +288,23 @@ class MainActivity : AppCompatActivity() {
         })();
     """.trimIndent()
 
+    // ========================================================================
+    // GECKO DELEGATES
+    // ========================================================================
+
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
 
+                // Intercept vault auto-save signals from injected JS
                 if (uri.startsWith("spoonvault://save")) {
                     handleAutoSaveUri(uri)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
 
+                // Intercept .xpi extension downloads
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -285,18 +329,26 @@ class MainActivity : AppCompatActivity() {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
+
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
+            }
+
+            // FIX: onPageStop lives in NavigationDelegate, NOT ContentDelegate
+            override fun onPageStop(session: GeckoSession, success: Boolean) {
+                if (success) {
+                    // FIX: GeckoView uses loadUri("javascript:...") not evaluateJavascript()
+                    session.loadUri("javascript:$AUTOSAVE_JS")
+                }
             }
         }
 
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
-                title?.let { tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it }
-            }
-            override fun onPageStop(session: GeckoSession, success: Boolean) {
-                if (success) session.evaluateJavascript(AUTOSAVE_JS, null)
+                title?.let {
+                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+                }
             }
         }
     }
@@ -308,7 +360,7 @@ class MainActivity : AppCompatActivity() {
             val user = parsed.getQueryParameter("user") ?: ""
             val pass = parsed.getQueryParameter("pass") ?: return
             if (pass.isEmpty()) return
-            
+
             val ignored = getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).getBoolean(host, false)
             if (ignored) return
 
@@ -323,6 +375,10 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) { }
     }
+
+    // ========================================================================
+    // MENU
+    // ========================================================================
 
     private fun showMenuOptions() {
         val normal = { text: String -> SpannableString(text) as CharSequence }
@@ -353,6 +409,10 @@ class MainActivity : AppCompatActivity() {
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid())
     }
+
+    // ========================================================================
+    // EXTENSIONS
+    // ========================================================================
 
     private fun showExtensionsMenu() {
         val options = arrayOf("Add-ons Store", "Manage Extensions", "Check for Updates")
@@ -415,6 +475,10 @@ class MainActivity : AppCompatActivity() {
         bottomSheet.show()
     }
 
+    // ========================================================================
+    // HISTORY
+    // ========================================================================
+
     private fun openHistoryManager() {
         val bottomSheet = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.sheet_history, null)
@@ -447,6 +511,10 @@ class MainActivity : AppCompatActivity() {
         }
         bottomSheet.setContentView(view); bottomSheet.show()
     }
+
+    // ========================================================================
+    // BOOKMARKS
+    // ========================================================================
 
     private fun openBookmarkManager() {
         val bottomSheet = BottomSheetDialog(this)
@@ -489,6 +557,10 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save") { _, _ -> dbHelper.updateBookmark(entry.id, titleInput.text.toString(), urlInput.text.toString()); onSaved() }
             .setNegativeButton("Cancel", null).show()
     }
+
+    // ========================================================================
+    // VAULT
+    // ========================================================================
 
     private fun showVaultMenu() {
         val options = arrayOf("Copy for Current Site", "Save Current Page Credentials", "Manage All Credentials", "Export Vault (CSV)", "Import Vault (CSV)")
@@ -575,6 +647,10 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null).show()
     }
 
+    // ========================================================================
+    // VAULT CSV IMPORT / EXPORT
+    // ========================================================================
+
     private fun exportVaultCsv() {
         val json = vaultManager.getAllCredentialsAsJson()
         try {
@@ -624,6 +700,10 @@ class MainActivity : AppCompatActivity() {
         result.add(current.toString())
         return result
     }
+
+    // ========================================================================
+    // BATTERY
+    // ========================================================================
 
     private fun requestBatteryExemption() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
