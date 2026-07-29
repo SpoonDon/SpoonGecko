@@ -301,25 +301,69 @@ class MainActivity : AppCompatActivity() {
     private fun showExtensionActions(extension: WebExtension) {
         val options = mutableListOf<String>()
         val baseUrl = extension.metaData.baseUrl
-        if (extension.metaData.optionsPageUrl != null) options.add("Open Settings")
-        if (baseUrl != null) options.add("Open Extension UI")
+        val action = extensionManager.getBrowserAction(extension.id)
+
+        // Option 1: Open the extension's popup (for Bitwarden, password managers, etc.)
+        if (action?.popupUrl != null || baseUrl != null) {
+            options.add("Open Extension Popup")
+        }
+
+        // Option 2: Open settings/options page
+        if (extension.metaData.optionsPageUrl != null) {
+            options.add("Open Settings")
+        }
+
         options.add("Uninstall")
 
-        AlertDialog.Builder(this).setTitle(extension.metaData.name).setItems(options.toTypedArray()) { _, which ->
-            when (options[which]) {
-                "Open Settings" -> { createNewSession(); activeTab.session.loadUri(extension.metaData.optionsPageUrl!!) }
-                "Open Extension UI" -> { createNewSession(); activeTab.session.loadUri("${baseUrl}popup/index.html") }
-                "Uninstall" -> {
-                    runtime.webExtensionController.uninstall(extension).accept(
-                        { runOnUiThread { Toast.makeText(this, "Uninstalled.", Toast.LENGTH_SHORT).show() } },
-                        { throwable -> runOnUiThread { Toast.makeText(this, "Failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() } }
-                    )
+        AlertDialog.Builder(this)
+            .setTitle(extension.metaData.name)
+            .setItems(options.toTypedArray()) { _, which ->
+                when (options[which]) {
+                    "Open Extension Popup" -> openExtensionPopup(extension)
+                    "Open Settings" -> {
+                        createNewSession()
+                        activeTab.session.loadUri(extension.metaData.optionsPageUrl!!)
+                    }
+                    "Uninstall" -> {
+                        runtime.webExtensionController.uninstall(extension).accept(
+                            { runOnUiThread { Toast.makeText(this, "Uninstalled.", Toast.LENGTH_SHORT).show() } },
+                            { throwable -> runOnUiThread { Toast.makeText(this, "Failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() } }
+                        )
+                    }
                 }
             }
-        }.show()
+            .show()
     }
 
-    // ==================== NAVIGATION ====================
+    private fun openExtensionPopup(extension: WebExtension) {
+        val action = extensionManager.getBrowserAction(extension.id)
+        val popupUrl = action?.popupUrl
+            ?: extension.metaData.baseUrl?.let { "${it}popup/index.html" }
+
+        if (popupUrl == null) {
+            Toast.makeText(this, "No popup available for this extension.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val popupSession = GeckoSession()
+        popupSession.open(runtime)
+
+        val popupView = org.mozilla.geckoview.GeckoView(this)
+        popupView.layoutParams = android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            (resources.displayMetrics.heightPixels * 0.65).toInt()
+        )
+        popupView.setSession(popupSession)
+        popupSession.loadUri(popupUrl)
+
+        val bottomSheet = BottomSheetDialog(this)
+        bottomSheet.setContentView(popupView)
+        bottomSheet.setOnDismissListener {
+            popupSession.close()
+        }
+        bottomSheet.show()
+    }
+
     private fun updateNavButtons() {
         btnBack.alpha = if (::activeTab.isInitialized && activeTab.canGoBack) 1.0f else 0.5f
         btnForward.alpha = if (::activeTab.isInitialized && activeTab.canGoForward) 1.0f else 0.5f
@@ -381,7 +425,6 @@ class MainActivity : AppCompatActivity() {
                     if (tab == activeTab) {
                         runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
                     }
-                    // Record history for real pages only
                     if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
@@ -400,7 +443,6 @@ class MainActivity : AppCompatActivity() {
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
-                    // FIX: Don't show raw data URIs or blank pages as tab titles
                     tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 }
             }
