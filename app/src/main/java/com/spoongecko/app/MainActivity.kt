@@ -220,15 +220,15 @@ class MainActivity : AppCompatActivity() {
                 if (uri.endsWith(".xpi", ignoreCase = true) || 
                     (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     
-                    runtime.webExtensionController.install(uri)
-                        .accept { ext ->
+                    // FIX: Use the two-argument accept() to handle success and error cleanly
+                    runtime.webExtensionController.install(uri).accept(
+                        { ext ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() }
-                        }
-                        .exceptionally { throwable: Throwable ->
+                        },
+                        { throwable ->
                             runOnUiThread { Toast.makeText(this@MainActivity, "Install failed: ${throwable.message}", Toast.LENGTH_SHORT).show() }
-                            // Explicitly cast null to satisfy Java Generics type inference in Kotlin
-                            null as org.mozilla.geckoview.WebExtension? 
                         }
+                    )
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
