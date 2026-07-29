@@ -57,10 +57,11 @@ class MainActivity : AppCompatActivity() {
 
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
-
         geckoView = findViewById(R.id.gecko_view)
         
-        // MAGIC FIX 2: Covers the SurfaceView with dark gray until the first frame renders
+        geckoView.isVerticalScrollBarEnabled = false
+        geckoView.isHorizontalScrollBarEnabled = false
+
         geckoView.coverUntilFirstPaint(android.graphics.Color.parseColor("#121212"))
 
         urlBar = findViewById(R.id.url_bar)
@@ -403,6 +404,18 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         if (isFinishing) {
             GeckoRuntimeManager.shutdown()
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            // Release inactive tab sessions to free RAM before the OEM kills us
+            for (tab in tabs) {
+                if (tab != activeTab) {
+                    tab.session.setActive(false)
+                }
+            }
         }
     }
 }
