@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.ContentBlocking
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
@@ -47,18 +48,16 @@ class MainActivity : AppCompatActivity() {
     private val runtime: GeckoRuntime
         get() {
             if (geckoRuntime == null) {
-                val cbSettings = org.mozilla.geckoview.ContentBlocking.Settings.Builder()
-                    .categories(
-                        org.mozilla.geckoview.ContentBlocking.ANTI_TRACKING or 
-                        org.mozilla.geckoview.ContentBlocking.ANTI_CRYPTO_MINING or 
-                        org.mozilla.geckoview.ContentBlocking.ANTI_FINGERPRINTING or 
-                        org.mozilla.geckoview.ContentBlocking.SAFE_BROWSING_ALL
-                    )
-                    .cookieBehavior(org.mozilla.geckoview.ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
+                val cbSettings = ContentBlocking.Settings.Builder()
+                    .antiTracking(ContentBlocking.AntiTracking.STRICT)
+                    .safeBrowsing(ContentBlocking.SafeBrowsing.DEFAULT)
+                    .cookieBehavior(ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
                     .build()
 
                 val runtimeSettings = GeckoRuntimeSettings.Builder()
                     .contentBlocking(cbSettings)
+                    // OPTIMIZATION 1: Isolates extensions into their own sandboxed process
+                    .extensionsProcessEnabled(true) 
                     .build()
 
                 geckoRuntime = GeckoRuntime.create(applicationContext, runtimeSettings)
@@ -75,7 +74,6 @@ class MainActivity : AppCompatActivity() {
         urlBar = findViewById(R.id.url_bar)
 
         requestBatteryExemption()
-
         setupUIListeners()
         setupExtensionPrompts() 
         applyMenuPosition() 
@@ -83,7 +81,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupExtensionPrompts() {
-        // The modern GeckoView 153+ API for extension prompts
         runtime.webExtensionController.setPromptDelegate(object : WebExtensionController.PromptDelegate {
             override fun onInstallPromptRequest(
                 extension: WebExtension,
@@ -91,14 +88,19 @@ class MainActivity : AppCompatActivity() {
                 origins: Array<String>,
                 dataCollectionPermissions: Array<String>
             ): GeckoResult<WebExtension.PermissionPromptResponse>? {
+                // OPTIMIZATION 3: Prevent crashes if prompt triggers while app is minimized
+                if (isFinishing || isDestroyed) {
+                    return GeckoResult.fromValue(WebExtension.PermissionPromptResponse(false, false, false))
+                }
+
                 val result = GeckoResult<WebExtension.PermissionPromptResponse>()
                 runOnUiThread {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Install Extension?")
                         .setMessage("Do you want to install ${extension.metaData.name}?")
                         .setPositiveButton("Install") { _, _ -> 
-                            // Grant all permissions for seamless installation
-                            result.complete(WebExtension.PermissionPromptResponse(true, false, false)) 
+                            // Grant Standard, Private Browsing, and Optional permissions for full functionality
+                            result.complete(WebExtension.PermissionPromptResponse(true, true, true)) 
                         }
                         .setNegativeButton("Cancel") { _, _ -> 
                             result.complete(WebExtension.PermissionPromptResponse(false, false, false)) 
@@ -124,11 +126,11 @@ class MainActivity : AppCompatActivity() {
                 newOrigins: Array<String>,
                 newDataCollectionPermissions: Array<String>
             ): GeckoResult<AllowOrDeny>? {
+                // Auto-allow updates so extensions stay secure without manual intervention
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
         })
 
-        // The modern delegate for tracking installation state
         runtime.webExtensionController.setAddonManagerDelegate(object : WebExtensionController.AddonManagerDelegate {
             override fun onInstalled(extension: WebExtension) {
                 runOnUiThread {
@@ -136,6 +138,20 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    // OPTIMIZATION 2: Silently check for extension updates whenever the app is opened
+    private fun checkForExtensionUpdates() {
+        runtime.webExtensionController.list().accept { extensions ->
+            if (extensions.isNullOrEmpty()) return@accept
+            for (ext in extensions) {
+                try {
+                    runtime.webExtensionController.update(ext)
+                } catch (e: Exception) {
+                    // Silently ignore individual update failures
+                }
+            }
+        }
     }
 
     private fun setupUIListeners() {
@@ -185,7 +201,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     3 -> { 
                         runtime.webExtensionController.list().accept { extensions ->
-                            if (extensions.isEmpty()) {
+                            if (extensions.isNullOrEmpty()) {
                                 runOnUiThread { Toast.makeText(this@MainActivity, "No extensions to update.", Toast.LENGTH_SHORT).show() }
                                 return@accept
                             }
@@ -213,9 +229,16 @@ class MainActivity : AppCompatActivity() {
                     }
                     4 -> { 
                         runtime.webExtensionController.list().accept { extensions ->
-                            if (extensions.isNotEmpty()) {
-                                // Open the first extension's options page (e.g. uBlock Origin)
-                                runtime.webExtensionController.openOptionsPage(extensions[0])
+                            if (!extensions.isNullOrEmpty()) {
+                                val optionsUrl = extensions[0].metaData.optionsPageUrl
+                                if (optionsUrl != null) {
+                                    createNewSession()
+                                    activeTab.session.loadUri(optionsUrl)
+                                } else {
+                                    runOnUiThread {
+                                        Toast.makeText(this, "No settings page available.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             } else {
                                 runOnUiThread {
                                     Toast.makeText(this, "No extensions installed.", Toast.LENGTH_SHORT).show()
@@ -404,5 +427,7 @@ class MainActivity : AppCompatActivity() {
         if (::activeTab.isInitialized) {
             activeTab.session.setActive(true)
         }
+        // Trigger silent background update check every time the app is opened
+        checkForExtensionUpdates()
     }
 }
