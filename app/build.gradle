@@ -59,4 +59,5 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
+    implementation 'androidx.security:security-crypto:1.1.0'
 }
