@@ -35,7 +35,7 @@ data class TabInfo(
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        // Pure dark background to match Material 3 Dark theme and prevent white flash on new tabs
+        // Pure dark background to match Material 3 Dark theme
         const val INTERNAL_HOME_URI = "data:text/html,<html><body style='background-color:%23121212;margin:0;'></body></html>"
     }
 
@@ -58,6 +58,10 @@ class MainActivity : AppCompatActivity() {
         extensionManager.setupDelegates()
 
         geckoView = findViewById(R.id.gecko_view)
+        
+        // MAGIC FIX 2: Covers the SurfaceView with dark gray until the first frame renders
+        geckoView.coverUntilFirstPaint(android.graphics.Color.parseColor("#121212"))
+
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
@@ -267,7 +271,7 @@ class MainActivity : AppCompatActivity() {
             }
             activeTab.session.loadUri(finalUrl)
         } else {
-            // Switched to Brave Search
+            // Brave Search
             activeTab.session.loadUri("https://search.brave.com/search?q=$trimmed")
         }
         
@@ -282,7 +286,7 @@ class MainActivity : AppCompatActivity() {
         tabs.add(tab)
         setupDelegates(tab)
         switchToSession(tab)
-        // Load internal dark blank page instantly instead of hijacking the tab with a website
+        // Load internal dark blank page instantly
         session.loadUri(INTERNAL_HOME_URI) 
     }
 
