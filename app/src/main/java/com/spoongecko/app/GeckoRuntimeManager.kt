@@ -18,9 +18,9 @@ object GeckoRuntimeManager {
 
             val runtimeSettings = GeckoRuntimeSettings.Builder()
                 .contentBlocking(cbSettings)
-                .extensionsProcessEnabled(true) // Sandboxes extensions in their own RAM pool
-                // Note: Console output and about:config are automatically optimized/disabled 
-                // in modern production builds of GeckoView 153+
+                .extensionsProcessEnabled(true)
+                // MAGIC FIX 1: Force Dark Mode for web content to prevent white flashes
+                .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK) 
                 .build()
 
             runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
@@ -28,8 +28,6 @@ object GeckoRuntimeManager {
         return runtime!!
     }
 
-    // Optimization: Graceful Shutdown
-    // Cleanly kills the C++ engine threads so OEMs don't flag the app as a "zombie" battery drainer
     fun shutdown() {
         runtime?.shutdown()
         runtime = null
