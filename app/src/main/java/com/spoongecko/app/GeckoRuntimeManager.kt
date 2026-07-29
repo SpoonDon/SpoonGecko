@@ -19,7 +19,7 @@ object GeckoRuntimeManager {
             val runtimeSettings = GeckoRuntimeSettings.Builder()
                 .contentBlocking(cbSettings)
                 .extensionsProcessEnabled(true) // Sandboxes extensions in their own RAM pool
-                .crashReportingEnabled(false)   // Optimization: Prevents background network wakeups
+                // Note: Crash reporting is disabled by default for third-party apps in modern GeckoView
                 .build()
 
             runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
