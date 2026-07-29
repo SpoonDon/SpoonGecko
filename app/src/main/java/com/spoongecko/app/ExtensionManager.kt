@@ -57,18 +57,12 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
                 return@accept
             }
             
-            // Try to find an extension with a standard options page
+            // Safely find an extension with a standard options page URL
             val extWithDashboard = extensions.firstOrNull { it.metaData.optionsPageUrl != null }
             if (extWithDashboard != null) {
                 onSuccess(extWithDashboard.metaData.optionsPageUrl!!)
             } else {
-                // Fallback: Try to trigger the native openOptionsPage API for popup-based extensions
-                try {
-                    runtime.webExtensionController.openOptionsPage(extensions[0])
-                    onError("Opened extension popup.") // Technically a success, but we notify the user
-                } catch (e: Exception) {
-                    onError("This extension manages settings via its own UI.")
-                }
+                onError("This extension has no settings page.")
             }
         }
     }
