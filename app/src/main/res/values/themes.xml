@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.SpoonGecko" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- MAGIC FIX: Paints the Android OS preview window with the app theme to stop the white flash -->
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        
+        <!-- Blends the system status and navigation bars seamlessly into the app -->
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:navigationBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+    </style>
+</resources>
