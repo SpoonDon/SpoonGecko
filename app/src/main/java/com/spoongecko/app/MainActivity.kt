@@ -138,7 +138,8 @@ class MainActivity : AppCompatActivity() {
             if (hasFocus) v.post { (v as android.widget.AutoCompleteTextView).selectAll() } 
         }
         // Setup Local History & Bookmark Suggestions
-val suggestionAdapter = android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, mutableListOf<String>())
+val suggestionList = mutableListOf<String>()
+val suggestionAdapter = NoFilterAdapter(this, android.R.layout.simple_list_item_1, suggestionList)
 urlBar.setAdapter(suggestionAdapter)
 urlBar.threshold = 1
 
@@ -148,11 +149,11 @@ urlBar.addTextChangedListener(object : android.text.TextWatcher {
         val query = s.toString()
         if (query.isNotEmpty()) {
             val suggestions = dbHelper.getSuggestions(query)
-            suggestionAdapter.clear()
-            suggestionAdapter.addAll(suggestions)
+            suggestionList.clear()
+            suggestionList.addAll(suggestions)
             suggestionAdapter.notifyDataSetChanged()
             
-            if (urlBar.hasFocus() && suggestions.isNotEmpty()) {
+            if (urlBar.hasFocus() && suggestionList.isNotEmpty()) {
                 urlBar.showDropDown()
             } else {
                 urlBar.dismissDropDown()
