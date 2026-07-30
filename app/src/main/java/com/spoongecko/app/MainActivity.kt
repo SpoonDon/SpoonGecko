@@ -32,6 +32,10 @@ import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
+// ============================================================================
+// DATA MODEL
+// ============================================================================
+
 data class TabInfo(
     val session: GeckoSession,
     var title: String = "New Tab",
@@ -40,25 +44,32 @@ data class TabInfo(
     var canGoForward: Boolean = false
 )
 
+// ============================================================================
+// MAIN ACTIVITY
+// ============================================================================
+
 class MainActivity : AppCompatActivity() {
 
+    // --- Views ---
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
+    private var swipeRefresh: SwipeRefreshLayout? = null // Nullable for safety
 
+    // --- Managers ---
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
 
+    // --- Tabs ---
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
 
+    // --- Engine ---
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
 
-    @Volatile private var isPageAtTop = true
-
+    // --- CSV Export/Import ---
     private var pendingExportData: String = ""
 
     private val exportLauncher = registerForActivityResult(
@@ -91,6 +102,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ========================================================================
+    // LIFECYCLE
+    // ========================================================================
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -104,16 +119,34 @@ class MainActivity : AppCompatActivity() {
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
+        
+        // Safe initialization of SwipeRefreshLayout (Pull-to-Refresh)
+        try {
+            swipeRefresh = findViewById(R.id.swipe_refresh)
+            setupPullToRefresh()
+        } catch (e: Exception) {
+            // Layout might not have it yet, ignore safely
+        }
 
         geckoView.isVerticalScrollBarEnabled = false
         geckoView.isHorizontalScrollBarEnabled = false
         geckoView.coverUntilFirstPaint(Color.parseColor("#121212"))
 
-        setupPullToRefresh()
         requestBatteryExemption()
         setupUIListeners()
         setupSystemBackButton()
         createNewSession()
+    }
+
+    private fun setupPullToRefresh() {
+        swipeRefresh?.let { sr ->
+            sr.setColorSchemeColors(Color.parseColor("#8AB4F8"))
+            sr.setProgressBackgroundColorSchemeColor(Color.parseColor("#202124"))
+            sr.setOnRefreshListener {
+                if (::activeTab.isInitialized) activeTab.session.reload()
+                sr.postDelayed({ sr.isRefreshing = false }, 5000)
+            }
+        }
     }
 
     override fun onStart() { super.onStart(); stopService(Intent(this, KeepAliveService::class.java)) }
@@ -124,21 +157,9 @@ class MainActivity : AppCompatActivity() {
     @Suppress("KotlinConstantConditions")
     override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
 
-    private fun setupPullToRefresh() {
-        swipeRefresh = findViewById(R.id.swipe_refresh)
-        swipeRefresh.setColorSchemeColors(Color.parseColor("#8AB4F8"))
-        swipeRefresh.setProgressBackgroundColorSchemeColor(Color.parseColor("#202124"))
-
-        swipeRefresh.setOnRefreshListener {
-            if (::activeTab.isInitialized) {
-                activeTab.session.reload()
-                swipeRefresh.postDelayed({ swipeRefresh.isRefreshing = false }, 10000)
-            } else {
-                swipeRefresh.isRefreshing = false
-            }
-        }
-        swipeRefresh.setOnChildScrollUpCallback { _, _ -> !isPageAtTop }
-    }
+    // ========================================================================
+    // SYSTEM BACK
+    // ========================================================================
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -146,18 +167,29 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // ========================================================================
+    // UI LISTENERS
+    // ========================================================================
+
     private fun setupUIListeners() {
         urlBar.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
                 loadUrlOrSearch(v.text.toString()); true
             } else false
         }
-        urlBar.setOnFocusChangeListener { v, hasFocus -> if (hasFocus) (v as EditText).selectAll() }
+        // FIX: Auto-select URL properly
+        urlBar.setOnFocusChangeListener { v, hasFocus -> 
+            if (hasFocus) v.post { (v as EditText).selectAll() } 
+        }
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { showMenuOptions() }
     }
+
+    // ========================================================================
+    // NAVIGATION
+    // ========================================================================
 
     private fun handleBackNavigation() {
         if (!::activeTab.isInitialized) { exitApp(); return }
@@ -198,6 +230,10 @@ class MainActivity : AppCompatActivity() {
         btnForward.isEnabled = ::activeTab.isInitialized && activeTab.canGoForward
     }
 
+    // ========================================================================
+    // TAB MANAGEMENT
+    // ========================================================================
+
     private fun createNewSession() {
         val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
         session.open(runtime)
@@ -235,105 +271,57 @@ class MainActivity : AppCompatActivity() {
         bottomSheet.setContentView(view); bottomSheet.show()
     }
 
-    private val PAGE_BRIDGE_JS = """
+    // ========================================================================
+    // VAULT AUTO-SAVE (The "Title Bridge" Method)
+    // This JS runs on every page. When a form is submitted, it briefly changes
+    // the document title to send a message to the native app, then reverts it.
+    // ========================================================================
+
+    private val AUTOSAVE_JS = """
         (function() {
-            if (window.__spoonBridgeInjected) return;
-            window.__spoonBridgeInjected = true;
-            var lastCapture = 0;
-
-            function sendToNative(url) {
+            if (window.__spoonVaultInjected) return;
+            window.__spoonVaultInjected = true;
+            function capture(form) {
                 try {
-                    var iframe = document.createElement('iframe');
-                    iframe.style.display = 'none';
-                    iframe.src = url;
-                    (document.body || document.documentElement).appendChild(iframe);
-                    setTimeout(function() { iframe.remove(); }, 500);
-                } catch(e) {}
-            }
-
-            function captureCredentials(context) {
-                var now = Date.now();
-                if (now - lastCapture < 3000) return;
-                try {
-                    var passField = context.querySelector('input[type="password"]');
-                    if (!passField || !passField.value) return;
-                    var userField = context.querySelector('input[type="email"], input[autocomplete="username"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"]');
-                    if (!userField) {
-                        var inputs = context.querySelectorAll('input[type="text"], input:not([type])');
-                        for (var i = 0; i < inputs.length; i++) {
-                            if (inputs[i].value) { userField = inputs[i]; break; }
-                        }
-                    }
-                    var username = userField ? userField.value : '';
-                    var password = passField.value;
-                    if (password.length > 0) {
-                        lastCapture = now;
-                        var host = window.location.hostname.replace(/^www\./, '');
-                        sendToNative('spoonvault://save?host=' + encodeURIComponent(host) + '&user=' + encodeURIComponent(username) + '&pass=' + encodeURIComponent(password));
+                    var pass = form.querySelector('input[type="password"]');
+                    if (!pass || !pass.value) return;
+                    var user = form.querySelector('input[type="email"], input[autocomplete="username"], input[name*="user"], input[name*="email"]') ||
+                               Array.from(form.querySelectorAll('input[type="text"]')).find(i => i.value);
+                    var u = user ? user.value : '';
+                    var p = pass.value;
+                    if (p.length > 0) {
+                        var h = window.location.hostname.replace(/^www\./, '');
+                        var msg = 'SPOON_VAULT_SAVE:' + JSON.stringify({host:h, user:u, pass:p});
+                        var originalTitle = document.title;
+                        document.title = msg;
+                        setTimeout(function() { document.title = originalTitle; }, 100);
                     }
                 } catch(e) {}
             }
-
-            function monitorForm(form) {
-                if (form.__spoonMonitored) return;
-                form.__spoonMonitored = true;
-                form.addEventListener('submit', function() { captureCredentials(form); });
-            }
-
-            function init() {
-                document.querySelectorAll('form').forEach(monitorForm);
-
-                // Backup for AJAX logins: explicit submit-button clicks
-                document.addEventListener('click', function(e) {
-                    var el = e.target;
-                    while (el && el !== document) {
-                        if (el.tagName === 'BUTTON' && el.type === 'submit' && el.form) {
-                            captureCredentials(el.form);
-                            return;
-                        }
-                        el = el.parentNode;
-                    }
-                }, true);
-
-                // Scroll state reporting for pull-to-refresh (only on state change)
-                var lastAtTop = (window.scrollY <= 1);
-                window.addEventListener('scroll', function() {
-                    var atTop = (window.scrollY <= 1);
-                    if (atTop !== lastAtTop) {
-                        lastAtTop = atTop;
-                        sendToNative('spoonvault://scroll?atTop=' + atTop);
-                    }
-                }, { passive: true });
-
-                // Watch dynamically added forms (SPAs)
-                var observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(m) {
-                        m.addedNodes.forEach(function(node) {
-                            if (node.tagName === 'FORM') monitorForm(node);
-                            if (node.querySelectorAll) node.querySelectorAll('form').forEach(monitorForm);
-                        });
+            document.querySelectorAll('form').forEach(f => {
+                if(!f.__m) { f.__m=1; f.addEventListener('submit', () => capture(f)); }
+            });
+            var obs = new MutationObserver(muts => {
+                muts.forEach(m => m.addedNodes.forEach(n => {
+                    if(n.tagName==='FORM' && !n.__m) { n.__m=1; n.addEventListener('submit', () => capture(n)); }
+                    if(n.querySelectorAll) n.querySelectorAll('form').forEach(f => {
+                        if(!f.__m) { f.__m=1; f.addEventListener('submit', () => capture(f)); }
                     });
-                });
-                observer.observe(document.documentElement, { childList: true, subtree: true });
-            }
-
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', init);
-            } else {
-                init();
-            }
+                }));
+            });
+            obs.observe(document.documentElement, {childList:true, subtree:true});
         })();
     """.trimIndent()
 
-    private fun setupDelegates(tab: TabInfo) {
-        tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+    // ========================================================================
+    // GECKO DELEGATES
+    // ========================================================================
 
+    private fun setupDelegates(tab: TabInfo) {
+        // 1. NAVIGATION (Back/Forward, History, XPI downloads)
+        tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
-                if (uri.startsWith("spoonvault://")) {
-                    handleBridgeUri(uri)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
-                }
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -344,22 +332,11 @@ class MainActivity : AppCompatActivity() {
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
 
-            override fun onSubframeLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
-                val uri = request.uri
-                if (uri.startsWith("spoonvault://")) {
-                    handleBridgeUri(uri)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
-                }
-                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
-            }
-
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
                     if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
-                        // New document committed: scroll resets to top
-                        isPageAtTop = true
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("javascript:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
@@ -376,33 +353,40 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // 2. PROGRESS (Page Load Completion -> Inject JS)
+        // FIX: onPageStop lives in ProgressDelegate, NOT NavigationDelegate!
+        tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
+            override fun onPageStop(session: GeckoSession, success: Boolean) {
+                if (success) {
+                    session.loadUri("javascript:$AUTOSAVE_JS")
+                }
+            }
+        }
+
+        // 3. CONTENT (Title Bridge + Title Update)
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
+                // Intercept Vault Signal
+                if (title != null && title.startsWith("SPOON_VAULT_SAVE:")) {
+                    val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
+                    handleAutoSaveJson(jsonStr)
+                    return // Do not update the tab title to this signal
+                }
+                
+                // Normal Title Update
                 title?.let {
                     tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 }
-                runOnUiThread { if (swipeRefresh.isRefreshing) swipeRefresh.isRefreshing = false }
-                session.loadUri("javascript:$PAGE_BRIDGE_JS")
             }
         }
     }
 
-    private fun handleBridgeUri(uri: String) {
-        when {
-            uri.startsWith("spoonvault://save") -> handleAutoSaveUri(uri)
-            uri.startsWith("spoonvault://scroll") -> {
-                val atTop = Uri.parse(uri).getQueryParameter("atTop") == "true"
-                isPageAtTop = atTop
-            }
-        }
-    }
-
-    private fun handleAutoSaveUri(uri: String) {
+    private fun handleAutoSaveJson(jsonStr: String) {
         try {
-            val parsed = Uri.parse(uri)
-            val host = parsed.getQueryParameter("host") ?: return
-            val user = parsed.getQueryParameter("user") ?: ""
-            val pass = parsed.getQueryParameter("pass") ?: return
+            val obj = org.json.JSONObject(jsonStr)
+            val host = obj.optString("host") ?: return
+            val user = obj.optString("user") ?: ""
+            val pass = obj.optString("pass") ?: return
             if (pass.isEmpty()) return
 
             val ignored = getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).getBoolean(host, false)
@@ -412,13 +396,22 @@ class MainActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Save Credentials?")
                     .setMessage("Save login for $host?\n\nUsername: ${user.ifEmpty { "(empty)" }}")
-                    .setPositiveButton("Save") { _, _ -> vaultManager.saveCredentials(host, user, pass); Toast.makeText(this, "Saved to vault.", Toast.LENGTH_SHORT).show() }
+                    .setPositiveButton("Save") { _, _ -> 
+                        vaultManager.saveCredentials(host, user, pass)
+                        Toast.makeText(this, "Saved to vault.", Toast.LENGTH_SHORT).show() 
+                    }
                     .setNegativeButton("Not Now", null)
-                    .setNeutralButton("Never") { _, _ -> getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).edit().putBoolean(host, true).apply() }
+                    .setNeutralButton("Never") { _, _ -> 
+                        getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).edit().putBoolean(host, true).apply() 
+                    }
                     .show()
             }
         } catch (e: Exception) { }
     }
+
+    // ========================================================================
+    // MENU
+    // ========================================================================
 
     private fun showMenuOptions() {
         val normal = { text: String -> SpannableString(text) as CharSequence }
@@ -449,6 +442,10 @@ class MainActivity : AppCompatActivity() {
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid())
     }
+
+    // ========================================================================
+    // EXTENSIONS
+    // ========================================================================
 
     private fun showExtensionsMenu() {
         val options = arrayOf("Add-ons Store", "Manage Extensions", "Check for Updates")
@@ -511,6 +508,10 @@ class MainActivity : AppCompatActivity() {
         bottomSheet.show()
     }
 
+    // ========================================================================
+    // HISTORY
+    // ========================================================================
+
     private fun openHistoryManager() {
         val bottomSheet = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.sheet_history, null)
@@ -543,6 +544,10 @@ class MainActivity : AppCompatActivity() {
         }
         bottomSheet.setContentView(view); bottomSheet.show()
     }
+
+    // ========================================================================
+    // BOOKMARKS
+    // ========================================================================
 
     private fun openBookmarkManager() {
         val bottomSheet = BottomSheetDialog(this)
@@ -585,6 +590,10 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save") { _, _ -> dbHelper.updateBookmark(entry.id, titleInput.text.toString(), urlInput.text.toString()); onSaved() }
             .setNegativeButton("Cancel", null).show()
     }
+
+    // ========================================================================
+    // VAULT
+    // ========================================================================
 
     private fun showVaultMenu() {
         val options = arrayOf("Copy for Current Site", "Save Current Page Credentials", "Manage All Credentials", "Export Vault (CSV)", "Import Vault (CSV)")
@@ -671,6 +680,10 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null).show()
     }
 
+    // ========================================================================
+    // VAULT CSV IMPORT / EXPORT
+    // ========================================================================
+
     private fun exportVaultCsv() {
         val json = vaultManager.getAllCredentialsAsJson()
         try {
@@ -720,6 +733,10 @@ class MainActivity : AppCompatActivity() {
         result.add(current.toString())
         return result
     }
+
+    // ========================================================================
+    // BATTERY
+    // ========================================================================
 
     private fun requestBatteryExemption() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
