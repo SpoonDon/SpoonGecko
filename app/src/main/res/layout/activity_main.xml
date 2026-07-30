@@ -56,8 +56,10 @@
                 android:paddingEnd="8dp"    
                 android:singleLine="true"    
                 android:textSize="16sp"    
-                android:completionThreshold="1"    
-                android:dropDownHeight="250dp"    
+                android:completionThreshold="1"
+                android:dropDownHeight="250dp"
+                android:dropDownAnchor="@id/top_bar"
+                android:dropDownWidth="match_parent"
                 android:popupBackground="?attr/colorSurface"    
                 android:textColor="?attr/colorOnSurface" />
 
