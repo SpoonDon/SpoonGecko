@@ -85,6 +85,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- File Prompt Handling (For Extension File Access) ---
+    private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
+    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
+
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        val prompt = pendingFilePrompt
+        val result = pendingFileResult
+        pendingFilePrompt = null
+        pendingFileResult = null
+
+        if (prompt != null && result != null) {
+            if (uris.isNullOrEmpty()) {
+                result.complete(prompt.dismiss())
+            } else {
+                if (prompt.type == GeckoSession.PromptDelegate.FilePrompt.TYPE_SINGLE) {
+                    result.complete(prompt.confirm(uris[0]))
+                } else {
+                    result.complete(prompt.confirm(uris.toTypedArray()))
+                }
+            }
+        }
+    }
+
+    private fun launchFilePicker(mimeTypes: Array<String>?) {
+        val types = if (mimeTypes.isNullOrEmpty()) arrayOf("*/*") else mimeTypes
+        try {
+            filePickerLauncher.launch(types)
+        } catch (e: Exception) {
+            // Fallback if specific mime types fail on certain OEM ROMs
+            filePickerLauncher.launch(arrayOf("*/*"))
+        }
+    }
+
     private val importLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -341,18 +376,33 @@ class MainActivity : AppCompatActivity() {
 
         // 3. CONTENT (Intercept Title Bridge)
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) {
-                if (title != null && title.startsWith("SPOON_VAULT_SAVE:")) {
-                    val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
-                    handleAutoSaveJson(jsonStr)
-                    return
-                }
-                title?.let {
-                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
-                }
+        override fun onTitleChange(session: GeckoSession, title: String?) {
+            // Keep your existing Title Bridge logic here!
+            if (title != null && title.startsWith("SPOON_VAULT_SAVE:")) {
+                val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
+                handleAutoSaveJson(jsonStr)
+                return
+            }
+            title?.let {
+                tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
             }
         }
     }
+
+    // 4. PROMPT (File picker for extensions like uBlock restore)
+    tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
+        override fun onFilePrompt(
+            session: GeckoSession,
+            prompt: GeckoSession.PromptDelegate.FilePrompt
+        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+            pendingFilePrompt = prompt
+            pendingFileResult = result
+            launchFilePicker(prompt.mimeTypes)
+            return result
+        }
+    }
+}
 
     private fun handleAutoSaveJson(jsonStr: String) {
         try {
@@ -391,16 +441,25 @@ class MainActivity : AppCompatActivity() {
         val redText = SpannableString("Exit App")
         redText.setSpan(ForegroundColorSpan(Color.RED), 0, redText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
 
-        val options = arrayOf<CharSequence>(normal("History"), normal("Bookmarks"), normal("Vault"), normal("Extensions"), normal("Clear Browsing Data"), redText)
+        val options = arrayOf<CharSequence>(
+            normal("Reload Page"),
+            normal("History"), 
+            normal("Bookmarks"), 
+            normal("Vault"), 
+            normal("Extensions"), 
+            normal("Clear Browsing Data"), 
+            redText
+        )
 
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
-                0 -> openHistoryManager()
-                1 -> openBookmarkManager()
-                2 -> showVaultMenu()
-                3 -> showExtensionsMenu()
-                4 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                5 -> exitApp()
+                0 -> if (::activeTab.isInitialized) activeTab.session.reload()
+                1 -> openHistoryManager()
+                2 -> openBookmarkManager()
+                3 -> showVaultMenu()
+                4 -> showExtensionsMenu()
+                5 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
+                6 -> exitApp()
             }
         }.show()
     }
