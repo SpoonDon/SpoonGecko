@@ -42,7 +42,7 @@ data class TabInfo(
 class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
-    private lateinit var urlBar: EditText
+    private lateinit var urlBar: android.widget.AutoCompleteTextView
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
     private lateinit var extensionManager: ExtensionManager
@@ -135,9 +135,39 @@ class MainActivity : AppCompatActivity() {
         }
         // FIX: Single tap to select all with post{} wrapper
         urlBar.setOnFocusChangeListener { v, hasFocus -> 
-            if (hasFocus) v.post { (v as EditText).selectAll() } 
+            if (hasFocus) v.post { (v as android.widget.AutoCompleteTextView).selectAll() } 
         }
-        btnBack.setOnClickListener { handleBackNavigation() }
+        // Setup Local History & Bookmark Suggestions
+val suggestionAdapter = android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, mutableListOf<String>())
+urlBar.setAdapter(suggestionAdapter)
+
+urlBar.addTextChangedListener(object : android.text.TextWatcher {
+    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+        val query = s.toString()
+        if (query.isNotEmpty()) {
+            val suggestions = dbHelper.getSuggestions(query)
+            suggestionAdapter.clear()
+            suggestionAdapter.addAll(suggestions)
+            suggestionAdapter.notifyDataSetChanged()
+            if (urlBar.hasFocus() && suggestions.isNotEmpty()) {
+                urlBar.showDropDown()
+            }
+        } else {
+            urlBar.dismissDropDown()
+        }
+    }
+    override fun afterTextChanged(s: android.text.Editable?) {}
+})
+
+urlBar.setOnItemClickListener { parent, _, position, _ ->
+    val selectedUrl = parent.getItemAtPosition(position).toString()
+    urlBar.setText(selectedUrl)
+    urlBar.setSelection(selectedUrl.length)
+    loadUrlOrSearch(selectedUrl)
+}
+
+btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { showMenuOptions() }
