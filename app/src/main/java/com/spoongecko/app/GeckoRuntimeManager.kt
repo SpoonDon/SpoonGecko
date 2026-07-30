@@ -11,7 +11,7 @@ object GeckoRuntimeManager {
     fun getRuntime(context: Context): GeckoRuntime {
         if (runtime == null) {
             val cbSettings = ContentBlocking.Settings.Builder()
-                .antiTracking(ContentBlocking.AntiTracking.STRICT)
+                .antiTracking(ContentBlocking.AntiTracking.STANDARD)
                 .safeBrowsing(ContentBlocking.SafeBrowsing.DEFAULT)
                 .cookieBehavior(ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
                 .build()
