@@ -23,6 +23,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
@@ -42,6 +43,7 @@ data class TabInfo(
 class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
@@ -54,6 +56,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var activeTab: TabInfo
 
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
+
+    @Volatile private var isPageAtTop = true
 
     private var pendingExportData: String = ""
 
@@ -105,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         geckoView.isHorizontalScrollBarEnabled = false
         geckoView.coverUntilFirstPaint(Color.parseColor("#121212"))
 
+        setupPullToRefresh()
         requestBatteryExemption()
         setupUIListeners()
         setupSystemBackButton()
@@ -118,6 +123,22 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("KotlinConstantConditions")
     override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
+
+    private fun setupPullToRefresh() {
+        swipeRefresh = findViewById(R.id.swipe_refresh)
+        swipeRefresh.setColorSchemeColors(Color.parseColor("#8AB4F8"))
+        swipeRefresh.setProgressBackgroundColorSchemeColor(Color.parseColor("#202124"))
+
+        swipeRefresh.setOnRefreshListener {
+            if (::activeTab.isInitialized) {
+                activeTab.session.reload()
+                swipeRefresh.postDelayed({ swipeRefresh.isRefreshing = false }, 10000)
+            } else {
+                swipeRefresh.isRefreshing = false
+            }
+        }
+        swipeRefresh.setOnChildScrollUpCallback { _, _ -> !isPageAtTop }
+    }
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -214,32 +235,77 @@ class MainActivity : AppCompatActivity() {
         bottomSheet.setContentView(view); bottomSheet.show()
     }
 
-    private val AUTOSAVE_JS = """
+    private val PAGE_BRIDGE_JS = """
         (function() {
-            if (window.__spoonVaultInjected) return;
-            window.__spoonVaultInjected = true;
+            if (window.__spoonBridgeInjected) return;
+            window.__spoonBridgeInjected = true;
+            var lastCapture = 0;
+
+            function sendToNative(url) {
+                try {
+                    var iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = url;
+                    (document.body || document.documentElement).appendChild(iframe);
+                    setTimeout(function() { iframe.remove(); }, 500);
+                } catch(e) {}
+            }
+
+            function captureCredentials(context) {
+                var now = Date.now();
+                if (now - lastCapture < 3000) return;
+                try {
+                    var passField = context.querySelector('input[type="password"]');
+                    if (!passField || !passField.value) return;
+                    var userField = context.querySelector('input[type="email"], input[autocomplete="username"], input[name*="user"], input[name*="email"], input[name*="login"], input[id*="user"], input[id*="email"]');
+                    if (!userField) {
+                        var inputs = context.querySelectorAll('input[type="text"], input:not([type])');
+                        for (var i = 0; i < inputs.length; i++) {
+                            if (inputs[i].value) { userField = inputs[i]; break; }
+                        }
+                    }
+                    var username = userField ? userField.value : '';
+                    var password = passField.value;
+                    if (password.length > 0) {
+                        lastCapture = now;
+                        var host = window.location.hostname.replace(/^www\./, '');
+                        sendToNative('spoonvault://save?host=' + encodeURIComponent(host) + '&user=' + encodeURIComponent(username) + '&pass=' + encodeURIComponent(password));
+                    }
+                } catch(e) {}
+            }
+
+            function monitorForm(form) {
+                if (form.__spoonMonitored) return;
+                form.__spoonMonitored = true;
+                form.addEventListener('submit', function() { captureCredentials(form); });
+            }
+
             function init() {
-                function monitorForm(form) {
-                    form.addEventListener('submit', function() {
-                        try {
-                            var passField = form.querySelector('input[type="password"]');
-                            if (!passField || !passField.value) return;
-                            var userField = form.querySelector('input[type="email"], input[type="text"], input[name*="user"], input[name*="email"], input[name*="login"], input[autocomplete="username"]');
-                            var username = userField ? userField.value : '';
-                            var password = passField.value;
-                            if (password.length > 0) {
-                                var host = window.location.hostname.replace(/^www\./, '');
-                                var url = 'spoonvault://save?host=' + encodeURIComponent(host) + '&user=' + encodeURIComponent(username) + '&pass=' + encodeURIComponent(password);
-                                var iframe = document.createElement('iframe');
-                                iframe.style.display = 'none';
-                                iframe.src = url;
-                                document.body.appendChild(iframe);
-                                setTimeout(function() { iframe.remove(); }, 1000);
-                            }
-                        } catch(e) {}
-                    });
-                }
                 document.querySelectorAll('form').forEach(monitorForm);
+
+                // Backup for AJAX logins: explicit submit-button clicks
+                document.addEventListener('click', function(e) {
+                    var el = e.target;
+                    while (el && el !== document) {
+                        if (el.tagName === 'BUTTON' && el.type === 'submit' && el.form) {
+                            captureCredentials(el.form);
+                            return;
+                        }
+                        el = el.parentNode;
+                    }
+                }, true);
+
+                // Scroll state reporting for pull-to-refresh (only on state change)
+                var lastAtTop = (window.scrollY <= 1);
+                window.addEventListener('scroll', function() {
+                    var atTop = (window.scrollY <= 1);
+                    if (atTop !== lastAtTop) {
+                        lastAtTop = atTop;
+                        sendToNative('spoonvault://scroll?atTop=' + atTop);
+                    }
+                }, { passive: true });
+
+                // Watch dynamically added forms (SPAs)
                 var observer = new MutationObserver(function(mutations) {
                     mutations.forEach(function(m) {
                         m.addedNodes.forEach(function(node) {
@@ -248,8 +314,9 @@ class MainActivity : AppCompatActivity() {
                         });
                     });
                 });
-                observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                observer.observe(document.documentElement, { childList: true, subtree: true });
             }
+
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', init);
             } else {
@@ -263,12 +330,10 @@ class MainActivity : AppCompatActivity() {
 
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
-
-                if (uri.startsWith("spoonvault://save")) {
-                    handleAutoSaveUri(uri)
+                if (uri.startsWith("spoonvault://")) {
+                    handleBridgeUri(uri)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
-
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -279,16 +344,26 @@ class MainActivity : AppCompatActivity() {
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
 
+            override fun onSubframeLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
+                val uri = request.uri
+                if (uri.startsWith("spoonvault://")) {
+                    handleBridgeUri(uri)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+            }
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
-            url?.let {
-                tab.url = it
-                if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://")) {
-                    Thread { dbHelper.addHistory(it, tab.title) }.start()
-                    session.loadUri("javascript:$AUTOSAVE_JS")
+                url?.let {
+                    tab.url = it
+                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
+                        // New document committed: scroll resets to top
+                        isPageAtTop = true
+                        Thread { dbHelper.addHistory(it, tab.title) }.start()
+                    }
                 }
             }
-        }
 
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
@@ -306,6 +381,18 @@ class MainActivity : AppCompatActivity() {
                 title?.let {
                     tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 }
+                runOnUiThread { if (swipeRefresh.isRefreshing) swipeRefresh.isRefreshing = false }
+                session.loadUri("javascript:$PAGE_BRIDGE_JS")
+            }
+        }
+    }
+
+    private fun handleBridgeUri(uri: String) {
+        when {
+            uri.startsWith("spoonvault://save") -> handleAutoSaveUri(uri)
+            uri.startsWith("spoonvault://scroll") -> {
+                val atTop = Uri.parse(uri).getQueryParameter("atTop") == "true"
+                isPageAtTop = atTop
             }
         }
     }
