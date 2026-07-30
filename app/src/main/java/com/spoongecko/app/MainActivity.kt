@@ -87,29 +87,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // File picker for extensions
-    private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
-    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
-
-    private val filePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        val prompt = pendingFilePrompt
-        val result = pendingFileResult
-        pendingFilePrompt = null
-        pendingFileResult = null
-
-        if (prompt != null && result != null) {
-            if (uris.isNullOrEmpty()) {
-                result.complete(prompt.dismiss())
-            } else if (uris.size == 1) {
-                result.complete(prompt.confirm(this@MainActivity, uris[0]))
-            } else {
-                result.complete(prompt.confirm(this@MainActivity, uris.toTypedArray()))
-            }
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -136,6 +113,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() { super.onStart(); stopService(Intent(this, KeepAliveService::class.java)) }
     override fun onStop() { super.onStop(); startForegroundService(Intent(this, KeepAliveService::class.java)) }
+    
+    // FIX: Do NOT call setActive(false) here to prevent grey screen
     override fun onPause() { super.onPause() }
     override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
 
@@ -154,7 +133,10 @@ class MainActivity : AppCompatActivity() {
                 loadUrlOrSearch(v.text.toString()); true
             } else false
         }
-        urlBar.setOnFocusChangeListener { v, hasFocus -> if (hasFocus) (v as EditText).selectAll() }
+        // FIX: Single tap to select all with post{} wrapper
+        urlBar.setOnFocusChangeListener { v, hasFocus -> 
+            if (hasFocus) v.post { (v as EditText).selectAll() } 
+        }
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
@@ -177,7 +159,6 @@ class MainActivity : AppCompatActivity() {
         val isDomain = domainPattern.matcher(trimmed).matches()
         val isLocalhost = trimmed.equals("localhost", ignoreCase = true)
         val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost
-
         if (isUrl) {
             val finalUrl = when {
                 trimmed.startsWith("http") -> trimmed
@@ -290,7 +271,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
-
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
@@ -300,26 +280,20 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-        }
-
-        tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
         }
-
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
@@ -336,10 +310,8 @@ class MainActivity : AppCompatActivity() {
             val user = parsed.getQueryParameter("user") ?: ""
             val pass = parsed.getQueryParameter("pass") ?: return
             if (pass.isEmpty()) return
-
             val ignored = getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).getBoolean(host, false)
             if (ignored) return
-
             runOnUiThread {
                 AlertDialog.Builder(this)
                     .setTitle("Save Credentials?")
@@ -356,17 +328,75 @@ class MainActivity : AppCompatActivity() {
         val normal = { text: String -> SpannableString(text) as CharSequence }
         val redText = SpannableString("Exit App")
         redText.setSpan(ForegroundColorSpan(Color.RED), 0, redText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        val options = arrayOf<CharSequence>(normal("History"), normal("Bookmarks"), normal("Vault"), normal("Extensions"), normal("Clear Browsing Data"), redText)
+
+        val options = arrayOf<CharSequence>(
+            normal("Reload Page"),
+            normal("Copy Site ID"),
+            normal("Copy Site Password"),
+            normal("History"),
+            normal("Bookmarks"),
+            normal("Vault"),
+            normal("Extensions"),
+            normal("Clear Browsing Data"),
+            redText
+        )
+
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
-                0 -> openHistoryManager()
-                1 -> openBookmarkManager()
-                2 -> showVaultMenu()
-                3 -> showExtensionsMenu()
-                4 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                5 -> exitApp()
+                0 -> if (::activeTab.isInitialized) activeTab.session.reload()
+                1 -> quickCopyVaultId()
+                2 -> quickCopyVaultPassword()
+                3 -> openHistoryManager()
+                4 -> openBookmarkManager()
+                5 -> showVaultMenu()
+                6 -> showExtensionsMenu()
+                7 -> clearBrowsingData()
+                8 -> exitApp()
             }
         }.show()
+    }
+
+    private fun quickCopyVaultId() {
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
+        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
+        val username = vaultManager.getUsername(host)
+        if (username.isNotEmpty()) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("username", username))
+            Toast.makeText(this, "ID Copied", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "No ID saved for $host", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun quickCopyVaultPassword() {
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
+        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
+        val password = vaultManager.getPassword(host)
+        if (password.isNotEmpty()) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("password", password))
+            Toast.makeText(this, "Password Copied", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "No password saved for $host", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun clearBrowsingData() {
+        AlertDialog.Builder(this)
+            .setTitle("Clear Browsing Data?")
+            .setMessage("This will clear cache, cookies, and history.")
+            .setPositiveButton("Clear") { _, _ ->
+                val flags = org.mozilla.geckoview.StorageController.ClearFlags.ALL
+                runtime.storageController.clearData(flags).accept {
+                    runOnUiThread {
+                        dbHelper.deleteAllHistory()
+                        Toast.makeText(this, "Data cleared.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showExitConfirmation() {
@@ -459,7 +489,16 @@ class MainActivity : AppCompatActivity() {
             )
         }
         refresh()
-        searchBox.setOnEditorActionListener { v, a, _ -> if (a == EditorInfo.IME_ACTION_DONE) { refresh(v.text.toString(), sortSpinner.selectedItemPosition); true } else false }
+        
+        // FIX: Instant search with TextWatcher
+        searchBox.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                refresh(s.toString(), sortSpinner.selectedItemPosition)
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+        
         sortSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) { refresh(searchBox.text.toString(), pos) }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
