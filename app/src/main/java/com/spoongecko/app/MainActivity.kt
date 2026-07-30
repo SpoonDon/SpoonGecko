@@ -91,6 +91,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
+    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
+
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && pendingFilePrompt != null && pendingFileResult != null) {
+            try {
+                // Grant read permission so GeckoView can read the selected file
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) { /* Ignore if not persistable */ }
+            pendingFileResult?.complete(pendingFilePrompt!!.confirm(this, uri))
+        } else {
+            pendingFileResult?.complete(pendingFilePrompt?.dismiss())
+        }
+        pendingFilePrompt = null
+        pendingFileResult = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -314,6 +331,67 @@ class MainActivity : AppCompatActivity() {
                         tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                     }
                 }
+            }
+        }
+
+        tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
+            override fun onFilePrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.FilePrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                pendingFilePrompt = prompt
+                pendingFileResult = result
+                
+                val mimeTypes = prompt.mimeTypes?.takeIf { it.isNotEmpty() } ?: arrayOf("*/*")
+                try {
+                    filePickerLauncher.launch(mimeTypes)
+                } catch (e: Exception) {
+                    filePickerLauncher.launch(arrayOf("*/*"))
+                }
+                return result
+            }
+
+            override fun onAlertPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.AlertPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(prompt.title ?: "Message")
+                        .setMessage(prompt.message ?: "")
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm()) }
+                        .setOnDismissListener { result.complete(prompt.dismiss()) }
+                        .show()
+                }
+                return result
+            }
+
+            override fun onConfirmPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.ConfirmPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(prompt.title ?: "Confirm")
+                        .setMessage(prompt.message ?: "")
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(true)) }
+                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(false)) }
+                        .setOnDismissListener { result.complete(prompt.dismiss()) }
+                        .show()
+                }
+                return result
+            }
+            
+            override fun onTextPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.TextPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                val input = EditText(this@MainActivity).apply {
+                    setText(prompt.defaultValue ?: "")
+                }
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(prompt.title ?: "Input")
+                        .setMessage(prompt.message ?: "")
+                        .setView(input)
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(input.text.toString())) }
+                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.dismiss()) }
+                        .setOnDismissListener { result.complete(prompt.dismiss()) }
+                        .show()
+                }
+                return result
             }
         }
     }
