@@ -88,4 +88,37 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "spoon_gecko.
     }
 
     fun deleteBookmark(id: Long) { writableDatabase.delete("bookmarks", "id = ?", arrayOf(id.toString())) }
+
+fun getSuggestions(query: String): List<String> {
+    val db = readableDatabase
+    val suggestions = mutableListOf<String>()
+    if (query.isBlank()) return suggestions
+    
+    val searchQuery = "%$query%"
+    
+    // Fetch from History (ordered by most visited)
+    val cursorHistory = db.rawQuery(
+        "SELECT url FROM history WHERE url LIKE ? OR title LIKE ? ORDER BY visit_count DESC, timestamp DESC LIMIT 5", 
+        arrayOf(searchQuery, searchQuery)
+    )
+    while (cursorHistory.moveToNext()) {
+        suggestions.add(cursorHistory.getString(0))
+    }
+    cursorHistory.close()
+    
+    // Fetch from Bookmarks
+    val cursorBookmarks = db.rawQuery(
+        "SELECT url FROM bookmarks WHERE url LIKE ? OR title LIKE ? ORDER BY timestamp DESC LIMIT 5", 
+        arrayOf(searchQuery, searchQuery)
+    )
+    while (cursorBookmarks.moveToNext()) {
+        val url = cursorBookmarks.getString(0)
+        if (!suggestions.contains(url)) {
+            suggestions.add(url)
+        }
+    }
+    cursorBookmarks.close()
+    
+    return suggestions
+}
 }
