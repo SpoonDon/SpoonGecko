@@ -255,6 +255,7 @@ class MainActivity : AppCompatActivity() {
     """.trimIndent()
 
     private fun setupDelegates(tab: TabInfo) {
+        // 1. NAVIGATION DELEGATE (Handles URLs, History, Back/Forward)
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
@@ -271,29 +272,38 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
-                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://")) {
+                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank" || it.startsWith("javascript:")) "" else it) }
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
             }
+
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
+
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
+        }
+
+        // 2. PROGRESS DELEGATE (onPageStop MUST live here, nowhere else)
+        tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
         }
+
+        // 3. CONTENT DELEGATE (Handles Tab Titles)
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
