@@ -797,4 +797,24 @@ btnBack.setOnClickListener { handleBackNavigation() }
             catch (e: Exception) { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         }
     }
+
+    class NoFilterAdapter(context: android.content.Context, resource: Int, objects: List<String>) : android.widget.ArrayAdapter<String>(context, resource, objects) {
+    override fun getFilter(): android.widget.Filter {
+        return object : android.widget.Filter() {
+            override fun performFiltering(constraint: CharSequence?): android.widget.Filter.FilterResults {
+                val results = android.widget.Filter.FilterResults()
+                results.values = objects
+                results.count = objects.size
+                return results
+            }
+            override fun publishResults(constraint: CharSequence?, results: android.widget.Filter.FilterResults?) {
+                if (results != null && results.count > 0) {
+                    notifyDataSetChanged()
+                } else {
+                    notifyDataSetInvalidated()
+                }
+            }
+        }
+    }
+}
 }
