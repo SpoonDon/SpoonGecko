@@ -16,7 +16,6 @@ android {
         ndk { abiFilters 'arm64-v8a' }
     }
 
-    // Inject GitHub Secrets into the build process
     signingConfigs {
         release {
             storeFile file(System.getenv("KEYSTORE_FILE") ?: "dummy.jks")
@@ -29,8 +28,8 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled true     // Activates R8 Code Shrinking
-            shrinkResources true   // Removes unused images
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -60,4 +59,5 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'org.mozilla.geckoview:geckoview:153.0.20260715202819'
     implementation 'androidx.security:security-crypto:1.1.0'
+    implementation "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"
 }
