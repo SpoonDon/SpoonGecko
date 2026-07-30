@@ -94,24 +94,21 @@ class MainActivity : AppCompatActivity() {
     private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
     private var pendingFilePromptResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
 
-    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
         val prompt = pendingFilePrompt
         val result = pendingFilePromptResult
         pendingFilePrompt = null
         pendingFilePromptResult = null
 
-        if (prompt != null && result != null) {
+        if (result != null && prompt != null) {
             if (uris.isNullOrEmpty()) {
                 result.complete(prompt.dismiss())
+            } else if (uris.size == 1) {
+                result.complete(prompt.confirm(uris[0]))
             } else {
-                uris.forEach { uri ->
-                    try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
-                }
-                if (prompt.type == GeckoSession.PromptDelegate.FilePrompt.TYPE_SINGLE) {
-                    result.complete(prompt.confirm(uris[0]))
-                } else {
-                    result.complete(prompt.confirm(uris.toTypedArray()))
-                }
+                result.complete(prompt.confirm(uris.toTypedArray()))
             }
         }
     }
@@ -352,15 +349,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 4. PROMPT DELEGATE (Handles native file pickers for extensions like Bitwarden restore)
         tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
-            override fun onFilePrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.FilePrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            override fun onFilePrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.FilePrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
                 val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
                 pendingFilePrompt = prompt
                 pendingFilePromptResult = result
-                
-                val mimeTypes = prompt.mimeTypes ?: arrayOf("*/*")
-                filePickerLauncher.launch(mimeTypes)
+
+                val filters = prompt.captureFilters()
+                val mimeTypes = if (filters.isNullOrEmpty()) arrayOf("*/*") else filters
+
+                try {
+                    filePickerLauncher.launch(mimeTypes)
+                } catch (e: Exception) {
+                    filePickerLauncher.launch(arrayOf("*/*"))
+                }
                 return result
             }
         }
@@ -524,6 +529,23 @@ class MainActivity : AppCompatActivity() {
         val baseUrl = extension.metaData.baseUrl ?: run { Toast.makeText(this, "No popup available.", Toast.LENGTH_SHORT).show(); return }
         val popupSession = GeckoSession()
         popupSession.open(runtime)
+        
+        // CRITICAL FIX: Attach promptDelegate to the popup session so file pickers work!
+        popupSession.promptDelegate = object : GeckoSession.PromptDelegate {
+            override fun onFilePrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.FilePrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                pendingFilePrompt = prompt
+                pendingFilePromptResult = result
+                val filters = prompt.captureFilters()
+                val mimeTypes = if (filters.isNullOrEmpty()) arrayOf("*/*") else filters
+                try { filePickerLauncher.launch(mimeTypes) } catch (e: Exception) { filePickerLauncher.launch(arrayOf("*/*")) }
+                return result
+            }
+        }
+
         val popupView = org.mozilla.geckoview.GeckoView(this)
         popupView.layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.65).toInt())
         popupView.setSession(popupSession)
