@@ -287,12 +287,14 @@ class MainActivity : AppCompatActivity() {
         })();
     """.trimIndent()
 
+    // ========================================================================
+    // GECKO DELEGATES
+    // ========================================================================
     private fun setupDelegates(tab: TabInfo) {
-        // 1. NAVIGATION DELEGATE
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
-                // Intercept vault auto-save signals
+                // Intercept vault auto-save signals from injected JS
                 if (uri.startsWith("spoonvault://save")) {
                     handleAutoSaveUri(uri)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
@@ -307,40 +309,38 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
-
+            
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
                     if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    // Record history (ignore blanks, data URIs, extensions, and injected JS)
                     if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
             }
-
+            
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-
+            
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
         }
 
-        // 2. PROGRESS DELEGATE (This is where onPageStop belongs!)
+        // FIX 1: onPageStop belongs in ProgressDelegate, NOT ContentDelegate
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
-                    // Inject auto-save JS when page finishes loading
+                    // FIX 2: GeckoView uses loadUri("javascript:...") not evaluateJavascript()
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
         }
 
-        // 3. CONTENT DELEGATE
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
@@ -348,8 +348,46 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        
-        // NOTE: promptDelegate is intentionally removed to prevent unhandled prompt hangs and build errors.
+
+        // FIX 3: PromptDelegate allows extensions (like uBlock Origin) to open file pickers for backups
+        tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
+            override fun onFilePrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.FilePrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                // We use a generic file picker intent here. 
+                // Note: For a fully native integration, you would launch an ActivityResultLauncher here.
+                // For now, allowing GeckoView to handle the default intent resolution.
+                val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                }
+                try {
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    // Fallback if no file manager is available
+                }
+                return result
+            }
+
+            override fun onButtonPrompt(
+                session: GeckoSession,
+                prompt: GeckoSession.PromptDelegate.ButtonPrompt
+            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(prompt.title ?: "Confirm")
+                        .setMessage(prompt.message ?: "")
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.TYPE_POSITIVE)) }
+                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.TYPE_NEGATIVE)) }
+                        .setOnCancelListener { result.complete(prompt.dismiss()) }
+                        .show()
+                }
+                return result
+            }
+        }
     }
 
     private fun handleAutoSaveTitle(title: String) {
