@@ -330,15 +330,17 @@ class MainActivity : AppCompatActivity() {
         })();
     """.trimIndent()
 
-    // ========================================================================
-    // GECKO DELEGATES
-    // ========================================================================
-
     private fun setupDelegates(tab: TabInfo) {
-        // 1. NAVIGATION
+        // 1. NAVIGATION DELEGATE
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
+                // Intercept vault auto-save signals from injected JS
+                if (uri.startsWith("spoonvault://save")) {
+                    handleAutoSaveUri(uri)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
+                // Intercept .xpi extension downloads
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -353,7 +355,7 @@ class MainActivity : AppCompatActivity() {
                 url?.let {
                     tab.url = it
                     if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("javascript:")) {
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
@@ -370,44 +372,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. PROGRESS (Inject JS when page finishes loading)
+        // FIX 1: onPageStop belongs to ProgressDelegate, NOT ContentDelegate
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
+                    // FIX 2: GeckoSession does not have evaluateJavascript(). 
+                    // We must use loadUri("javascript:...") to inject JS.
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
         }
 
-        // 3. CONTENT (Intercept Title Bridge)
+        // 3. CONTENT DELEGATE
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
-        override fun onTitleChange(session: GeckoSession, title: String?) {
-            // Keep your existing Title Bridge logic here!
-            if (title != null && title.startsWith("SPOON_VAULT_SAVE:")) {
-                val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
-                handleAutoSaveJson(jsonStr)
-                return
-            }
-            title?.let {
-                tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+            override fun onTitleChange(session: GeckoSession, title: String?) {
+                title?.let {
+                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+                }
             }
         }
     }
-
-    // 4. PROMPT (File picker for extensions like uBlock restore)
-    tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
-        override fun onFilePrompt(
-            session: GeckoSession,
-            prompt: GeckoSession.PromptDelegate.FilePrompt
-        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-            val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-            pendingFilePrompt = prompt
-            pendingFileResult = result
-            launchFilePicker(prompt.mimeTypes)
-            return result
-        }
-    }
-}
 
     private fun handleAutoSaveJson(jsonStr: String) {
         try {
