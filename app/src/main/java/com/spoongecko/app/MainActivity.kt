@@ -798,13 +798,13 @@ btnBack.setOnClickListener { handleBackNavigation() }
         }
     }
 
-    class NoFilterAdapter(context: android.content.Context, resource: Int, objects: List<String>) : android.widget.ArrayAdapter<String>(context, resource, objects) {
+    class NoFilterAdapter(context: android.content.Context, resource: Int, val items: List<String>) : android.widget.ArrayAdapter<String>(context, resource, items) {
     override fun getFilter(): android.widget.Filter {
         return object : android.widget.Filter() {
             override fun performFiltering(constraint: CharSequence?): android.widget.Filter.FilterResults {
                 val results = android.widget.Filter.FilterResults()
-                results.values = objects
-                results.count = objects.size
+                results.values = items
+                results.count = items.size
                 return results
             }
             override fun publishResults(constraint: CharSequence?, results: android.widget.Filter.FilterResults?) {
