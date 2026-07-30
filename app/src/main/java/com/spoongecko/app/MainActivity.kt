@@ -209,17 +209,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openTabManager() {
-        val bottomSheet = BottomSheetDialog(this)
-        val view = layoutInflater.inflate(R.layout.sheet_tabs, null)
-        val recycler = view.findViewById<RecyclerView>(R.id.recycler_tabs).apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = TabAdapter(tabs, activeTab,
-                onClick = { switchToSession(it); bottomSheet.dismiss() },
-                onClose = { closeSession(it); bottomSheet.dismiss(); openTabManager() })
-        }
-        view.findViewById<ImageButton>(R.id.btn_new_tab).setOnClickListener { createNewSession(); bottomSheet.dismiss() }
-        bottomSheet.setContentView(view); bottomSheet.show()
+    val bottomSheet = BottomSheetDialog(this)
+    val view = layoutInflater.inflate(R.layout.sheet_tabs, null)
+    val recycler = view.findViewById<RecyclerView>(R.id.recycler_tabs).apply {
+        layoutManager = LinearLayoutManager(this@MainActivity)
+        adapter = TabAdapter(tabs, activeTab,
+            onClick = { switchToSession(it); bottomSheet.dismiss() },
+            onClose = { closeSession(it); bottomSheet.dismiss(); if (tabs.isNotEmpty()) openTabManager() })
     }
+    
+    // Swipe to close tabs
+    val swipeHelper = androidx.recyclerview.widget.ItemTouchHelper(object : androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(0, androidx.recyclerview.widget.ItemTouchHelper.LEFT or androidx.recyclerview.widget.ItemTouchHelper.RIGHT) {
+        override fun onMove(r: RecyclerView, v: RecyclerView.ViewHolder, t: RecyclerView.ViewHolder) = false
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+            val pos = viewHolder.adapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                closeSession(tabs[pos])
+                bottomSheet.dismiss()
+                if (tabs.isNotEmpty()) openTabManager()
+            }
+        }
+    })
+    swipeHelper.attachToRecyclerView(recycler)
+
+    view.findViewById<ImageButton>(R.id.btn_new_tab).setOnClickListener { createNewSession(); bottomSheet.dismiss() }
+    bottomSheet.setContentView(view); bottomSheet.show()
+}
 
     private val AUTOSAVE_JS = """
         (function() {
@@ -307,14 +322,57 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 3. CONTENT DELEGATE (Handles Tab Titles)
-        tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) {
-                title?.let {
-                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
-                }
+        // 3. CONTENT DELEGATE (Handles Tab Titles & Long-Press Menus)
+        tab.session.contentDelegate = object : GeckoSession.ContentDelegate {    
+            override fun onTitleChange(session: GeckoSession, title: String?) {        
+                title?.let {            
+                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it        
+                }    
             }
-        }
+            
+            override fun onContextMenu(session: GeckoSession, screenX: Int, screenY: Int, element: GeckoSession.ContentDelegate.ContextElement) {        
+                val link = element.linkUri        
+                val src = element.srcUri        
+                val target = link ?: src      
+                if (target != null) {            
+                    val options = mutableListOf<String>()            
+                    if (link != null) options.add("Open in New Tab")            
+                    options.add("Copy Link")            
+                    options.add("Share")
+            
+                    runOnUiThread {                
+                        AlertDialog.Builder(this@MainActivity)                    
+                            .setTitle(element.title ?: target)                    
+                            .setItems(options.toTypedArray()) { _, which ->                        
+                                when (options[which]) {                            
+                                    "Open in New Tab" -> {                                
+                                        val s = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
+                                        s.open(runtime)                                
+                                        val t = TabInfo(s)                                
+                                        tabs.add(t)                                
+                                        setupDelegates(t)                                
+                                        s.loadUri(target)                                
+                                        Toast.makeText(this@MainActivity, "Opened in new tab", Toast.LENGTH_SHORT).show()
+                                    }                            
+                                    "Copy Link" -> {                                
+                                        val cb = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager                                
+                                        cb.setPrimaryClip(android.content.ClipData.newPlainText("url", target))                                
+                                        Toast.makeText(this@MainActivity, "Copied!", Toast.LENGTH_SHORT).show()                            
+                                    }                            
+                                    "Share" -> {                                
+                                        val intent = Intent(Intent.ACTION_SEND).apply {                                    
+                                            type = "text/plain"                                    
+                                            putExtra(Intent.EXTRA_TEXT, target)                                
+                                        }                                
+                                        startActivity(Intent.createChooser(intent, "Share"))                            
+                                    }                        
+                                }                    
+                            }                    
+                            .show()                    
+                    }        
+                }    
+            }
+        }    
     }
 
     private fun handleAutoSaveUri(uri: String) {
