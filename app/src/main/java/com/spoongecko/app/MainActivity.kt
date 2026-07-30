@@ -31,7 +31,9 @@ import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
-
+// ============================================================================
+// DATA MODEL
+// ============================================================================
 data class TabInfo(
     val session: GeckoSession,
     var title: String = "New Tab",
@@ -40,24 +42,25 @@ data class TabInfo(
     var canGoForward: Boolean = false
 )
 
+// ============================================================================
+// MAIN ACTIVITY
+// ============================================================================
 class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
-
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
-
+    
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
-
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
-
+    
     private var pendingExportData: String = ""
-
+    
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -70,44 +73,6 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-        }
-    }
-
-    private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
-    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
-
-    private val filePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        val prompt = pendingFilePrompt
-        val result = pendingFileResult
-        pendingFilePrompt = null
-        pendingFileResult = null
-
-        if (prompt != null && result != null) {
-            if (uris.isNullOrEmpty()) {
-                result.complete(prompt.dismiss())
-            } else {
-                try {
-                    val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    contentResolver.takePersistableUriPermission(uris[0], flag)
-                } catch (e: Exception) { /* Some providers don't support persistable */ }
-                
-                if (uris.size == 1 && prompt.type == 1) {
-                    result.complete(prompt.confirm(this@MainActivity, uris[0]))
-                } else {
-                    result.complete(prompt.confirm(this@MainActivity, uris.toTypedArray()))
-                }
-            }
-        }
-    }
-
-    private fun launchFilePicker(mimeTypes: Array<String>?) {
-        val types = if (mimeTypes.isNullOrEmpty()) arrayOf("*/*") else mimeTypes
-        try {
-            filePickerLauncher.launch(types)
-        } catch (e: Exception) {
-            filePickerLauncher.launch(arrayOf("*/*"))
         }
     }
 
@@ -129,21 +94,21 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
+        
         dbHelper = DatabaseHelper(this)
         vaultManager = SecureCredentialManager(this)
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
-
+        
         geckoView = findViewById(R.id.gecko_view)
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
-
+        
         geckoView.isVerticalScrollBarEnabled = false
         geckoView.isHorizontalScrollBarEnabled = false
         geckoView.coverUntilFirstPaint(Color.parseColor("#121212"))
-
+        
         requestBatteryExemption()
         setupUIListeners()
         setupSystemBackButton()
@@ -154,9 +119,18 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() { super.onStop(); startForegroundService(Intent(this, KeepAliveService::class.java)) }
     override fun onPause() { super.onPause() }
     override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
-
+    
     @Suppress("KotlinConstantConditions")
-    override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
+    override fun onDestroy() { 
+        super.onDestroy()
+        if (isFinishing) {
+            try {
+                val flags = org.mozilla.geckoview.StorageController.ClearFlags.NETWORK_CACHE
+                runtime.storageController.clearData(flags)
+            } catch (e: Exception) {}
+            GeckoRuntimeManager.shutdown()
+        }
+    }
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -171,7 +145,9 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
         urlBar.setOnFocusChangeListener { v, hasFocus -> 
-            if (hasFocus) v.post { (v as EditText).selectAll() } 
+            if (hasFocus) {
+                v.post { (v as EditText).selectAll() }
+            }
         }
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
@@ -189,14 +165,13 @@ class MainActivity : AppCompatActivity() {
     private fun loadUrlOrSearch(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
-
         val ipv4Pattern = Pattern.compile("^(\\d{1,3}\\.){3}\\d{1,3}(:\\d+)?$")
         val isIp = ipv4Pattern.matcher(trimmed).matches()
         val domainPattern = Pattern.compile("^[a-zA-Z0-9\\-\\.]+\\.[a-zA-Z]{2,}$")
         val isDomain = domainPattern.matcher(trimmed).matches()
         val isLocalhost = trimmed.equals("localhost", ignoreCase = true)
         val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost
-
+        
         if (isUrl) {
             val finalUrl = when {
                 trimmed.startsWith("http") -> trimmed
@@ -269,9 +244,10 @@ class MainActivity : AppCompatActivity() {
                         var password = passField.value;
                         if (password.length > 0) {
                             var host = window.location.hostname.replace(/^www\./, '');
-                            var url = 'spoonvault://save?host=' + encodeURIComponent(host) + '&user=' + encodeURIComponent(username) + '&pass=' + encodeURIComponent(password);
-                            // FIX: Use window.location.href to trigger onLoadRequest instead of an iframe
-                            window.location.href = url;
+                            var msg = 'SPOON_VAULT_SAVE:' + JSON.stringify({host:host, user:username, pass:password});
+                            var originalTitle = document.title;
+                            document.title = msg;
+                            setTimeout(function() { document.title = originalTitle; }, 100);
                         }
                     } catch(e) {}
                 });
@@ -293,10 +269,6 @@ class MainActivity : AppCompatActivity() {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
-                if (uri.startsWith("spoonvault://save")) {
-                    handleAutoSaveUri(uri)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
-                }
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -306,7 +278,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
-
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
@@ -316,18 +287,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
         }
-
+        
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
@@ -339,18 +308,23 @@ class MainActivity : AppCompatActivity() {
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
-                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+                    if (it.startsWith("SPOON_VAULT_SAVE:")) {
+                        handleAutoSaveTitle(it)
+                    } else {
+                        tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+                    }
                 }
             }
         }
     }
 
-    private fun handleAutoSaveUri(uri: String) {
+    private fun handleAutoSaveTitle(title: String) {
         try {
-            val parsed = Uri.parse(uri)
-            val host = parsed.getQueryParameter("host") ?: return
-            val user = parsed.getQueryParameter("user") ?: ""
-            val pass = parsed.getQueryParameter("pass") ?: return
+            val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
+            val parsed = org.json.JSONObject(jsonStr)
+            val host = parsed.optString("host") ?: return
+            val user = parsed.optString("user") ?: ""
+            val pass = parsed.optString("pass") ?: return
             if (pass.isEmpty()) return
             
             val ignored = getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).getBoolean(host, false)
@@ -360,14 +334,9 @@ class MainActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Save Credentials?")
                     .setMessage("Save login for $host?\n\nUsername: ${user.ifEmpty { "(empty)" }}")
-                    .setPositiveButton("Save") { _, _ -> 
-                        vaultManager.saveCredentials(host, user, pass)
-                        Toast.makeText(this, "Saved to vault.", Toast.LENGTH_SHORT).show() 
-                    }
+                    .setPositiveButton("Save") { _, _ -> vaultManager.saveCredentials(host, user, pass); Toast.makeText(this, "Saved to vault.", Toast.LENGTH_SHORT).show() }
                     .setNegativeButton("Not Now", null)
-                    .setNeutralButton("Never") { _, _ -> 
-                        getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).edit().putBoolean(host, true).apply() 
-                    }
+                    .setNeutralButton("Never") { _, _ -> getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).edit().putBoolean(host, true).apply() }
                     .show()
             }
         } catch (e: Exception) { }
@@ -377,7 +346,7 @@ class MainActivity : AppCompatActivity() {
         val normal = { text: String -> SpannableString(text) as CharSequence }
         val redText = SpannableString("Exit App")
         redText.setSpan(ForegroundColorSpan(Color.RED), 0, redText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-
+        
         val options = arrayOf<CharSequence>(
             normal("Reload Page"),
             normal("Copy Site ID"),
@@ -389,7 +358,7 @@ class MainActivity : AppCompatActivity() {
             normal("Clear Browsing Data"), 
             redText
         )
-
+        
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
                 0 -> if (::activeTab.isInitialized) activeTab.session.reload()
@@ -406,9 +375,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun quickCopyVaultId() {
-        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") {
-            Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return
-        }
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
         val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
         val username = vaultManager.getUsername(host)
         if (username.isNotEmpty()) {
@@ -421,9 +388,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun quickCopyVaultPassword() {
-        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") {
-            Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return
-        }
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
         val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
         val password = vaultManager.getPassword(host)
         if (password.isNotEmpty()) {
@@ -436,9 +401,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun clearBrowsingData() {
-        AlertDialog.Builder(this)
-            .setTitle("Clear Browsing Data?")
-            .setMessage("This will clear cache, cookies, and history.")
+        AlertDialog.Builder(this).setTitle("Clear Browsing Data?").setMessage("This will clear cache, cookies, and history.")
             .setPositiveButton("Clear") { _, _ ->
                 val flags = org.mozilla.geckoview.StorageController.ClearFlags.ALL
                 runtime.storageController.clearData(flags).accept {
@@ -458,11 +421,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exitApp() {
-        try {
-            val flags = org.mozilla.geckoview.StorageController.ClearFlags.NETWORK_CACHE
-            runtime.storageController.clearData(flags)
-        } catch (e: Exception) {}
-        
         GeckoRuntimeManager.shutdown()
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid())
@@ -502,7 +460,6 @@ class MainActivity : AppCompatActivity() {
         if (baseUrl != null) options.add("Open Extension Popup")
         if (extension.metaData.optionsPageUrl != null) options.add("Open Settings")
         options.add("Uninstall")
-
         AlertDialog.Builder(this).setTitle(extension.metaData.name).setItems(options.toTypedArray()) { _, which ->
             when (options[which]) {
                 "Open Extension Popup" -> openExtensionPopup(extension)
@@ -539,7 +496,6 @@ class MainActivity : AppCompatActivity() {
         val sortValues = arrayOf("timestamp DESC", "timestamp ASC", "visit_count DESC", "title ASC")
         sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
         recycler.layoutManager = LinearLayoutManager(this)
-
         fun refresh(search: String = "", sortIdx: Int = 0) {
             val entries = dbHelper.getHistory(search, sortValues[sortIdx])
             recycler.adapter = HistoryAdapter(entries,
@@ -549,13 +505,7 @@ class MainActivity : AppCompatActivity() {
             )
         }
         refresh()
-        searchBox.addTextChangedListener(object : android.text.TextWatcher {         
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}         
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {             
-                refresh(s.toString(), sortSpinner.selectedItemPosition)         
-            }         
-            override fun afterTextChanged(s: android.text.Editable?) {}     
-        })
+        searchBox.setOnEditorActionListener { v, a, _ -> if (a == EditorInfo.IME_ACTION_DONE) { refresh(v.text.toString(), sortSpinner.selectedItemPosition); true } else false }
         sortSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) { refresh(searchBox.text.toString(), pos) }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
@@ -577,7 +527,6 @@ class MainActivity : AppCompatActivity() {
         val sortValues = arrayOf("timestamp DESC", "timestamp ASC", "title ASC")
         sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
         recycler.layoutManager = LinearLayoutManager(this)
-
         fun refresh(sortIdx: Int = 0) {
             val entries = dbHelper.getBookmarks(sortValues[sortIdx])
             recycler.adapter = BookmarkAdapter(entries,
@@ -744,7 +693,7 @@ class MainActivity : AppCompatActivity() {
         result.add(current.toString())
         return result
     }
-    
+
     private fun requestBatteryExemption() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
