@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout 
+<androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main_layout"
@@ -8,7 +8,6 @@
     android:fitsSystemWindows="true"
     android:background="?attr/colorSurface">
 
-    <!-- Top URL Bar with integrated Back, Forward, Tabs, and Menu Buttons -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/top_bar"
         android:layout_width="0dp"
@@ -77,14 +76,23 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <org.mozilla.geckoview.GeckoView
-        android:id="@+id/gecko_view"
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="?attr/colorSurface"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/top_bar" />
+        app:layout_constraintTop_toBottomOf="@id/top_bar">
+
+        <org.mozilla.geckoview.GeckoView
+            android:id="@+id/gecko_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/colorSurface"
+            android:scrollbars="none"
+            android:importantForAutofill="yes" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
