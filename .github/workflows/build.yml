@@ -36,8 +36,17 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Upload Signed APK
-        uses: actions/upload-artifact@v4
+      - name: Rename APK for Easy Download
+        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-Nightly.apk
+
+      - name: Create GitHub Release & Upload APK
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         with:
-          name: SpoonGecko-Signed-Release
-          path: app/build/outputs/apk/release/app-release.apk
+          files: app/build/outputs/apk/release/SpoonGecko-Nightly.apk
+          name: "SpoonGecko Nightly Build ${{ github.run_number }}"
+          tag_name: "nightly-${{ github.run_number }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
