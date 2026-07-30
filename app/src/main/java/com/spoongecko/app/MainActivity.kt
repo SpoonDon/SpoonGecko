@@ -45,18 +45,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
-
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
-
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
-
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
-
     private var pendingExportData: String = ""
-
+    private val historyExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -297,7 +293,7 @@ class MainActivity : AppCompatActivity() {
                     tab.url = it
                     if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank" || it.startsWith("javascript:")) "" else it) }
                     if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
-                        Thread { dbHelper.addHistory(it, tab.title) }.start()
+                        historyExecutor.execute { dbHelper.addHistory(it, tab.title) }   
                     }
                 }
             }
