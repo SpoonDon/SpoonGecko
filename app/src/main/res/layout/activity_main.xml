@@ -43,19 +43,23 @@
                 android:contentDescription="Forward"
                 android:alpha="0.5"/>
 
-            <EditText
-                android:id="@+id/url_bar"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:background="@android:color/transparent"
-                android:hint="Search or enter URL"
-                android:imeOptions="actionGo"
-                android:inputType="textUri"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:singleLine="true"
-                android:textSize="16sp" />
+            <AutoCompleteTextView    
+                android:id="@+id/url_bar"    
+                android:layout_width="0dp"    
+                android:layout_height="match_parent"    
+                android:layout_weight="1"    
+                android:background="@android:color/transparent"    
+                android:hint="Search or enter URL"    
+                android:imeOptions="actionGo"    
+                android:inputType="textUri"    
+                android:paddingStart="8dp"    
+                android:paddingEnd="8dp"    
+                android:singleLine="true"    
+                android:textSize="16sp"    
+                android:completionThreshold="1"    
+                android:dropDownHeight="250dp"    
+                android:popupBackground="?attr/colorSurface"    
+                android:textColor="?attr/colorOnSurface" />
 
             <ImageButton
                 android:id="@+id/btn_tabs"
