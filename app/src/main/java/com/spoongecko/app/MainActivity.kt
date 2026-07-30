@@ -311,7 +311,8 @@ class MainActivity : AppCompatActivity() {
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
-                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank" || it.startsWith("javascript:")) "" else it) }
+                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
+                    // Record history (ignore blanks, data URIs, extensions, and injected JS)
                     if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
@@ -329,11 +330,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. PROGRESS DELEGATE (This is where onPageStop actually lives in GeckoView!)
+        // 2. PROGRESS DELEGATE (This is where onPageStop belongs!)
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
-                    // Inject the vault auto-save script safely
+                    // Inject auto-save JS when page finishes loading
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
@@ -343,32 +344,12 @@ class MainActivity : AppCompatActivity() {
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
-                    // Prevent the JS injection string from showing up as the tab title
-                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty() || it.contains("spoonvault://")) "New Tab" else it
+                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 }
             }
         }
-
-        tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
-            override fun onFilePrompt(
-                session: GeckoSession,
-                prompt: GeckoSession.PromptDelegate.FilePrompt
-            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                pendingFilePrompt = prompt
-                pendingFilePromptResult = result
-
-                val filters = prompt.captureFilters()
-                val mimeTypes = if (filters.isNullOrEmpty()) arrayOf("*/*") else filters
-
-                try {
-                    filePickerLauncher.launch(mimeTypes)
-                } catch (e: Exception) {
-                    filePickerLauncher.launch(arrayOf("*/*"))
-                }
-                return result
-            }
-        }
+        
+        // NOTE: promptDelegate is intentionally removed to prevent unhandled prompt hangs and build errors.
     }
 
     private fun handleAutoSaveTitle(title: String) {
