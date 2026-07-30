@@ -327,44 +327,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-        tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
-            override fun onFilePrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.FilePrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                pendingFilePrompt = prompt
-                pendingFileResult = result
-                val mimeTypes = prompt.mimeTypes ?: arrayOf("*/*")
-                filePickerLauncher.launch(mimeTypes)
-                return result
-            }
-
-            override fun onAlertPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.AlertPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                runOnUiThread {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(prompt.title ?: "Message")
-                        .setMessage(prompt.message ?: "")
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(this@MainActivity)) }
-                        .setOnDismissListener { result.complete(prompt.dismiss()) }
-                        .show()
-                }
-                return result
-            }
-            
-            override fun onButtonPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.ButtonPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                runOnUiThread {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(prompt.title ?: "Confirm")
-                        .setMessage(prompt.message ?: "")
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(this@MainActivity, GeckoSession.PromptDelegate.ButtonPrompt.Type.POSITIVE)) }
-                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(this@MainActivity, GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE)) }
-                        .setOnDismissListener { result.complete(prompt.dismiss()) }
-                        .show()
-                }
-                return result
-            }
-        }
     }
 
     private fun handleAutoSaveUri(uri: String) {
