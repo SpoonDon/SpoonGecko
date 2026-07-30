@@ -119,7 +119,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
 
     @Suppress("KotlinConstantConditions")
-    override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
+    override fun onDestroy() { 
+       super.onDestroy()
+       stopService(Intent(this, KeepAliveService::class.java))
+       if (isFinishing) GeckoRuntimeManager.shutdown() 
+   }
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
