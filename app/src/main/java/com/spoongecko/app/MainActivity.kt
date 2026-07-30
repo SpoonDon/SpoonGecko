@@ -23,7 +23,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
@@ -55,7 +54,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
-    private var swipeRefresh: SwipeRefreshLayout? = null // Nullable for safety
 
     // --- Managers ---
     private lateinit var extensionManager: ExtensionManager
@@ -119,14 +117,6 @@ class MainActivity : AppCompatActivity() {
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
-        
-        // Safe initialization of SwipeRefreshLayout (Pull-to-Refresh)
-        try {
-            swipeRefresh = findViewById(R.id.swipe_refresh)
-            setupPullToRefresh()
-        } catch (e: Exception) {
-            // Layout might not have it yet, ignore safely
-        }
 
         geckoView.isVerticalScrollBarEnabled = false
         geckoView.isHorizontalScrollBarEnabled = false
@@ -136,17 +126,6 @@ class MainActivity : AppCompatActivity() {
         setupUIListeners()
         setupSystemBackButton()
         createNewSession()
-    }
-
-    private fun setupPullToRefresh() {
-        swipeRefresh?.let { sr ->
-            sr.setColorSchemeColors(Color.parseColor("#8AB4F8"))
-            sr.setProgressBackgroundColorSchemeColor(Color.parseColor("#202124"))
-            sr.setOnRefreshListener {
-                if (::activeTab.isInitialized) activeTab.session.reload()
-                sr.postDelayed({ sr.isRefreshing = false }, 5000)
-            }
-        }
     }
 
     override fun onStart() { super.onStart(); stopService(Intent(this, KeepAliveService::class.java)) }
@@ -177,7 +156,7 @@ class MainActivity : AppCompatActivity() {
                 loadUrlOrSearch(v.text.toString()); true
             } else false
         }
-        // FIX: Auto-select URL properly
+        // FIX: Auto-select URL properly using post{} to wait for keyboard layout
         urlBar.setOnFocusChangeListener { v, hasFocus -> 
             if (hasFocus) v.post { (v as EditText).selectAll() } 
         }
@@ -273,8 +252,6 @@ class MainActivity : AppCompatActivity() {
 
     // ========================================================================
     // VAULT AUTO-SAVE (The "Title Bridge" Method)
-    // This JS runs on every page. When a form is submitted, it briefly changes
-    // the document title to send a message to the native app, then reverts it.
     // ========================================================================
 
     private val AUTOSAVE_JS = """
@@ -318,7 +295,7 @@ class MainActivity : AppCompatActivity() {
     // ========================================================================
 
     private fun setupDelegates(tab: TabInfo) {
-        // 1. NAVIGATION (Back/Forward, History, XPI downloads)
+        // 1. NAVIGATION
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
@@ -353,8 +330,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. PROGRESS (Page Load Completion -> Inject JS)
-        // FIX: onPageStop lives in ProgressDelegate, NOT NavigationDelegate!
+        // 2. PROGRESS (Inject JS when page finishes loading)
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
@@ -363,17 +339,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 3. CONTENT (Title Bridge + Title Update)
+        // 3. CONTENT (Intercept Title Bridge)
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
-                // Intercept Vault Signal
                 if (title != null && title.startsWith("SPOON_VAULT_SAVE:")) {
                     val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
                     handleAutoSaveJson(jsonStr)
-                    return // Do not update the tab title to this signal
+                    return
                 }
-                
-                // Normal Title Update
                 title?.let {
                     tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 }
