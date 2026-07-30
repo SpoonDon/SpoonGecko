@@ -31,9 +31,6 @@ import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.WebExtension
 import java.util.regex.Pattern
 
-// ============================================================================
-// DATA MODEL
-// ============================================================================
 data class TabInfo(
     val session: GeckoSession,
     var title: String = "New Tab",
@@ -42,25 +39,24 @@ data class TabInfo(
     var canGoForward: Boolean = false
 )
 
-// ============================================================================
-// MAIN ACTIVITY
-// ============================================================================
 class MainActivity : AppCompatActivity() {
 
     private lateinit var geckoView: org.mozilla.geckoview.GeckoView
     private lateinit var urlBar: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
+
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
-    
+
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
+
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
-    
+
     private var pendingExportData: String = ""
-    
+
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -91,24 +87,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // File picker for extensions
     private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
-    private var pendingFilePromptResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
+    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
 
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         val prompt = pendingFilePrompt
-        val result = pendingFilePromptResult
+        val result = pendingFileResult
         pendingFilePrompt = null
-        pendingFilePromptResult = null
+        pendingFileResult = null
 
-        if (result != null && prompt != null) {
+        if (prompt != null && result != null) {
             if (uris.isNullOrEmpty()) {
                 result.complete(prompt.dismiss())
             } else if (uris.size == 1) {
-                result.complete(prompt.confirm(uris[0]))
+                result.complete(prompt.confirm(this@MainActivity, uris[0]))
             } else {
-                result.complete(prompt.confirm(uris.toTypedArray()))
+                result.complete(prompt.confirm(this@MainActivity, uris.toTypedArray()))
             }
         }
     }
@@ -116,21 +113,21 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
+
         dbHelper = DatabaseHelper(this)
         vaultManager = SecureCredentialManager(this)
         extensionManager = ExtensionManager(runtime, this)
         extensionManager.setupDelegates()
-        
+
         geckoView = findViewById(R.id.gecko_view)
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
-        
+
         geckoView.isVerticalScrollBarEnabled = false
         geckoView.isHorizontalScrollBarEnabled = false
         geckoView.coverUntilFirstPaint(Color.parseColor("#121212"))
-        
+
         requestBatteryExemption()
         setupUIListeners()
         setupSystemBackButton()
@@ -141,18 +138,9 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() { super.onStop(); startForegroundService(Intent(this, KeepAliveService::class.java)) }
     override fun onPause() { super.onPause() }
     override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
-    
+
     @Suppress("KotlinConstantConditions")
-    override fun onDestroy() { 
-        super.onDestroy()
-        if (isFinishing) {
-            try {
-                val flags = org.mozilla.geckoview.StorageController.ClearFlags.NETWORK_CACHE
-                runtime.storageController.clearData(flags)
-            } catch (e: Exception) {}
-            GeckoRuntimeManager.shutdown()
-        }
-    }
+    override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -166,11 +154,7 @@ class MainActivity : AppCompatActivity() {
                 loadUrlOrSearch(v.text.toString()); true
             } else false
         }
-        urlBar.setOnFocusChangeListener { v, hasFocus -> 
-            if (hasFocus) {
-                v.post { (v as EditText).selectAll() }
-            }
-        }
+        urlBar.setOnFocusChangeListener { v, hasFocus -> if (hasFocus) (v as EditText).selectAll() }
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
@@ -193,7 +177,7 @@ class MainActivity : AppCompatActivity() {
         val isDomain = domainPattern.matcher(trimmed).matches()
         val isLocalhost = trimmed.equals("localhost", ignoreCase = true)
         val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost
-        
+
         if (isUrl) {
             val finalUrl = when {
                 trimmed.startsWith("http") -> trimmed
@@ -266,10 +250,12 @@ class MainActivity : AppCompatActivity() {
                         var password = passField.value;
                         if (password.length > 0) {
                             var host = window.location.hostname.replace(/^www\./, '');
-                            var msg = 'SPOON_VAULT_SAVE:' + JSON.stringify({host:host, user:username, pass:password});
-                            var originalTitle = document.title;
-                            document.title = msg;
-                            setTimeout(function() { document.title = originalTitle; }, 100);
+                            var url = 'spoonvault://save?host=' + encodeURIComponent(host) + '&user=' + encodeURIComponent(username) + '&pass=' + encodeURIComponent(password);
+                            var iframe = document.createElement('iframe');
+                            iframe.style.display = 'none';
+                            iframe.src = url;
+                            document.body.appendChild(iframe);
+                            setTimeout(function() { iframe.remove(); }, 1000);
                         }
                     } catch(e) {}
                 });
@@ -287,19 +273,14 @@ class MainActivity : AppCompatActivity() {
         })();
     """.trimIndent()
 
-    // ========================================================================
-    // GECKO DELEGATES
-    // ========================================================================
     private fun setupDelegates(tab: TabInfo) {
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
-                // Intercept vault auto-save signals from injected JS
                 if (uri.startsWith("spoonvault://save")) {
                     handleAutoSaveUri(uri)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
-                // Intercept .xpi extension downloads
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -309,33 +290,31 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
-            
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
                     if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
             }
-            
+
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-            
+
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
         }
 
-        // FIX 1: onPageStop belongs in ProgressDelegate, NOT ContentDelegate
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
-                    // FIX 2: GeckoView uses loadUri("javascript:...") not evaluateJavascript()
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
@@ -349,40 +328,38 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // FIX 3: PromptDelegate allows extensions (like uBlock Origin) to open file pickers for backups
         tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
-            override fun onFilePrompt(
-                session: GeckoSession,
-                prompt: GeckoSession.PromptDelegate.FilePrompt
-            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            override fun onFilePrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.FilePrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
                 val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                // We use a generic file picker intent here. 
-                // Note: For a fully native integration, you would launch an ActivityResultLauncher here.
-                // For now, allowing GeckoView to handle the default intent resolution.
-                val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
-                    type = "*/*"
-                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                }
-                try {
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    // Fallback if no file manager is available
-                }
+                pendingFilePrompt = prompt
+                pendingFileResult = result
+                val mimeTypes = prompt.mimeTypes ?: arrayOf("*/*")
+                filePickerLauncher.launch(mimeTypes)
                 return result
             }
 
-            override fun onButtonPrompt(
-                session: GeckoSession,
-                prompt: GeckoSession.PromptDelegate.ButtonPrompt
-            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            override fun onAlertPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.AlertPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
+                runOnUiThread {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(prompt.title ?: "Message")
+                        .setMessage(prompt.message ?: "")
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(this@MainActivity)) }
+                        .setOnDismissListener { result.complete(prompt.dismiss()) }
+                        .show()
+                }
+                return result
+            }
+            
+            override fun onButtonPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.ButtonPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
                 val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
                 runOnUiThread {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle(prompt.title ?: "Confirm")
                         .setMessage(prompt.message ?: "")
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.TYPE_POSITIVE)) }
-                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.TYPE_NEGATIVE)) }
-                        .setOnCancelListener { result.complete(prompt.dismiss()) }
+                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(this@MainActivity, GeckoSession.PromptDelegate.ButtonPrompt.Type.POSITIVE)) }
+                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(this@MainActivity, GeckoSession.PromptDelegate.ButtonPrompt.Type.NEGATIVE)) }
+                        .setOnDismissListener { result.complete(prompt.dismiss()) }
                         .show()
                 }
                 return result
@@ -390,18 +367,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleAutoSaveTitle(title: String) {
+    private fun handleAutoSaveUri(uri: String) {
         try {
-            val jsonStr = title.removePrefix("SPOON_VAULT_SAVE:")
-            val parsed = org.json.JSONObject(jsonStr)
-            val host = parsed.optString("host") ?: return
-            val user = parsed.optString("user") ?: ""
-            val pass = parsed.optString("pass") ?: return
+            val parsed = Uri.parse(uri)
+            val host = parsed.getQueryParameter("host") ?: return
+            val user = parsed.getQueryParameter("user") ?: ""
+            val pass = parsed.getQueryParameter("pass") ?: return
             if (pass.isEmpty()) return
-            
+
             val ignored = getSharedPreferences("vault_ignored", Context.MODE_PRIVATE).getBoolean(host, false)
             if (ignored) return
-            
+
             runOnUiThread {
                 AlertDialog.Builder(this)
                     .setTitle("Save Credentials?")
@@ -418,73 +394,17 @@ class MainActivity : AppCompatActivity() {
         val normal = { text: String -> SpannableString(text) as CharSequence }
         val redText = SpannableString("Exit App")
         redText.setSpan(ForegroundColorSpan(Color.RED), 0, redText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        
-        val options = arrayOf<CharSequence>(
-            normal("Reload Page"),
-            normal("Copy Site ID"),
-            normal("Copy Site Password"),
-            normal("History"), 
-            normal("Bookmarks"), 
-            normal("Vault Manager"), 
-            normal("Extensions"), 
-            normal("Clear Browsing Data"), 
-            redText
-        )
-        
+        val options = arrayOf<CharSequence>(normal("History"), normal("Bookmarks"), normal("Vault"), normal("Extensions"), normal("Clear Browsing Data"), redText)
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
-                0 -> if (::activeTab.isInitialized) activeTab.session.reload()
-                1 -> quickCopyVaultId()
-                2 -> quickCopyVaultPassword()
-                3 -> openHistoryManager()
-                4 -> openBookmarkManager()
-                5 -> openVaultManager()
-                6 -> showExtensionsMenu()
-                7 -> clearBrowsingData()
-                8 -> exitApp()
+                0 -> openHistoryManager()
+                1 -> openBookmarkManager()
+                2 -> showVaultMenu()
+                3 -> showExtensionsMenu()
+                4 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
+                5 -> exitApp()
             }
         }.show()
-    }
-
-    private fun quickCopyVaultId() {
-        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
-        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
-        val username = vaultManager.getUsername(host)
-        if (username.isNotEmpty()) {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("username", username))
-            Toast.makeText(this, "ID Copied", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "No ID saved for $host", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun quickCopyVaultPassword() {
-        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") { Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return }
-        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
-        val password = vaultManager.getPassword(host)
-        if (password.isNotEmpty()) {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("password", password))
-            Toast.makeText(this, "Password Copied", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "No password saved for $host", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun clearBrowsingData() {
-        AlertDialog.Builder(this).setTitle("Clear Browsing Data?").setMessage("This will clear cache, cookies, and history.")
-            .setPositiveButton("Clear") { _, _ ->
-                val flags = org.mozilla.geckoview.StorageController.ClearFlags.ALL
-                runtime.storageController.clearData(flags).accept {
-                    runOnUiThread {
-                        dbHelper.deleteAllHistory()
-                        Toast.makeText(this, "Data cleared.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun showExitConfirmation() {
@@ -548,23 +468,6 @@ class MainActivity : AppCompatActivity() {
         val baseUrl = extension.metaData.baseUrl ?: run { Toast.makeText(this, "No popup available.", Toast.LENGTH_SHORT).show(); return }
         val popupSession = GeckoSession()
         popupSession.open(runtime)
-        
-        // CRITICAL FIX: Attach promptDelegate to the popup session so file pickers work!
-        popupSession.promptDelegate = object : GeckoSession.PromptDelegate {
-            override fun onFilePrompt(
-                session: GeckoSession,
-                prompt: GeckoSession.PromptDelegate.FilePrompt
-            ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                pendingFilePrompt = prompt
-                pendingFilePromptResult = result
-                val filters = prompt.captureFilters()
-                val mimeTypes = if (filters.isNullOrEmpty()) arrayOf("*/*") else filters
-                try { filePickerLauncher.launch(mimeTypes) } catch (e: Exception) { filePickerLauncher.launch(arrayOf("*/*")) }
-                return result
-            }
-        }
-
         val popupView = org.mozilla.geckoview.GeckoView(this)
         popupView.layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.65).toInt())
         popupView.setSession(popupSession)
