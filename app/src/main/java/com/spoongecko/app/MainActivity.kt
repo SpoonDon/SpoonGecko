@@ -101,7 +101,11 @@ class MainActivity : AppCompatActivity() {
             if (uris.isNullOrEmpty()) {
                 result.complete(prompt.dismiss())
             } else {
-                // FIX: Pass Context as first argument, use Int 1 for SINGLE type
+                try {
+                    val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(uris[0], flag)
+                } catch (e: Exception) { /* Some providers don't support persistable */ }
+                
                 if (uris.size == 1 && prompt.type == 1) {
                     result.complete(prompt.confirm(this@MainActivity, uris[0]))
                 } else {
@@ -444,9 +448,11 @@ class MainActivity : AppCompatActivity() {
 
         val options = arrayOf<CharSequence>(
             normal("Reload Page"),
+            normal("Copy Site ID"),
+            normal("Copy Site Password"),
             normal("History"), 
             normal("Bookmarks"), 
-            normal("Vault"), 
+            normal("Vault Manager"), 
             normal("Extensions"), 
             normal("Clear Browsing Data"), 
             redText
@@ -455,14 +461,63 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
                 0 -> if (::activeTab.isInitialized) activeTab.session.reload()
-                1 -> openHistoryManager()
-                2 -> openBookmarkManager()
-                3 -> showVaultMenu()
-                4 -> showExtensionsMenu()
-                5 -> Toast.makeText(this, "Coming soon!", Toast.LENGTH_SHORT).show()
-                6 -> exitApp()
+                1 -> quickCopyVaultId()
+                2 -> quickCopyVaultPassword()
+                3 -> openHistoryManager()
+                4 -> openBookmarkManager()
+                5 -> openVaultManager()
+                6 -> showExtensionsMenu()
+                7 -> clearBrowsingData()
+                8 -> exitApp()
             }
         }.show()
+    }
+
+    private fun quickCopyVaultId() {
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") {
+            Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return
+        }
+        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
+        val username = vaultManager.getUsername(host)
+        if (username.isNotEmpty()) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("username", username))
+            Toast.makeText(this, "ID Copied", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "No ID saved for $host", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun quickCopyVaultPassword() {
+        if (!::activeTab.isInitialized || activeTab.url.isEmpty() || activeTab.url == "about:blank") {
+            Toast.makeText(this, "No valid page loaded.", Toast.LENGTH_SHORT).show(); return
+        }
+        val host = Uri.parse(activeTab.url).host?.lowercase()?.trim()?.removePrefix("www.") ?: return
+        val password = vaultManager.getPassword(host)
+        if (password.isNotEmpty()) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("password", password))
+            Toast.makeText(this, "Password Copied", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "No password saved for $host", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun clearBrowsingData() {
+        AlertDialog.Builder(this)
+            .setTitle("Clear Browsing Data?")
+            .setMessage("This will clear cache, cookies, and history.")
+            .setPositiveButton("Clear") { _, _ ->
+                val flags = org.mozilla.geckoview.StorageController.ClearFlags.ALL
+                runtime.storageController.clearData(flags).accept {
+                    runOnUiThread {
+                        dbHelper.deleteAllHistory()
+                        Toast.makeText(this, "Data cleared.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showExitConfirmation() {
@@ -471,6 +526,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exitApp() {
+        try {
+            val flags = org.mozilla.geckoview.StorageController.ClearFlags.CACHE
+            runtime.storageController.clearData(flags)
+        } catch (e: Exception) {}
+        
         GeckoRuntimeManager.shutdown()
         finishAndRemoveTask()
         android.os.Process.killProcess(android.os.Process.myPid())
