@@ -92,20 +92,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var pendingFilePrompt: GeckoSession.PromptDelegate.FilePrompt? = null
-    private var pendingFileResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
+    private var pendingFilePromptResult: GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? = null
 
-    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && pendingFilePrompt != null && pendingFileResult != null) {
-            try {
-                // Grant read permission so GeckoView can read the selected file
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (e: Exception) { /* Ignore if not persistable */ }
-            pendingFileResult?.complete(pendingFilePrompt!!.confirm(this, uri))
-        } else {
-            pendingFileResult?.complete(pendingFilePrompt?.dismiss())
-        }
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val prompt = pendingFilePrompt
+        val result = pendingFilePromptResult
         pendingFilePrompt = null
-        pendingFileResult = null
+        pendingFilePromptResult = null
+
+        if (prompt != null && result != null) {
+            if (uris.isNullOrEmpty()) {
+                result.complete(prompt.dismiss())
+            } else {
+                uris.forEach { uri ->
+                    try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+                }
+                if (prompt.type == GeckoSession.PromptDelegate.FilePrompt.TYPE_SINGLE) {
+                    result.complete(prompt.confirm(uris[0]))
+                } else {
+                    result.complete(prompt.confirm(uris.toTypedArray()))
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -283,9 +291,16 @@ class MainActivity : AppCompatActivity() {
     """.trimIndent()
 
     private fun setupDelegates(tab: TabInfo) {
+        // 1. NAVIGATION DELEGATE
         tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
             override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
                 val uri = request.uri
+                // Intercept vault auto-save signals
+                if (uri.startsWith("spoonvault://save")) {
+                    handleAutoSaveUri(uri)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
+                // Intercept .xpi extension downloads
                 if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                     runtime.webExtensionController.install(uri).accept(
                         { ext -> runOnUiThread { Toast.makeText(this@MainActivity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -295,102 +310,57 @@ class MainActivity : AppCompatActivity() {
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
                     tab.url = it
-                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank") "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://")) {
+                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank" || it.startsWith("javascript:")) "" else it) }
+                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                         Thread { dbHelper.addHistory(it, tab.title) }.start()
                     }
                 }
             }
+
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
+
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
         }
-        
+
+        // 2. PROGRESS DELEGATE (This is where onPageStop actually lives in GeckoView!)
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) {
+                    // Inject the vault auto-save script safely
                     session.loadUri("javascript:$AUTOSAVE_JS")
                 }
             }
         }
 
+        // 3. CONTENT DELEGATE
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
-                    if (it.startsWith("SPOON_VAULT_SAVE:")) {
-                        handleAutoSaveTitle(it)
-                    } else {
-                        tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
-                    }
+                    // Prevent the JS injection string from showing up as the tab title
+                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty() || it.contains("spoonvault://")) "New Tab" else it
                 }
             }
         }
 
+        // 4. PROMPT DELEGATE (Handles native file pickers for extensions like Bitwarden restore)
         tab.session.promptDelegate = object : GeckoSession.PromptDelegate {
             override fun onFilePrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.FilePrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
                 val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
                 pendingFilePrompt = prompt
-                pendingFileResult = result
+                pendingFilePromptResult = result
                 
-                val mimeTypes = prompt.mimeTypes?.takeIf { it.isNotEmpty() } ?: arrayOf("*/*")
-                try {
-                    filePickerLauncher.launch(mimeTypes)
-                } catch (e: Exception) {
-                    filePickerLauncher.launch(arrayOf("*/*"))
-                }
-                return result
-            }
-
-            override fun onAlertPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.AlertPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                runOnUiThread {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(prompt.title ?: "Message")
-                        .setMessage(prompt.message ?: "")
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm()) }
-                        .setOnDismissListener { result.complete(prompt.dismiss()) }
-                        .show()
-                }
-                return result
-            }
-
-            override fun onConfirmPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.ConfirmPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                runOnUiThread {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(prompt.title ?: "Confirm")
-                        .setMessage(prompt.message ?: "")
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(true)) }
-                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.confirm(false)) }
-                        .setOnDismissListener { result.complete(prompt.dismiss()) }
-                        .show()
-                }
-                return result
-            }
-            
-            override fun onTextPrompt(session: GeckoSession, prompt: GeckoSession.PromptDelegate.TextPrompt): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-                val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                val input = EditText(this@MainActivity).apply {
-                    setText(prompt.defaultValue ?: "")
-                }
-                runOnUiThread {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle(prompt.title ?: "Input")
-                        .setMessage(prompt.message ?: "")
-                        .setView(input)
-                        .setPositiveButton("OK") { _, _ -> result.complete(prompt.confirm(input.text.toString())) }
-                        .setNegativeButton("Cancel") { _, _ -> result.complete(prompt.dismiss()) }
-                        .setOnDismissListener { result.complete(prompt.dismiss()) }
-                        .show()
-                }
+                val mimeTypes = prompt.mimeTypes ?: arrayOf("*/*")
+                filePickerLauncher.launch(mimeTypes)
                 return result
             }
         }
