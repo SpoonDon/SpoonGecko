@@ -527,7 +527,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun exitApp() {
         try {
-            val flags = org.mozilla.geckoview.StorageController.ClearFlags.CACHE
+            val flags = org.mozilla.geckoview.StorageController.ClearFlags.NETWORK_CACHE
             runtime.storageController.clearData(flags)
         } catch (e: Exception) {}
         
