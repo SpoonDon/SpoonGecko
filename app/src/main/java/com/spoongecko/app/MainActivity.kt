@@ -101,10 +101,11 @@ class MainActivity : AppCompatActivity() {
             if (uris.isNullOrEmpty()) {
                 result.complete(prompt.dismiss())
             } else {
-                if (prompt.type == GeckoSession.PromptDelegate.FilePrompt.TYPE_SINGLE) {
-                    result.complete(prompt.confirm(uris[0]))
+                // FIX: Pass Context as first argument, use Int 1 for SINGLE type
+                if (uris.size == 1 && prompt.type == 1) {
+                    result.complete(prompt.confirm(this@MainActivity, uris[0]))
                 } else {
-                    result.complete(prompt.confirm(uris.toTypedArray()))
+                    result.complete(prompt.confirm(this@MainActivity, uris.toTypedArray()))
                 }
             }
         }
@@ -564,7 +565,13 @@ class MainActivity : AppCompatActivity() {
             )
         }
         refresh()
-        searchBox.setOnEditorActionListener { v, a, _ -> if (a == EditorInfo.IME_ACTION_DONE) { refresh(v.text.toString(), sortSpinner.selectedItemPosition); true } else false }
+        searchBox.addTextChangedListener(object : android.text.TextWatcher {         
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}         
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {             
+                refresh(s.toString(), sortSpinner.selectedItemPosition)         
+            }         
+            override fun afterTextChanged(s: android.text.Editable?) {}     
+        })
         sortSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) { refresh(searchBox.text.toString(), pos) }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
