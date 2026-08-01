@@ -1,5 +1,9 @@
 package com.spoongecko.app
 
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -48,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var extensionManager: ExtensionManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
+    private var isFullScreen = false
     private val tabs = mutableListOf<TabInfo>()
     private lateinit var activeTab: TabInfo
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
@@ -82,6 +87,34 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun setFullScreen(fullScreen: Boolean) {
+    isFullScreen = fullScreen
+    val topBar = findViewById<View>(R.id.top_bar)
+    
+    if (fullScreen) {
+        // Hide App UI
+        topBar.visibility = View.GONE
+        
+        // Keep screen on while video is playing
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        
+        // Hide System UI (Immersive Mode)
+        window.insetsController?.let {
+            it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+            it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    } else {
+        // Show App UI
+        topBar.visibility = View.VISIBLE
+        
+        // Allow screen to turn off again
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        
+        // Show System UI
+        window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+    }
+}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,11 +222,20 @@ btnBack.setOnClickListener { handleBackNavigation() }
     }
 
     private fun handleBackNavigation() {
-        if (!::activeTab.isInitialized) { exitApp(); return }
-        if (activeTab.canGoBack) activeTab.session.goBack()
-        else if (tabs.size > 1) closeSession(activeTab)
-        else showExitConfirmation()
+    // Intercept back button to exit fullscreen first
+    if (isFullScreen) {
+        if (::activeTab.isInitialized) {
+            // Inject JS to tell the HTML5 video player to exit fullscreen
+            activeTab.session.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen(); })();")
+        }
+        return
     }
+
+    if (!::activeTab.isInitialized) { exitApp(); return }
+    if (activeTab.canGoBack) activeTab.session.goBack()
+    else if (tabs.size > 1) closeSession(activeTab)
+    else showExitConfirmation()
+}
 
     private fun loadUrlOrSearch(query: String) {
         val trimmed = query.trim()
@@ -236,13 +278,18 @@ btnBack.setOnClickListener { handleBackNavigation() }
     }
 
     private fun switchToSession(tab: TabInfo) {
-        for (t in tabs) { t.session.setActive(t == tab) }
-        if (geckoView.session != tab.session) geckoView.setSession(tab.session)
-        activeTab = tab
-        urlBar.setText(if (tab.url == "about:blank") "" else tab.url)
-        tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
-        updateNavButtons()
+    // Exit fullscreen when switching tabs to prevent UI glitches
+    if (isFullScreen) {
+        setFullScreen(false)
     }
+
+    for (t in tabs) { t.session.setActive(t == tab) }
+    if (geckoView.session != tab.session) geckoView.setSession(tab.session)
+    activeTab = tab
+    urlBar.setText(if (tab.url == "about:blank") "" else tab.url)
+    tab.session.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+    updateNavButtons()
+}
 
     private fun closeSession(tab: TabInfo) {
         tab.session.close(); tabs.remove(tab)
@@ -363,13 +410,20 @@ btnBack.setOnClickListener { handleBackNavigation() }
             }
         }
 
-        // 3. CONTENT DELEGATE (Handles Tab Titles & Long-Press Menus)
-        tab.session.contentDelegate = object : GeckoSession.ContentDelegate {    
-            override fun onTitleChange(session: GeckoSession, title: String?) {        
-                title?.let {            
-                    tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it        
-                }    
-            }
+        // 3. CONTENT DELEGATE (Handles Tab Titles & Fullscreen)
+tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
+    override fun onTitleChange(session: GeckoSession, title: String?) {
+        title?.let {
+            tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
+        }
+    }
+    
+    override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
+        runOnUiThread {
+            setFullScreen(fullScreen)
+        }
+    }
+}
             
             override fun onContextMenu(session: GeckoSession, screenX: Int, screenY: Int, element: GeckoSession.ContentDelegate.ContextElement) {        
                 val link = element.linkUri        
