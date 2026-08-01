@@ -114,6 +114,16 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() { super.onPause() }
     override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
 
+override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    // Emergency Memory Dump: Prevents silent OS kills by clearing cache when RAM is low
+    if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        try {
+            runtime.storageController.clearData(org.mozilla.geckoview.StorageController.ClearFlags.CACHE).accept {}
+        } catch (e: Exception) {}
+    }
+}
+
     @Suppress("KotlinConstantConditions")
     override fun onDestroy() { 
        super.onDestroy()
