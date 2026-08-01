@@ -24,10 +24,8 @@ object GeckoRuntimeManager {
                 .build()
 
             runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
-runtime?.delegate = object : GeckoRuntime.Delegate {
-    override fun onCrash() {
-        // The native engine crashed. We shut it down cleanly to prevent a hard app exit.
-        runtime?.shutdown()
+            runtime?.delegate = object : GeckoRuntime.Delegate {
+    override fun onShutdown() {
         runtime = null
     }
 }
