@@ -119,7 +119,7 @@ override fun onTrimMemory(level: Int) {
     // Emergency Memory Dump: Prevents silent OS kills by clearing cache when RAM is low
     if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
         try {
-            runtime.storageController.clearData(org.mozilla.geckoview.StorageController.ClearFlags.CACHE).accept {}
+            runtime.storageController.clearData(org.mozilla.geckoview.StorageController.ClearFlags.NETWORK_CACHE).accept {}
         } catch (e: Exception) {}
     }
 }
