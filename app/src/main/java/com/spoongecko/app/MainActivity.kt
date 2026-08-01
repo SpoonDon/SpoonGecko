@@ -130,15 +130,15 @@ class MainActivity : AppCompatActivity() {
     private fun setupSuggestions() {
         val suggestionList = mutableListOf<String>()
         val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, suggestionList) {
-            override fun getFilter(): android.widget.Filter {
-                return object : android.widget.Filter() {
-                    override fun performFiltering(constraint: CharSequence?): android.widget.FilterResults {
-                        val results = android.widget.FilterResults()
+            override fun getFilter(): Filter {
+                return object : Filter() {
+                    override fun performFiltering(constraint: CharSequence?): Filter.FilterResults {
+                        val results = Filter.FilterResults()
                         results.values = suggestionList
                         results.count = suggestionList.size
                         return results
                     }
-                    override fun publishResults(constraint: CharSequence?, results: android.widget.FilterResults?) {
+                    override fun publishResults(constraint: CharSequence?, results: Filter.FilterResults?) {
                         if (results != null && results.count > 0) notifyDataSetChanged() else notifyDataSetInvalidated()
                     }
                 }
