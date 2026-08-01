@@ -15,6 +15,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.EditText
+import android.widget.Filter
 import android.widget.ImageButton
 import android.widget.Spinner
 import android.widget.Toast
