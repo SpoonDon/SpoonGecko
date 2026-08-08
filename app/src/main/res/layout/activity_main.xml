@@ -43,7 +43,7 @@
                 android:contentDescription="Forward"
                 android:alpha="0.5"/>
 
-            <EditText
+            <AutoCompleteTextView
                 android:id="@+id/url_bar"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -55,7 +55,10 @@
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"
                 android:singleLine="true"
-                android:textSize="16sp" />
+                android:textSize="16sp"
+                android:completionThreshold="1"
+                android:dropDownHeight="250dp"
+                android:popupBackground="?attr/colorSurface" />
 
             <ImageButton
                 android:id="@+id/btn_reload"
