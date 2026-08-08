@@ -315,7 +315,21 @@ class MainActivity : AppCompatActivity() {
                     )
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
-                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                val lower = uri.lowercase()
+if (lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".apk") || lower.endsWith(".mp4") || lower.endsWith(".mp3")) {
+    try {
+        val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+        val downloadUri = Uri.parse(uri)
+        val req = android.app.DownloadManager.Request(downloadUri).apply {
+            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, downloadUri.lastPathSegment ?: "download")
+        }
+        downloadManager.enqueue(req)
+        runOnUiThread { Toast.makeText(this@MainActivity, "Downloading file...", Toast.LENGTH_SHORT).show() }
+        return GeckoResult.fromValue(AllowOrDeny.DENY)
+    } catch (e: Exception) { }
+}
+return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
                 url?.let {
@@ -330,7 +344,12 @@ class MainActivity : AppCompatActivity() {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-            override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
+            override fun onLoadError(session: GeckoSession, uri: String?, error: org.mozilla.geckoview.WebRequestError): GeckoResult<String>? {
+    val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p><p style='color:#888;font-size:14px;'>Check your internet or try again.</p></body></html>"
+    return GeckoResult.fromValue("data:text/html;base64," + android.util.Base64.encodeToString(html.toByteArray(), android.util.Base64.DEFAULT))
+}
+
+override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
