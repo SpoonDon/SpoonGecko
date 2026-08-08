@@ -249,13 +249,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession() {
-        val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
-        session.open(runtime)
-        val tab = TabInfo(session)
-        tabs.add(tab)
-        setupDelegates(tab)
-        switchToSession(tab)
-        session.loadUri("about:blank")
+    val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
+    session.open(runtime)
+    val tab = TabInfo(session)
+    tabs.add(tab)
+    setupDelegates(tab)
+    switchToSession(tab)
+    session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
+
     }
 
     private fun switchToSession(tab: TabInfo) {
@@ -367,14 +368,20 @@ if (lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".apk") |
 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
-                url?.let {
-                    tab.url = it
-                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (it == "about:blank" || it.startsWith("javascript:")) "" else it) }
-                    if (it != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
-                        Thread { dbHelper.addHistory(it, tab.title) }.start()
-                    }
-                }
+    url?.let {
+        val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
+        val logicalUrl = if (isCustomNewTab) "about:blank" else it
+        
+        tab.url = logicalUrl
+        if (tab == activeTab) runOnUiThread { urlBar.setText(if (logicalUrl == "about:blank" || logicalUrl.startsWith("javascript:")) "" else logicalUrl) }
+        
+        if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
+            Thread { dbHelper.addHistory(it, tab.title) }.start()
+        
+        }    
+    }
             }
+            
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
