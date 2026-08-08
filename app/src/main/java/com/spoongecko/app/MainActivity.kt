@@ -491,6 +491,7 @@ override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
         redText.setSpan(ForegroundColorSpan(Color.RED), 0, redText.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val options = arrayOf<CharSequence>(
             normal("Reload Page"),
+            normal("Search Engine"),
             normal("Copy Site ID"),
             normal("Copy Site Password"),
             normal("History"),
@@ -503,14 +504,15 @@ override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
         AlertDialog.Builder(this).setTitle("Menu").setItems(options) { _, which ->
             when (which) {
                 0 -> if (::activeTab.isInitialized) activeTab.session.reload()
-                1 -> quickCopyVaultId()
-                2 -> quickCopyVaultPassword()
-                3 -> openHistoryManager()
-                4 -> openBookmarkManager()
-                5 -> showVaultMenu()
-                6 -> showExtensionsMenu()
-                7 -> clearBrowsingData()
-                8 -> exitApp()
+                1 -> showSearchEnginePicker()
+                2 -> quickCopyVaultId()
+                3 -> quickCopyVaultPassword()
+                4 -> openHistoryManager()
+                5 -> openBookmarkManager()
+                6 -> showVaultMenu()
+                7 -> showExtensionsMenu()
+                8 -> clearBrowsingData()
+                9 -> exitApp()
             }
         }.show()
     }
@@ -849,5 +851,23 @@ override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
             try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }) }
             catch (e: Exception) { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
         }
+    }
+
+    private fun showSearchEnginePicker() {
+        val prefs = getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
+        val current = prefs.getString("search_engine", "brave")
+        val engines = arrayOf("Brave", "DuckDuckGo", "Google", "Startpage")
+        val values = arrayOf("brave", "duckduckgo", "google", "startpage")
+        val checkedItem = values.indexOf(current)
+
+        AlertDialog.Builder(this)
+            .setTitle("Default Search Engine")
+            .setSingleChoiceItems(engines, checkedItem) { dialog, which ->
+                prefs.edit().putString("search_engine", values[which]).apply()
+                Toast.makeText(this, "Search engine set to ${engines[which]}", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }
