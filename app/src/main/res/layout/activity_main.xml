@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout 
+<androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main_layout"
@@ -27,7 +27,7 @@
 
             <ImageButton
                 android:id="@+id/btn_back"
-                android:layout_width="48dp"
+                android:layout_width="40dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_back"
@@ -36,36 +36,38 @@
 
             <ImageButton
                 android:id="@+id/btn_forward"
-                android:layout_width="48dp"
+                android:layout_width="40dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_forward"
                 android:contentDescription="Forward"
                 android:alpha="0.5"/>
 
-            <AutoCompleteTextView    
-                android:id="@+id/url_bar"    
-                android:layout_width="0dp"    
-                android:layout_height="match_parent"    
-                android:layout_weight="1"    
-                android:background="@android:color/transparent"    
-                android:hint="Search or enter URL"    
-                android:imeOptions="actionGo"    
-                android:inputType="textUri"    
-                android:paddingStart="8dp"    
-                android:paddingEnd="8dp"    
-                android:singleLine="true"    
-                android:textSize="16sp"    
-                android:completionThreshold="1"
-                android:dropDownHeight="250dp"
-                android:dropDownAnchor="@id/top_bar"
-                android:dropDownWidth="match_parent"
-                android:popupBackground="?attr/colorSurface"    
-                android:textColor="?attr/colorOnSurface" />
+            <EditText
+                android:id="@+id/url_bar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@android:color/transparent"
+                android:hint="Search or enter URL"
+                android:imeOptions="actionGo"
+                android:inputType="textUri"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:singleLine="true"
+                android:textSize="16sp" />
+
+            <ImageButton
+                android:id="@+id/btn_reload"
+                android:layout_width="40dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_rotate"
+                android:contentDescription="Reload" />
 
             <ImageButton
                 android:id="@+id/btn_tabs"
-                android:layout_width="48dp"
+                android:layout_width="40dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_tabs"
@@ -73,7 +75,7 @@
 
             <ImageButton
                 android:id="@+id/btn_menu"
-                android:layout_width="48dp"
+                android:layout_width="40dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_menu"
@@ -93,5 +95,4 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/top_bar" />
-
 </androidx.constraintlayout.widget.ConstraintLayout>
