@@ -1,5 +1,7 @@
 package com.spoongecko.app
 
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -119,12 +121,37 @@ class MainActivity : AppCompatActivity() {
             } else false
         }
         urlBar.setOnFocusChangeListener { v, hasFocus ->
-            if (hasFocus) v.post { (v as AutoCompleteTextView).selectAll() }
+            if (hasFocus) v.post { (v as android.widget.AutoCompleteTextView).selectAll() }
         }
+        
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
+        findViewById<ImageButton>(R.id.btn_reload).setOnClickListener { if (::activeTab.isInitialized) activeTab.session.reload() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { showMenuOptions() }
+
+        // PREMIUM EDGE SWIPE GESTURES (Back / Forward)
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 == null) return false
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 150 && Math.abs(velocityX) > 200) {
+                    if (diffX > 0 && e1.x < 150) { // Swipe right from left edge
+                        if (::activeTab.isInitialized && activeTab.canGoBack) activeTab.session.goBack()
+                        return true
+                    } else if (diffX < 0 && e1.x > (geckoView.width - 150)) { // Swipe left from right edge
+                        if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward()
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+        geckoView.setOnTouchListener { v, event ->
+            gestureDetector.onTouchEvent(event)
+            false // Crucial: return false so GeckoView still scrolls the page normally!
+        }
     }
 
     private fun setupSuggestions() {
@@ -200,7 +227,15 @@ class MainActivity : AppCompatActivity() {
             }
             activeTab.session.loadUri(finalUrl)
         } else {
-            activeTab.session.loadUri("https://search.brave.com/search?q=$trimmed")
+            val prefs = getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
+            val engine = prefs.getString("search_engine", "brave")
+            val searchUrl = when(engine) {
+                "duckduckgo" -> "https://duckduckgo.com/?q=$trimmed"
+                "google" -> "https://www.google.com/search?q=$trimmed"
+                "startpage" -> "https://www.startpage.com/do/dsearch?query=$trimmed"
+                else -> "https://search.brave.com/search?q=$trimmed"
+            }
+            activeTab.session.loadUri(searchUrl)
         }
         urlBar.clearFocus()
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(urlBar.windowToken, 0)
