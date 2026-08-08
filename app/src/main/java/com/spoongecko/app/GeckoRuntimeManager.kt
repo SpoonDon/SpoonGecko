@@ -17,12 +17,11 @@ object GeckoRuntimeManager {
                 .build()
 
             val runtimeSettings = GeckoRuntimeSettings.Builder()
-                .contentBlocking(cbSettings)
-                .extensionsProcessEnabled(true)
-                // MAGIC FIX 1: Force Dark Mode for web content to prevent white flashes
-                .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK) 
-                .build()
-
+    .contentBlocking(cbSettings)
+    .extensionsProcessEnabled(true)
+    .useMultiprocess(true)
+    .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
+    .build()
             runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
             runtime?.delegate = object : GeckoRuntime.Delegate {
     override fun onShutdown() {
