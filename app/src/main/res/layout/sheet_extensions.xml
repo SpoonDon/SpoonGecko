@@ -15,42 +15,65 @@
         android:textColor="?attr/colorOnSurface"
         android:layout_marginBottom="12dp" />
 
-    <!-- Browse AMO collection (IronFox bypass) -->
-    <TextView
-        android:id="@+id/ext_browse_amo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="14dp"
-        android:textSize="16sp"
-        android:textColor="?attr/colorOnSurface"
-        android:background="?attr/selectableItemBackground"
-        android:clickable="true"
-        android:focusable="true"
-        android:text="🌐  Browse AMO Collection (IronFox)" />
-
-    <TextView
-        android:id="@+id/ext_browse_full_amo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="14dp"
-        android:textSize="16sp"
-        android:textColor="?attr/colorOnSurface"
-        android:background="?attr/selectableItemBackground"
-        android:clickable="true"
-        android:focusable="true"
-        android:text="🔍  Browse Full AMO" />
-
     <TextView
         android:id="@+id/ext_install_url"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="14dp"
-        android:textSize="16sp"
+        android:textSize="15sp"
         android:textColor="?attr/colorOnSurface"
         android:background="?attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="true"
-        android:text="📦  Install from URL (.xpi)" />
+        android:text="Install from URL (.xpi)" />
+
+    <TextView
+        android:id="@+id/ext_install_file"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="14dp"
+        android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Install from local file (.xpi)" />
+
+    <TextView
+        android:id="@+id/ext_update_all"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="14dp"
+        android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Update all extensions" />
+
+    <TextView
+        android:id="@+id/ext_backup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="14dp"
+        android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Backup extensions to file" />
+
+    <TextView
+        android:id="@+id/ext_restore"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="14dp"
+        android:textSize="15sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Restore extensions from file" />
 
     <View
         android:layout_width="match_parent"
@@ -61,7 +84,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Installed Extensions"
+        android:text="Installed"
         android:textSize="14sp"
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurfaceVariant"
@@ -76,7 +99,7 @@
         android:id="@+id/ext_empty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="No extensions installed yet."
+        android:text="No extensions installed."
         android:textSize="14sp"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:gravity="center"
