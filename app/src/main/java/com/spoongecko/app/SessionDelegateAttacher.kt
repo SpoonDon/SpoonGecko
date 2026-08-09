@@ -7,6 +7,7 @@ import android.os.Environment
 import android.util.Base64
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import org.mozilla.geckoview.WebResponse
 import org.mozilla.geckoview.*
 
 class SessionDelegateAttacher(
@@ -93,6 +94,33 @@ class SessionDelegateAttacher(
 
     // ── Content delegate (downloads via Content-Disposition) ────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
+
+        import org.mozilla.geckoview.WebResponse
+
+// Inside your createContentDelegate function:
+override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
+    val uri = response.uri
+    
+    // WebResponse no longer has a 'filename' property.
+    // Extract it from the Content-Disposition header or fallback to the URI.
+    val disposition = response.headers["Content-Disposition"] ?: response.headers["content-disposition"]
+    val filename = if (disposition != null) {
+        val matches = Regex("filename=\"?([^\"]+)\"?").find(disposition)
+        matches?.groupValues?.getOrNull(1) ?: uri?.lastPathSegment ?: "download"
+    } else {
+        uri?.lastPathSegment ?: "download"
+    }
+
+    // TODO: Trigger your Android DownloadManager here using the uri and filename
+    val request = DownloadManager.Request(Uri.parse(uri.toString()))
+        .setTitle(filename)
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
+    
+    val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    manager.enqueue(request)
+    
+    Toast.makeText(activity, "Downloading $filename", Toast.LENGTH_SHORT).show()
+}
 
         override fun onTitleChange(session: GeckoSession, title: String?) {
             title?.let {
