@@ -6,6 +6,7 @@
     <item android:id="@+id/menu_history" android:title="History" />
     <item android:id="@+id/menu_downloads" android:title="Downloads" />
     <item android:id="@+id/menu_find_in_page" android:title="Find in Page" />
+    <item android:id="@+id/menu_vault_copy" android:title="Copy Credentials" />
     <item android:id="@+id/menu_vault" android:title="Vault" />
     <item android:id="@+id/menu_extensions" android:title="Extensions" />
     <item android:id="@+id/menu_search_engine" android:title="Search Engine" />
