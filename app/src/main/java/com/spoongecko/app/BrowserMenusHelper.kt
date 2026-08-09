@@ -49,6 +49,43 @@ class BrowserMenusHelper(
         }
         view.findViewById<TextView>(R.id.menu_bookmarks)?.setOnClickListener { showBookmarks(); dialog.dismiss() }
         view.findViewById<TextView>(R.id.menu_history)?.setOnClickListener { showHistory(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_vault_copy)?.setOnClickListener {
+            val currentUrl = tabManager.activeTab?.url ?: ""
+            if (currentUrl.isEmpty() || currentUrl == "about:blank" || currentUrl.startsWith("data:")) {
+                Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                return@setOnClickListener
+            }
+            
+            val credentials = vaultManager.getCredentialsForUrl(currentUrl)
+            if (credentials.isEmpty()) {
+                Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                return@setOnClickListener
+            }
+
+            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
+            
+            AlertDialog.Builder(activity)
+                .setTitle("Select Account")
+                .setItems(titles) { _, which ->
+                    val selected = credentials[which]
+                    AlertDialog.Builder(activity)
+                        .setTitle(selected.username)
+                        .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
+                            val textToCopy = if (choice == 0) selected.username else selected.password
+                            val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        }
+                        .show()
+                }
+                .show()
+                
+            dialog.dismiss()
+        }
+
         view.findViewById<TextView>(R.id.menu_vault)?.setOnClickListener {
             val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
             vaultUi.showVault()
