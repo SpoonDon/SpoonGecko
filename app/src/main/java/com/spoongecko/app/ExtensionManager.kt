@@ -6,8 +6,13 @@ import androidx.appcompat.app.AlertDialog
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
-import org.mozilla.geckoview.WebExtension
 import org.mozilla.geckoview.WebExtensionController
+
+// To Enable:
+runtime.webExtensionController.enable(extension, WebExtensionController.EnableSources.USER)
+
+// To Disable:
+runtime.webExtensionController.disable(extension, WebExtensionController.EnableSources.USER)
 
 class ExtensionManager(private val runtime: GeckoRuntime, private val activity: Activity) {
 
@@ -85,11 +90,6 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
         runtime.webExtensionController.list().accept { extensions ->
             activity.runOnUiThread { callback(extensions ?: emptyList()) }
         }
-    }
-
-    // ── enable / disable / uninstall ────────────────────────────────
-    fun setEnabled(extension: WebExtension, enabled: Boolean) {
-        runtime.webExtensionController.setEnabled(extension, enabled)
     }
 
     fun uninstall(extension: WebExtension) {
