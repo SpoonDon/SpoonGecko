@@ -1,5 +1,6 @@
 package com.spoongecko.app
 
+import org.mozilla.geckoview.Autocomple
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -122,22 +123,32 @@ class MainActivity : AppCompatActivity() {
             onExitRequested = { showExitConfirmation() }
         )
 
-        // GeckoView's built-in login detector: when a page submits a username/password
-        // form, the engine hands us the login directly - no fragile JS injection needed.
-        runtime.setAutocompleteDelegate(object : Autocomplete.StorageDelegate {
-            override fun onLoginSave(request: Autocomplete.LoginSaveRequest): GeckoResult<Void>? {
-                val login = request.login
-                val host = try {
-                    Uri.parse(login.origin).host ?: login.origin
-                } catch (e: Exception) {
-                    login.origin
-                }
-                if (host.isNotEmpty() && login.username.isNotEmpty()) {
-                    vaultManager.saveCredentials(host, login.username, login.password)
-                }
-                return GeckoResult.fromValue<Void>(null)
+        // Attach the correct Storage Delegate to the GeckoRuntime
+runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
+    
+    // Correct signature: directly receives the LoginEntry object
+    override fun onLoginSave(login: Autocomplete.LoginEntry) {
+        // Extract the form data directly from the 'login' parameter
+        val origin = login.origin
+        val username = login.username
+        val password = login.password
+        
+        // Save to your SecureCredentialManager (ensure fields are not null/empty)
+        if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
+            vaultManager.saveCredentials(origin, username, password)
+            
+            // Optional: Show a toast or UI indicator that the password was saved
+            runOnUiThread {
+                android.widget.Toast.makeText(this@MainActivity, "Login saved for $origin", android.widget.Toast.LENGTH_SHORT).show()
             }
-        })
+        }
+    }
+     
+      override fun onLoginFetch(): GeckoResult<Array<Autocomplete.LoginEntry>> {
+          return GeckoResult.fromValue(emptyArray())
+      }
+     
+})
     }
 
     private fun onTabStateChanged(tab: TabInfo) {
