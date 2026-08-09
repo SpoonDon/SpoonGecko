@@ -25,9 +25,12 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
@@ -102,11 +105,29 @@ class MainActivity : AppCompatActivity() {
         createNewSession()
     }
 
-    override fun onStart() { super.onStart(); stopService(Intent(this, KeepAliveService::class.java)) }
-    override fun onStop() { super.onStop(); startForegroundService(Intent(this, KeepAliveService::class.java)) }
-    override fun onPause() { super.onPause() }
-    override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
-    override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
+    override fun onStart() { 
+        super.onStart()
+        stopService(Intent(this, KeepAliveService::class.java)) 
+    }
+    
+    override fun onStop() { 
+        super.onStop()
+        startForegroundService(Intent(this, KeepAliveService::class.java)) 
+    }
+    
+    override fun onPause() { 
+        super.onPause() 
+    }
+    
+    override fun onResume() { 
+        super.onResume()
+        extensionManager.checkForUpdates() 
+    }
+    
+    override fun onDestroy() { 
+        super.onDestroy()
+        if (isFinishing) GeckoRuntimeManager.shutdown() 
+    }
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -123,24 +144,22 @@ class MainActivity : AppCompatActivity() {
         urlBar.setOnFocusChangeListener { v, hasFocus ->
             if (hasFocus) v.post { (v as android.widget.AutoCompleteTextView).selectAll() }
         }
-        
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward() }
         findViewById<ImageButton>(R.id.btn_reload).setOnClickListener { if (::activeTab.isInitialized) activeTab.session.reload() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { showMenuOptions() }
 
-        // PREMIUM EDGE SWIPE GESTURES (Back / Forward)
         val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 == null) return false
                 val diffX = e2.x - e1.x
                 val diffY = e2.y - e1.y
                 if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 150 && Math.abs(velocityX) > 200) {
-                    if (diffX > 0 && e1.x < 150) { // Swipe right from left edge
+                    if (diffX > 0 && e1.x < 150) {
                         if (::activeTab.isInitialized && activeTab.canGoBack) activeTab.session.goBack()
                         return true
-                    } else if (diffX < 0 && e1.x > (geckoView.width - 150)) { // Swipe left from right edge
+                    } else if (diffX < 0 && e1.x > (geckoView.width - 150)) {
                         if (::activeTab.isInitialized && activeTab.canGoForward) activeTab.session.goForward()
                         return true
                     }
@@ -150,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         })
         geckoView.setOnTouchListener { v, event ->
             gestureDetector.onTouchEvent(event)
-            false // Crucial: return false so GeckoView still scrolls the page normally!
+            false
         }
     }
 
@@ -249,14 +268,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createNewSession() {
-    val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
-    session.open(runtime)
-    val tab = TabInfo(session)
-    tabs.add(tab)
-    setupDelegates(tab)
-    switchToSession(tab)
-    session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
-
+        val session = GeckoSession(GeckoSessionSettings.Builder().suspendMediaWhenInactive(true).build())
+        session.open(runtime)
+        val tab = TabInfo(session)
+        tabs.add(tab)
+        setupDelegates(tab)
+        switchToSession(tab)
+        session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
     }
 
     private fun switchToSession(tab: TabInfo) {
@@ -352,55 +370,56 @@ class MainActivity : AppCompatActivity() {
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
                 val lower = uri.lowercase()
-if (lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".apk") || lower.endsWith(".mp4") || lower.endsWith(".mp3")) {
-    try {
-        val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-        val downloadUri = Uri.parse(uri)
-        val req = android.app.DownloadManager.Request(downloadUri).apply {
-            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, downloadUri.lastPathSegment ?: "download")
-        }
-        downloadManager.enqueue(req)
-        runOnUiThread { Toast.makeText(this@MainActivity, "Downloading file...", Toast.LENGTH_SHORT).show() }
-        return GeckoResult.fromValue(AllowOrDeny.DENY)
-    } catch (e: Exception) { }
-}
-return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                if (lower.endsWith(".pdf") || lower.endsWith(".zip") || lower.endsWith(".apk") || lower.endsWith(".mp4") || lower.endsWith(".mp3")) {
+                    try {
+                        val downloadManager = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                        val downloadUri = Uri.parse(uri)
+                        val req = android.app.DownloadManager.Request(downloadUri).apply {
+                            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, downloadUri.lastPathSegment ?: "download")
+                        }
+                        downloadManager.enqueue(req)
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Downloading file...", Toast.LENGTH_SHORT).show() }
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    } catch (e: Exception) { }
+                }
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
             }
+
             override fun onLocationChange(session: GeckoSession, url: String?, perms: List<GeckoSession.PermissionDelegate.ContentPermission>, hasUserGesture: Boolean) {
-    url?.let {
-        val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
-        val logicalUrl = if (isCustomNewTab) "about:blank" else it
-        
-        tab.url = logicalUrl
-        if (tab == activeTab) runOnUiThread { urlBar.setText(if (logicalUrl == "about:blank" || logicalUrl.startsWith("javascript:")) "" else logicalUrl) }
-        
-        if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
-            Thread { dbHelper.addHistory(it, tab.title) }.start()
-        
-        }    
-    }
+                url?.let {
+                    val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
+                    val logicalUrl = if (isCustomNewTab) "about:blank" else it
+                    tab.url = logicalUrl
+                    if (tab == activeTab) runOnUiThread { urlBar.setText(if (logicalUrl == "about:blank" || logicalUrl.startsWith("javascript:")) "" else logicalUrl) }
+                    if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
+                        lifecycleScope.launch(Dispatchers.IO) { dbHelper.addHistory(it, tab.title) }
+                    }
+                }
             }
-            
+
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 tab.canGoBack = canGoBack
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
-            override fun onLoadError(session: GeckoSession, uri: String?, error: org.mozilla.geckoview.WebRequestError): GeckoResult<String>? {
-    val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p><p style='color:#888;font-size:14px;'>Check your internet or try again.</p></body></html>"
-    return GeckoResult.fromValue("data:text/html;base64," + android.util.Base64.encodeToString(html.toByteArray(), android.util.Base64.DEFAULT))
-}
 
-override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
+            override fun onLoadError(session: GeckoSession, uri: String?, error: org.mozilla.geckoview.WebRequestError): GeckoResult<String>? {
+                val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p><p style='color:#888;font-size:14px;'>Check your internet or try again.</p></body></html>"
+                return GeckoResult.fromValue("data:text/html;base64," + android.util.Base64.encodeToString(html.toByteArray(), android.util.Base64.DEFAULT))
+            }
+
+            override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 tab.canGoForward = canGoForward
                 if (tab == activeTab) runOnUiThread { updateNavButtons() }
             }
         }
+
         tab.session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 if (success) session.loadUri("javascript:$AUTOSAVE_JS")
             }
         }
+
         tab.session.contentDelegate = object : GeckoSession.ContentDelegate {
             override fun onTitleChange(session: GeckoSession, title: String?) {
                 title?.let {
@@ -866,7 +885,6 @@ override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
         val engines = arrayOf("Brave", "DuckDuckGo", "Google", "Startpage")
         val values = arrayOf("brave", "duckduckgo", "google", "startpage")
         val checkedItem = values.indexOf(current)
-
         AlertDialog.Builder(this)
             .setTitle("Default Search Engine")
             .setSingleChoiceItems(engines, checkedItem) { dialog, which ->
