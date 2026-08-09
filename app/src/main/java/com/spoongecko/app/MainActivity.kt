@@ -114,7 +114,12 @@ class MainActivity : AppCompatActivity() {
             onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
         )
 
-        gestureManager = GestureManager(this, geckoView) { tabManager.activeTab }
+        gestureManager = GestureManager(    
+            context = this,    
+            geckoView = geckoView,    
+            getActiveTab = { tabManager.activeTab },    
+            onSwipeCloseTab = { tabManager.activeTab?.let { tabManager.closeSession(it) } }
+        )
         gestureManager.attach()
 
         extensionManager = ExtensionManager(runtime, this)
