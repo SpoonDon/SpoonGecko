@@ -27,12 +27,10 @@ import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoView
 
 class MainActivity : AppCompatActivity() {
-
     private lateinit var geckoView: GeckoView
     private lateinit var urlBar: AutoCompleteTextView
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
-
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var vaultManager: SecureCredentialManager
     private lateinit var tabManager: TabManager
@@ -40,31 +38,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gestureManager: GestureManager
     private lateinit var extensionManager: ExtensionManager
     private lateinit var menus: BrowserMenusHelper
-
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
-
     private var isFullScreen = false
-    private var pendingExportData: String = ""
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
-        uri?.let {
-            try {
-                contentResolver.openOutputStream(it)?.use { stream -> stream.write(pendingExportData.toByteArray()) }
-                Toast.makeText(this, "Vault exported.", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
+        uri?.let { vaultManager.exportToCsv(it, this) }
+    }
+    private val importLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { vaultManager.importFromCsv(it, this) }
     }
 
-    // ===== Extension file pickers =====
-    private val installExtensionPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    private val installExtensionPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { extensionManager.installFromFile(it) }
     }
     private val backupExtensionsPicker = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri?.let { extensionManager.backupToFile(it) }
     }
-    private val restoreExtensionsPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    private val restoreExtensionsPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { extensionManager.restoreFromFile(it) }
     }
 
@@ -74,12 +64,10 @@ class MainActivity : AppCompatActivity() {
 
         dbHelper = DatabaseHelper(this)
         vaultManager = SecureCredentialManager(this)
-
         geckoView = findViewById(R.id.gecko_view)
         urlBar = findViewById(R.id.url_bar)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
-
         geckoView.coverUntilFirstPaint(Color.parseColor("#121212"))
 
         initManagers()
@@ -96,7 +84,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initManagers() {
-        // KEY FIX: closing the LAST remaining tab now triggers a confirmation
         tabManager = TabManager(
             runtime = runtime,
             geckoView = geckoView,
@@ -114,10 +101,10 @@ class MainActivity : AppCompatActivity() {
             onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
         )
 
-        gestureManager = GestureManager(    
-            context = this,    
-            geckoView = geckoView,    
-            getActiveTab = { tabManager.activeTab },    
+        gestureManager = GestureManager(
+            context = this,
+            geckoView = geckoView,
+            getActiveTab = { tabManager.activeTab },
             onSwipeCloseTab = { tabManager.activeTab?.let { tabManager.closeSession(it) } }
         )
         gestureManager.attach()
@@ -132,11 +119,12 @@ class MainActivity : AppCompatActivity() {
             vaultManager = vaultManager,
             extensionManager = extensionManager,
             onNavigate = { url -> tabManager.activeTab?.session?.loadUri(url) },
-            // KEY FIX: Exit button exits DIRECTLY (no confirmation)
             onExitRequested = { exitApp() },
-            onInstallExtensionFromFile = { installExtensionPicker.launch(arrayOf("*/*")) },
+            onInstallExtensionFromFile = { installExtensionPicker.launch("*/*") },
             onBackupExtensions = { backupExtensionsPicker.launch("extensions-backup.json") },
-            onRestoreExtensions = { restoreExtensionsPicker.launch(arrayOf("application/json", "*/*")) }
+            onRestoreExtensions = { restoreExtensionsPicker.launch("*/*") },
+            onExportCsv = { exportLauncher.launch("vault-export.csv") },
+            onImportCsv = { importLauncher.launch("*/*") }
         )
 
         runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
@@ -150,6 +138,15 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this@MainActivity, "Login saved for $origin", Toast.LENGTH_SHORT).show()
                     }
                 }
+            }
+            
+            override fun onLoginFetch(domain: String): GeckoResult<Array<Autocomplete.LoginEntry>>? {
+                val result = GeckoResult<Array<Autocomplete.LoginEntry>>()
+                Thread {
+                    val logins = vaultManager.getLoginsForDomain(domain)
+                    result.complete(logins.toTypedArray())
+                }.start()
+                return result
             }
         })
     }
@@ -211,7 +208,6 @@ class MainActivity : AppCompatActivity() {
                         count = found.size
                     }
                 }
-
                 @Suppress("UNCHECKED_CAST")
                 override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
                     suggestionList.clear()
@@ -220,7 +216,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
         urlBar.setAdapter(adapter)
         urlBar.threshold = 1
 
@@ -250,19 +245,16 @@ class MainActivity : AppCompatActivity() {
             tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen(); })();")
             return
         }
-
         val tab = tabManager.activeTab
         if (tab == null) {
             exitApp()
             return
         }
-
         if (tab.canGoBack) {
             tab.session.goBack()
         } else if (tabManager.tabs.size > 1) {
             tabManager.closeSession(tab)
         } else {
-            // Back on last tab -> confirm exit
             showExitConfirmation()
         }
     }
@@ -278,7 +270,6 @@ class MainActivity : AppCompatActivity() {
     private fun setFullScreen(fullScreen: Boolean) {
         isFullScreen = fullScreen
         val topBar = findViewById<android.view.View>(R.id.top_bar)
-
         if (fullScreen) {
             topBar.visibility = android.view.View.GONE
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
