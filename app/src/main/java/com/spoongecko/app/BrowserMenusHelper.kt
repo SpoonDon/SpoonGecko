@@ -82,7 +82,7 @@ class BrowserMenusHelper(
                 tabs = tabManager.tabs,
                 activeTab = currentTab,
                 onClick = { tab ->
-                    tabManager.selectTab(tab)
+                    tabManager.switchToSession(tab)
                     dialog.dismiss()
                 },
                 onClose = { tab ->
@@ -93,7 +93,7 @@ class BrowserMenusHelper(
             recyclerView?.adapter = adapter
         }
 
-        view.findViewById<TextView>(R.id.tabs_new_tab)?.setOnClickListener {
+        view.findViewById<ImageButton>(R.id.btn_new_tab)?.setOnClickListener {
             tabManager.createNewSession()
             dialog.dismiss()
         }
@@ -134,7 +134,7 @@ class BrowserMenusHelper(
                     onNavigate(history[which].url)
                 }
                 .setNeutralButton("Clear") { _, _ ->
-                    dbHelper.clearHistory()
+                    dbHelper.deleteAllHistory()
                     Toast.makeText(activity, "History cleared", Toast.LENGTH_SHORT).show()
                 }
                 .show()
@@ -169,10 +169,10 @@ class BrowserMenusHelper(
                 val adapter = ExtensionAdapter(
                     extensions = extensions,
                     onToggle = { ext, enabled ->
-                        if (enabled) extensionManager.enableExtension(ext) else extensionManager.disableExtension(ext)
+                        extensionManager.toggleExtension(ext, enabled) {}
                     },
                     onSettings = { ext -> extensionManager.openSettings(ext) },
-                    onUninstall = { ext -> extensionManager.uninstallExtension(ext) }
+                    onUninstall = { ext -> extensionManager.uninstallExtension(ext) {} }
                 )
                 recyclerView?.adapter = adapter
             }
