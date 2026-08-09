@@ -35,21 +35,26 @@ class BrowserMenusHelper(
     private val onImportCsv: () -> Unit
 ) {
 
-    fun showMenuOptions(anchorView: android.view.View) {
+    fun showMenuOptions(anchorView: View) {
         val popup = android.widget.PopupMenu(activity, anchorView, android.view.Gravity.END)
         popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
-        
+
+        // MAGIC FIX: Make the "Exit" button text red
+        val exitItem = popup.menu.findItem(R.id.menu_exit)
+        if (exitItem != null) {
+            val spannableString = android.text.SpannableString(exitItem.title)
+            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title.length, 0)
+            exitItem.title = spannableString
+        }
+
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                R.id.menu_new_tab -> {
-                    tabManager.createNewSession()
-                    true
-                }
+                R.id.menu_new_tab -> { tabManager.createNewSession(); true }
                 R.id.menu_add_bookmark -> {
                     val tab = tabManager.activeTab
                     if (tab != null && tab.url.isNotEmpty()) {
                         dbHelper.addBookmark(tab.url, tab.title)
-                        android.widget.Toast.makeText(activity, "Bookmark added", android.widget.Toast.LENGTH_SHORT).show()
+                        Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
                     }
                     true
                 }
@@ -57,6 +62,39 @@ class BrowserMenusHelper(
                 R.id.menu_history -> { showHistory(); true }
                 R.id.menu_downloads -> { showDownloads(); true }
                 R.id.menu_find_in_page -> { showFindInPage(); true }
+                R.id.menu_vault_copy -> {
+                    val currentUrl = tabManager.activeTab?.url ?: ""
+                    if (currentUrl.isEmpty() || currentUrl == "about:blank" || currentUrl.startsWith("data:")) {
+                        Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
+                        return@setOnMenuItemClickListener true
+                    }
+                    
+                    val credentials = vaultManager.getCredentialsForUrl(currentUrl)
+                    if (credentials.isEmpty()) {
+                        Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
+                        return@setOnMenuItemClickListener true
+                    }
+
+                    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
+                    
+                    AlertDialog.Builder(activity)
+                        .setTitle("Select Account")
+                        .setItems(titles) { _, which ->
+                            val selected = credentials[which]
+                            AlertDialog.Builder(activity)
+                                .setTitle(selected.username)
+                                .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
+                                    val textToCopy = if (choice == 0) selected.username else selected.password
+                                    val clip = android.content.ClipData.newPlainText("SpoonGecko Credential", textToCopy)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                }
+                                .show()
+                        }
+                        .show()
+                    true
+                }
                 R.id.menu_vault -> {
                     val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
                     vaultUi.showVault()
