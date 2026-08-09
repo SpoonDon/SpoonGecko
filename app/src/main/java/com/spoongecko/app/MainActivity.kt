@@ -78,7 +78,6 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
         requestBatteryExemption()
 
-        // Support links opened from other apps (ACTION_VIEW)
         val initialUrl = intent?.dataString
         tabManager.createNewSession()
         if (!initialUrl.isNullOrEmpty()) {
@@ -87,77 +86,77 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initManagers() {
-    tabManager = TabManager(
-        runtime = runtime,
-        geckoView = geckoView,
-        onActiveTabChanged = { tab -> onActiveTabChanged(tab) },
-        onLastTabClosed = { exitApp() },
-        onSessionCreated = { tab -> sessionAttacher.attach(tab) }
-    )
+        tabManager = TabManager(
+            runtime = runtime,
+            geckoView = geckoView,
+            onActiveTabChanged = { tab -> onActiveTabChanged(tab) },
+            onLastTabClosed = { showExitConfirmation() },   // ← confirmation, not instant exit
+            onSessionCreated = { tab -> sessionAttacher.attach(tab) }
+        )
 
-    sessionAttacher = SessionDelegateAttacher(
-        activity = this,
-        runtime = runtime,
-        dbHelper = dbHelper,
-        vaultManager = vaultManager,
-        onTabStateChanged = { tab -> onTabStateChanged(tab) },
-        onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
-    )
+        sessionAttacher = SessionDelegateAttacher(
+            activity = this,
+            runtime = runtime,
+            dbHelper = dbHelper,
+            vaultManager = vaultManager,
+            onTabStateChanged = { tab -> onTabStateChanged(tab) },
+            onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
+        )
 
-    gestureManager = GestureManager(this, geckoView) { tabManager.activeTab }
-    gestureManager.attach()
-
-    extensionManager = ExtensionManager(runtime, this)
-    extensionManager.setupDelegates()
-
-    // ── NEW: Initialize VaultUiHelper ──
-    vaultUi = VaultUiHelper(
-        activity = this,
-        vaultManager = vaultManager,
-        getCurrentUrl = { tabManager.activeTab?.url },
-        onExport = { data ->
-            pendingExportData = data
-            exportLauncher.launch("vault.csv")
-        }
-    )
-
-    menus = BrowserMenusHelper(
-        activity = this,
-        dbHelper = dbHelper,
-        tabManager = tabManager,
-        vaultManager = vaultManager,
-        extensionManager = extensionManager,
-        vaultUi = vaultUi,
-        onExportVault = { data ->
-            pendingExportData = data
-            exportLauncher.launch("vault.csv")
-        },
-        onExitRequested = { showExitConfirmation() }
-    )
-
-    // Attach the correct Storage Delegate to the GeckoRuntime
-    runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
-        override fun onLoginSave(login: Autocomplete.LoginEntry) {
-            val origin = login.origin
-            val username = login.username
-            val password = login.password
-            if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
-                vaultManager.saveCredentials(origin, username, password)
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "Login saved for $origin", Toast.LENGTH_SHORT).show()
-                }
+        // Swipe-down to close current tab
+        gestureManager = GestureManager(this, geckoView, { tabManager.activeTab }) {
+            val tab = tabManager.activeTab ?: return@GestureManager
+            if (tabManager.isLastTab(tab)) {
+                showExitConfirmation()
+            } else {
+                tabManager.closeSession(tab)
             }
         }
-        override fun onLoginFetch(): GeckoResult<Array<Autocomplete.LoginEntry>> {
-            return GeckoResult.fromValue(emptyArray())
-        }
-    })
-}
+        gestureManager.attach()
+
+        extensionManager = ExtensionManager(runtime, this)
+        extensionManager.setupDelegates()
+
+        vaultUi = VaultUiHelper(
+            activity = this,
+            vaultManager = vaultManager,
+            getCurrentUrl = { tabManager.activeTab?.url },
+            onExport = { data ->
+                pendingExportData = data
+                exportLauncher.launch("vault.csv")
+            }
+        )
+
+        menus = BrowserMenusHelper(
+            activity = this,
+            dbHelper = dbHelper,
+            tabManager = tabManager,
+            vaultManager = vaultManager,
+            extensionManager = extensionManager,
+            vaultUi = vaultUi,
+            onExportVault = { data ->
+                pendingExportData = data
+                exportLauncher.launch("vault.csv")
+            },
+            onExitRequested = { showExitConfirmation() }
+        )
+
+        // Autocomplete delegate for vault auto-save
+        runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
+            override fun onLoginSave(login: Autocomplete.LoginEntry) {
+                val origin = login.origin
+                val username = login.username
+                val password = login.password
+                if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
+                    vaultManager.saveCredentials(origin, username, password)
+                }
+            }
+        })
+    }
 
     private fun onTabStateChanged(tab: TabInfo) {
         if (tab == tabManager.activeTab) {
             runOnUiThread {
-                // Don't overwrite the URL bar while the user is typing
                 if (!urlBar.hasFocus()) {
                     urlBar.setText(if (tab.url == "about:blank" || tab.url.startsWith("javascript:")) "" else tab.url)
                 }
@@ -182,9 +181,7 @@ class MainActivity : AppCompatActivity() {
                 urlBar.dismissDropDown()
                 (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(urlBar.windowToken, 0)
                 true
-            } else {
-                false
-            }
+            } else false
         }
 
         urlBar.setOnFocusChangeListener { v, hasFocus ->
@@ -193,7 +190,6 @@ class MainActivity : AppCompatActivity() {
 
         btnBack.setOnClickListener { handleBackNavigation() }
         btnForward.setOnClickListener { tabManager.activeTab?.let { if (it.canGoForward) it.session.goForward() } }
-
         findViewById<ImageButton>(R.id.btn_reload).setOnClickListener { tabManager.activeTab?.session?.reload() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { menus.openTabManager() }
         findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { menus.showMenuOptions() }
@@ -203,18 +199,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSuggestions() {
         val suggestionList = mutableListOf<String>()
-
         val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, suggestionList) {
             override fun getFilter(): Filter = object : Filter() {
                 override fun performFiltering(constraint: CharSequence?): FilterResults {
                     val query = constraint?.toString()?.trim() ?: ""
                     val found = if (query.isEmpty()) emptyList() else dbHelper.getSuggestions(query)
-                    return FilterResults().apply {
-                        values = found
-                        count = found.size
-                    }
+                    return FilterResults().apply { values = found; count = found.size }
                 }
-
                 @Suppress("UNCHECKED_CAST")
                 override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
                     suggestionList.clear()
@@ -223,20 +214,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
         urlBar.setAdapter(adapter)
         urlBar.threshold = 1
 
-        // Without this TextWatcher the dropdown never asks the filter for data
         var suppress = false
-
         urlBar.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (suppress) {
-                    suppress = false
-                    return
-                }
+                if (suppress) { suppress = false; return }
                 if (urlBar.hasFocus()) adapter.filter.filter(s)
             }
             override fun afterTextChanged(s: Editable?) {}
@@ -258,13 +243,8 @@ class MainActivity : AppCompatActivity() {
             tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen(); })();")
             return
         }
-
         val tab = tabManager.activeTab
-        if (tab == null) {
-            exitApp()
-            return
-        }
-
+        if (tab == null) { showExitConfirmation(); return }
         if (tab.canGoBack) {
             tab.session.goBack()
         } else if (tabManager.tabs.size > 1) {
@@ -285,7 +265,6 @@ class MainActivity : AppCompatActivity() {
     private fun setFullScreen(fullScreen: Boolean) {
         isFullScreen = fullScreen
         val topBar = findViewById<android.view.View>(R.id.top_bar)
-
         if (fullScreen) {
             topBar.visibility = android.view.View.GONE
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -302,18 +281,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSystemBackButton() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                handleBackNavigation()
-            }
+            override fun handleOnBackPressed() { handleBackNavigation() }
         })
     }
 
     private fun requestNotificationPermission() {
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            try {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
-            } catch (e: Exception) {
-            }
+            try { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001) } catch (_: Exception) {}
         }
     }
 
@@ -322,11 +296,8 @@ class MainActivity : AppCompatActivity() {
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             try {
                 startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") })
-            } catch (e: Exception) {
-                try {
-                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                } catch (e2: Exception) {
-                }
+            } catch (_: Exception) {
+                try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
             }
         }
     }
@@ -348,7 +319,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // User tapped a link in another app while the browser was already open
         val url = intent.dataString
         if (!url.isNullOrEmpty()) {
             val tab = tabManager.activeTab
@@ -361,28 +331,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        stopService(Intent(this, KeepAliveService::class.java))
-    }
+    override fun onStart() { super.onStart(); stopService(Intent(this, KeepAliveService::class.java)) }
 
     override fun onStop() {
         super.onStop()
-        try {
-            startForegroundService(Intent(this, KeepAliveService::class.java))
-        } catch (e: Exception) {
-            // Android 14 can refuse a foreground-service start in edge cases.
-            // Swallowing it is safer than crashing the browser.
-        }
+        try { startForegroundService(Intent(this, KeepAliveService::class.java)) } catch (_: Exception) {}
     }
 
-    override fun onResume() {
-        super.onResume()
-        extensionManager.checkForUpdates()
-    }
+    override fun onResume() { super.onResume(); extensionManager.checkForUpdates() }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (isFinishing) GeckoRuntimeManager.shutdown()
-    }
+    override fun onDestroy() { super.onDestroy(); if (isFinishing) GeckoRuntimeManager.shutdown() }
 }
