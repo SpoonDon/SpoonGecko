@@ -3,8 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:gravity="center_vertical"
     android:padding="12dp"
+    android:gravity="center_vertical"
     android:background="?attr/selectableItemBackground">
 
     <LinearLayout
@@ -27,7 +27,7 @@
             android:id="@+id/ext_version"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
@@ -38,11 +38,19 @@
         android:layout_marginEnd="8dp" />
 
     <ImageButton
-        android:id="@+id/ext_delete"
+        android:id="@+id/ext_settings"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@android:drawable/ic_menu_manage"
+        android:contentDescription="Settings" />
+
+    <ImageButton
+        android:id="@+id/ext_uninstall"
         android:layout_width="40dp"
         android:layout_height="40dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:src="@android:drawable/ic_menu_delete"
-        android:contentDescription="Uninstall" />
+        android:contentDescription="Remove" />
 
 </LinearLayout>
