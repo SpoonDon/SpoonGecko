@@ -38,13 +38,11 @@ class SessionDelegateAttacher(
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
             val uri = request.uri
 
-            // Vault internal scheme
             if (uri.startsWith("spoonvault://save")) {
                 handleAutoSaveUri(uri)
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
-            // Web-extension (.xpi) install
             if (uri.endsWith(".xpi", ignoreCase = true) ||
                 (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))
             ) {
@@ -55,7 +53,6 @@ class SessionDelegateAttacher(
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
-            // Known downloadable file types → DownloadManager
             if (isDownloadable(uri)) {
                 startDownload(uri, guessFileName(uri))
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
@@ -95,30 +92,6 @@ class SessionDelegateAttacher(
     // ── Content delegate (downloads via Content-Disposition) ────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
         
-        override fun onExternalResponse(session: GeckoSession, response: WebResponse) {               
-            val uri = response.uri               
-            val filename = response.filename        
-        }
-        
-    val disposition = response.headers["Content-Disposition"] ?: response.headers["content-disposition"]
-    val filename = if (disposition != null) {
-        val matches = Regex("filename=\"?([^\"]+)\"?").find(disposition)
-        matches?.groupValues?.getOrNull(1) ?: uri?.lastPathSegment ?: "download"
-    } else {
-        uri?.lastPathSegment ?: "download"
-    }
-
-    // TODO: Trigger your Android DownloadManager here using the uri and filename
-    val request = DownloadManager.Request(Uri.parse(uri.toString()))
-        .setTitle(filename)
-        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
-    
-    val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    manager.enqueue(request)
-    
-    Toast.makeText(activity, "Downloading $filename", Toast.LENGTH_SHORT).show()
-}
-
         override fun onTitleChange(session: GeckoSession, title: String?) {
             title?.let {
                 tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
@@ -135,7 +108,7 @@ class SessionDelegateAttacher(
          * (e.g. Content-Disposition: attachment, octet-stream).
          * This is the PRIMARY download hook.
          */
-        override fun onExternalResponse(session: GeckoSession, response: GeckoSession.WebResponse) {
+        override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
             val uri = response.uri ?: return
             val fileName = response.filename ?: guessFileName(uri)
             startDownload(uri, fileName)
