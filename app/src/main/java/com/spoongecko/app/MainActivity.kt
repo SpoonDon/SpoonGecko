@@ -129,14 +129,13 @@ class MainActivity : AppCompatActivity() {
 
         runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
             override fun onLoginSave(login: Autocomplete.LoginEntry) {
-                val origin = login.origin
-                val username = login.username
-                val password = login.password
-                if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
-                    vaultManager.saveCredentials(origin, username, password)
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Login saved for $origin", Toast.LENGTH_SHORT).show()
-                    }
+                val origin = login.origin ?: return
+                val username = login.username ?: return
+                val password = login.password ?: return
+                
+                vaultManager.saveCredentials(origin, username, password)
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "🔐 Password saved for ${login.origin}", Toast.LENGTH_LONG).show()
                 }
             }
             
