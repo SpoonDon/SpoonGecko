@@ -1,6 +1,13 @@
 package com.spoongecko.app
 
 import android.content.Context
+import android.net.Uri
+
+data class VaultCredential(
+    val host: String,
+    val username: String,
+    val password: String
+)
 import android.content.SharedPreferences
 import android.net.Uri
 import android.widget.Toast
