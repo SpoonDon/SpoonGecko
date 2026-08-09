@@ -1,6 +1,5 @@
 package com.spoongecko.app
 
-import org.mozilla.geckoview.Autocomple
 import android.Manifest
 import android.content.Context
 import android.content.Intent
