@@ -48,7 +48,7 @@ class SessionDelegateAttacher(
             ) {
                 runtime.webExtensionController.install(uri).accept(
                     { ext -> activity.runOnUiThread { Toast.makeText(activity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
-                    { t   -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${t.message}", Toast.LENGTH_SHORT).show() } }
+                    { t -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${t?.message}", Toast.LENGTH_SHORT).show() } }
                 )
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
@@ -110,7 +110,7 @@ class SessionDelegateAttacher(
          */
         override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
             val uri = response.uri ?: return
-            val fileName = response.filename ?: guessFileName(uri)
+            val fileName = guessFileName(uri)
             startDownload(uri, fileName)
         }
     }
