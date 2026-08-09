@@ -33,71 +33,40 @@ class BrowserMenusHelper(
     private val onImportCsv: () -> Unit
 ) {
 
-    fun showMenuOptions() {
-        val dialog = BottomSheetDialog(activity)
-        val view = LayoutInflater.from(activity).inflate(R.layout.sheet_menu, null)
-        dialog.setContentView(view)
-
-        view.findViewById<TextView>(R.id.menu_new_tab)?.setOnClickListener { tabManager.createNewSession(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_add_bookmark)?.setOnClickListener {
-            val tab = tabManager.activeTab
-            if (tab != null && tab.url.isNotEmpty()) {
-                dbHelper.addBookmark(tab.url, tab.title)
-                Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
-            }
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.menu_bookmarks)?.setOnClickListener { showBookmarks(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_history)?.setOnClickListener { showHistory(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_vault_copy)?.setOnClickListener {
-            val currentUrl = tabManager.activeTab?.url ?: ""
-            if (currentUrl.isEmpty() || currentUrl == "about:blank" || currentUrl.startsWith("data:")) {
-                Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
-                dialog.dismiss()
-                return@setOnClickListener
-            }
-            
-            val credentials = vaultManager.getCredentialsForUrl(currentUrl)
-            if (credentials.isEmpty()) {
-                Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
-                dialog.dismiss()
-                return@setOnClickListener
-            }
-
-            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
-            
-            AlertDialog.Builder(activity)
-                .setTitle("Select Account")
-                .setItems(titles) { _, which ->
-                    val selected = credentials[which]
-                    AlertDialog.Builder(activity)
-                        .setTitle(selected.username)
-                        .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
-                            val textToCopy = if (choice == 0) selected.username else selected.password
-                            val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
-                        }
-                        .show()
+    fun showMenuOptions(anchorView: android.view.View) {
+        val popup = android.widget.PopupMenu(activity, anchorView, android.view.Gravity.END)
+        popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
+        
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.menu_new_tab -> {
+                    tabManager.createNewSession()
+                    true
                 }
-                .show()
-                
-            dialog.dismiss()
+                R.id.menu_add_bookmark -> {
+                    val tab = tabManager.activeTab
+                    if (tab != null && tab.url.isNotEmpty()) {
+                        dbHelper.addBookmark(tab.url, tab.title)
+                        android.widget.Toast.makeText(activity, "Bookmark added", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                R.id.menu_bookmarks -> { showBookmarks(); true }
+                R.id.menu_history -> { showHistory(); true }
+                R.id.menu_downloads -> { showDownloads(); true }
+                R.id.menu_find_in_page -> { showFindInPage(); true }
+                R.id.menu_vault -> {
+                    val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
+                    vaultUi.showVault()
+                    true
+                }
+                R.id.menu_extensions -> { showExtensions(); true }
+                R.id.menu_search_engine -> { showSearchEnginePicker(); true }
+                R.id.menu_exit -> { onExitRequested(); true }
+                else -> false
+            }
         }
-
-        view.findViewById<TextView>(R.id.menu_vault)?.setOnClickListener {
-            val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
-            vaultUi.showVault()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.menu_extensions)?.setOnClickListener { showExtensions(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_search_engine)?.setOnClickListener { showSearchEnginePicker(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_downloads)?.setOnClickListener { showDownloads(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_find_in_page)?.setOnClickListener { showFindInPage(); dialog.dismiss() }
-        view.findViewById<TextView>(R.id.menu_exit)?.setOnClickListener { onExitRequested(); dialog.dismiss() }
-
-        dialog.show()
+        popup.show()
     }
 
     fun openTabManager() {
