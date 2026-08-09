@@ -5,6 +5,7 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface"
     android:padding="16dp">
+    
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -50,10 +51,27 @@
                 android:contentDescription="Import CSV" />
         </LinearLayout>
     </LinearLayout>
+
+    <!-- NEW SEARCH BAR -->
+    <EditText
+        android:id="@+id/vault_search"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:hint="Search passwords..."
+        android:inputType="text"
+        android:singleLine="true"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:layout_marginBottom="8dp"
+        android:background="?attr/colorSurfaceVariant"
+        android:textColor="?attr/colorOnSurface"
+        android:textColorHint="?attr/colorOnSurfaceVariant" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler_vault"
         android:layout_width="match_parent"
         android:layout_height="400dp" />
+        
     <TextView
         android:id="@+id/vault_empty"
         android:layout_width="match_parent"
