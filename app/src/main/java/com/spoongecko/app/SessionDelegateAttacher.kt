@@ -30,9 +30,9 @@ class SessionDelegateAttacher(
     fun attach(tab: TabInfo) {
         tab.session.navigationDelegate = createNavigationDelegate(tab)
         tab.session.contentDelegate  = createContentDelegate(tab)
+        tab.session.progressDelegate = createProgressDelegate(tab)
     }
 
-    // ── Navigation delegate ─────────────────────────────────────────
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
 
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
@@ -108,11 +108,14 @@ class SessionDelegateAttacher(
             val fileName = guessFileName(uri)
             startDownload(uri, fileName)
         }
+    }
 
-        // MAGIC FIX: Save tab state continuously to prevent about:blank on crash/OOM
+    // ── Progress delegate (for session state saving) ────────
+    private fun createProgressDelegate(tab: TabInfo) = object : GeckoSession.ProgressDelegate {
         override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
             tab.sessionState = sessionState
         }
+    }
 
         // MAGIC FIX: Restore tab seamlessly if the OS kills the rendering process
         override fun onCrash(session: GeckoSession) {
@@ -129,7 +132,7 @@ class SessionDelegateAttacher(
                 }
             }
         }
-    }
+    
 
     // ── download helpers ────────────────────────────────────────────
     private fun isDownloadable(uri: String): Boolean {
