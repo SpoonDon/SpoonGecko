@@ -1,6 +1,11 @@
 package com.spoongecko.app
 
+import android.app.DownloadManager
+import android.content.Intent
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -20,7 +25,9 @@ class BrowserMenusHelper(
     private val onExitRequested: () -> Unit,
     private val onInstallExtensionFromFile: () -> Unit,
     private val onBackupExtensions: () -> Unit,
-    private val onRestoreExtensions: () -> Unit
+    private val onRestoreExtensions: () -> Unit,
+    private val onExportCsv: () -> Unit,
+    private val onImportCsv: () -> Unit
 ) {
 
     fun showMenuOptions() {
@@ -28,43 +35,27 @@ class BrowserMenusHelper(
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_menu, null)
         dialog.setContentView(view)
 
-        view.findViewById<TextView>(R.id.menu_new_tab)?.setOnClickListener {
-            tabManager.createNewSession()
-            dialog.dismiss()
-        }
+        view.findViewById<TextView>(R.id.menu_new_tab)?.setOnClickListener { tabManager.createNewSession(); dialog.dismiss() }
         view.findViewById<TextView>(R.id.menu_add_bookmark)?.setOnClickListener {
             val tab = tabManager.activeTab
             if (tab != null && tab.url.isNotEmpty()) {
-                dbHelper.addBookmark(tab.title, tab.url)
+                dbHelper.addBookmark(tab.url, tab.title)
                 Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
             }
             dialog.dismiss()
         }
-        view.findViewById<TextView>(R.id.menu_bookmarks)?.setOnClickListener {
-            showBookmarks()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.menu_history)?.setOnClickListener {
-            showHistory()
-            dialog.dismiss()
-        }
+        view.findViewById<TextView>(R.id.menu_bookmarks)?.setOnClickListener { showBookmarks(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_history)?.setOnClickListener { showHistory(); dialog.dismiss() }
         view.findViewById<TextView>(R.id.menu_vault)?.setOnClickListener {
-            val vaultUi = VaultUiHelper(activity, vaultManager)
+            val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
             vaultUi.showVault()
             dialog.dismiss()
         }
-        view.findViewById<TextView>(R.id.menu_extensions)?.setOnClickListener {
-            showExtensions()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.menu_search_engine)?.setOnClickListener {
-            showSearchEnginePicker()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.menu_exit)?.setOnClickListener {
-            onExitRequested()
-            dialog.dismiss()
-        }
+        view.findViewById<TextView>(R.id.menu_extensions)?.setOnClickListener { showExtensions(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_search_engine)?.setOnClickListener { showSearchEnginePicker(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_downloads)?.setOnClickListener { showDownloads(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_find_in_page)?.setOnClickListener { showFindInPage(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.menu_exit)?.setOnClickListener { onExitRequested(); dialog.dismiss() }
 
         dialog.show()
     }
@@ -82,66 +73,88 @@ class BrowserMenusHelper(
             val adapter = TabAdapter(
                 tabs = tabManager.tabs,
                 activeTab = currentTab,
-                onClick = { tab ->
-                    tabManager.switchToSession(tab)
-                    dialog.dismiss()
-                },
-                onClose = { tab ->
-                    tabManager.closeSession(tab)
-                    dialog.dismiss()
-                }
+                onClick = { tab -> tabManager.switchToSession(tab); dialog.dismiss() },
+                onClose = { tab -> tabManager.closeSession(tab); dialog.dismiss() }
             )
             recyclerView?.adapter = adapter
         }
 
-        view.findViewById<ImageButton>(R.id.btn_new_tab)?.setOnClickListener {
-            tabManager.createNewSession()
-            dialog.dismiss()
-        }
-
+        view.findViewById<ImageButton>(R.id.btn_new_tab)?.setOnClickListener { tabManager.createNewSession(); dialog.dismiss() }
         dialog.show()
     }
 
     private fun showBookmarks() {
-        try {
-            val bookmarks = dbHelper.getBookmarks()
-            if (bookmarks.isEmpty()) {
-                Toast.makeText(activity, "No bookmarks yet", Toast.LENGTH_SHORT).show()
-                return
-            }
-            val titles = bookmarks.map { it.title }.toTypedArray()
-            AlertDialog.Builder(activity)
-                .setTitle("Bookmarks")
-                .setItems(titles) { _, which ->
-                    onNavigate(bookmarks[which].url)
-                }
-                .show()
-        } catch (e: Exception) {
-            Toast.makeText(activity, "Error loading bookmarks", Toast.LENGTH_SHORT).show()
+        val dialog = BottomSheetDialog(activity)
+        val view = LayoutInflater.from(activity).inflate(R.layout.sheet_bookmarks, null)
+        dialog.setContentView(view)
+        val recycler = view.findViewById<RecyclerView>(R.id.recycler_bookmarks)
+        recycler?.layoutManager = LinearLayoutManager(activity)
+        
+        fun load() {
+            val list = dbHelper.getBookmarks()
+            recycler?.adapter = BookmarkAdapter(list, 
+                onClick = { onNavigate(it.url); dialog.dismiss() },
+                onEdit = { /* Simple edit dialog could go here */ },
+                onDelete = { dbHelper.deleteBookmark(it.id); load() }
+            )
         }
+        load()
+        dialog.show()
     }
 
     private fun showHistory() {
-        try {
-            val history = dbHelper.getHistory()
-            if (history.isEmpty()) {
-                Toast.makeText(activity, "No history yet", Toast.LENGTH_SHORT).show()
-                return
-            }
-            val titles = history.map { it.title }.toTypedArray()
-            AlertDialog.Builder(activity)
-                .setTitle("History")
-                .setItems(titles) { _, which ->
-                    onNavigate(history[which].url)
-                }
-                .setNeutralButton("Clear") { _, _ ->
-                    dbHelper.deleteAllHistory()
-                    Toast.makeText(activity, "History cleared", Toast.LENGTH_SHORT).show()
-                }
-                .show()
-        } catch (e: Exception) {
-            Toast.makeText(activity, "Error loading history", Toast.LENGTH_SHORT).show()
+        val dialog = BottomSheetDialog(activity)
+        val view = LayoutInflater.from(activity).inflate(R.layout.sheet_history, null)
+        dialog.setContentView(view)
+        val recycler = view.findViewById<RecyclerView>(R.id.recycler_history)
+        val search = view.findViewById<EditText>(R.id.history_search)
+        recycler?.layoutManager = LinearLayoutManager(activity)
+        
+        fun load(query: String = "") {
+            val list = dbHelper.getHistory(query)
+            recycler?.adapter = HistoryAdapter(list,
+                onClick = { onNavigate(it.url); dialog.dismiss() },
+                onStar = { dbHelper.addBookmark(it.url, it.title) },
+                onDelete = { dbHelper.deleteHistory(it.id); load(query) }
+            )
         }
+        load()
+        search?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { load(s.toString()) }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener {
+            dbHelper.deleteAllHistory()
+            load()
+        }
+        dialog.show()
+    }
+
+    private fun showDownloads() {
+        try {
+            activity.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (e: Exception) {
+            Toast.makeText(activity, "No download manager app found", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showFindInPage() {
+        val input = EditText(activity)
+        input.hint = "Find in page..."
+        AlertDialog.Builder(activity)
+            .setTitle("Find")
+            .setView(input)
+            .setPositiveButton("Find") { _, _ ->
+                val q = input.text.toString()
+                if (q.isNotEmpty()) tabManager.activeTab?.session?.finder?.find(q, 0)
+            }
+            .setNeutralButton("Prev") { _, _ -> 
+                val q = input.text.toString()
+                if (q.isNotEmpty()) tabManager.activeTab?.session?.finder?.find(q, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS) 
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showExtensions() {
@@ -152,33 +165,21 @@ class BrowserMenusHelper(
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_extensions)
         recyclerView?.layoutManager = LinearLayoutManager(activity)
 
-        view.findViewById<TextView>(R.id.ext_install_file)?.setOnClickListener {
-            onInstallExtensionFromFile()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.ext_backup)?.setOnClickListener {
-            onBackupExtensions()
-            dialog.dismiss()
-        }
-        view.findViewById<TextView>(R.id.ext_restore)?.setOnClickListener {
-            onRestoreExtensions()
-            dialog.dismiss()
-        }
+        view.findViewById<TextView>(R.id.ext_install_file)?.setOnClickListener { onInstallExtensionFromFile(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.ext_backup)?.setOnClickListener { onBackupExtensions(); dialog.dismiss() }
+        view.findViewById<TextView>(R.id.ext_restore)?.setOnClickListener { onRestoreExtensions(); dialog.dismiss() }
 
         extensionManager.listExtensions { extensions ->
             activity.runOnUiThread {
                 val adapter = ExtensionAdapter(
                     extensions = extensions,
-                    onToggle = { ext, enabled ->
-                        extensionManager.toggleExtension(ext, enabled) {}
-                    },
+                    onToggle = { ext, enabled -> extensionManager.toggleExtension(ext, enabled) {} },
                     onSettings = { ext -> extensionManager.openSettings(ext) },
                     onUninstall = { ext -> extensionManager.uninstallExtension(ext) {} }
                 )
                 recyclerView?.adapter = adapter
             }
         }
-
         dialog.show()
     }
 
