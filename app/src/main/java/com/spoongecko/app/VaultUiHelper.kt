@@ -15,12 +15,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import org.json.JSONArray
 
-data class VaultCredential(
-    val host: String,
-    val username: String,
-    val password: String
-)
-
 class VaultUiHelper(
     private val activity: AppCompatActivity,
     private val vaultManager: SecureCredentialManager,
