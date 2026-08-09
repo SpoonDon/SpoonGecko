@@ -69,7 +69,7 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
     }
 
     fun installFromUrl(url: String) {
-        runtime.webExtensionController.install(Uri.parse(url)).accept(
+        runtime.webExtensionController.install(url).accept(
             { ext ->
                 ext?.let { recordSource(it.id, url) }
                 activity.runOnUiThread {
@@ -90,7 +90,7 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
             activity.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: Exception) {}
 
-        runtime.webExtensionController.install(uri).accept(
+        runtime.webExtensionController.install(uri.toString()).accept(
             { ext ->
                 activity.runOnUiThread {
                     Toast.makeText(activity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show()
@@ -105,7 +105,7 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
     }
 
     fun toggleExtension(ext: WebExtension, enable: Boolean, callback: () -> Unit) {
-        val source = WebExtension.EnableSource.USER
+        val source = 1
         val result = if (enable) {
             runtime.webExtensionController.enable(ext, source)
         } else {
