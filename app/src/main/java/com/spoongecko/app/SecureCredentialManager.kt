@@ -1,13 +1,6 @@
 package com.spoongecko.app
 
 import android.content.Context
-import android.net.Uri
-
-data class VaultCredential(
-    val host: String,
-    val username: String,
-    val password: String
-)
 import android.content.SharedPreferences
 import android.net.Uri
 import android.widget.Toast
@@ -19,6 +12,12 @@ import org.mozilla.geckoview.Autocomplete
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+
+data class VaultCredential(
+    val host: String,
+    val username: String,
+    val password: String
+)
 
 class SecureCredentialManager(context: Context) {
     private var encryptedPrefs: SharedPreferences? = null
@@ -43,7 +42,6 @@ class SecureCredentialManager(context: Context) {
         }
     }
 
-    // MAGIC FIX: Strips "https://" and "www." so CSV imports match GeckoView's domain requests
     private fun cleanHost(host: String): String {
         return try {
             val uri = Uri.parse(if (host.contains("://")) host else "http://$host")
@@ -136,7 +134,28 @@ class SecureCredentialManager(context: Context) {
             ?.apply()
     }
 
-    // --- AUTOFILL SUPPORT ---
+    fun getCredentialsForUrl(url: String): List<VaultCredential> {
+        val list = mutableListOf<VaultCredential>()
+        if (!isReady) return list
+        try {
+            val uri = Uri.parse(url)
+            val host = uri.host?.removePrefix("www.") ?: return list
+            val arr = JSONArray(getAllCredentialsAsJson())
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val savedHost = obj.optString("host", "").removePrefix("www.")
+                if (savedHost.contains(host, ignoreCase = true) || host.contains(savedHost, ignoreCase = true)) {
+                    list.add(VaultCredential(
+                        host = obj.optString("host", ""),
+                        username = obj.optString("username", ""),
+                        password = obj.optString("password", "")
+                    ))
+                }
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
     fun getLoginsForDomain(domain: String): List<Autocomplete.LoginEntry> {
         val entries = mutableListOf<Autocomplete.LoginEntry>()
         if (!isReady) return entries
@@ -163,29 +182,6 @@ class SecureCredentialManager(context: Context) {
         return entries
     }
 
-    fun getCredentialsForUrl(url: String): List<VaultCredential> {
-        val list = mutableListOf<VaultCredential>()
-        if (!isReady) return list
-        try {
-            val uri = Uri.parse(url)
-            val host = uri.host?.removePrefix("www.") ?: return list
-            val arr = JSONArray(getAllCredentialsAsJson())
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val savedHost = obj.optString("host", "").removePrefix("www.")
-                if (savedHost.contains(host, ignoreCase = true) || host.contains(savedHost, ignoreCase = true)) {
-                    list.add(VaultCredential(
-                        host = obj.optString("host", ""),
-                        username = obj.optString("username", ""),
-                        password = obj.optString("password", "")
-                    ))
-                }
-            }
-        } catch (_: Exception) {}
-        return list
-    }
-
-    // --- CSV IMPORT / EXPORT ---
     fun exportToCsv(uri: Uri, context: Context) {
         val jsonStr = getAllCredentialsAsJson()
         if (jsonStr == "[]") {
@@ -216,7 +212,7 @@ class SecureCredentialManager(context: Context) {
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val reader = BufferedReader(InputStreamReader(stream))
-                reader.readLine() // Skip header
+                reader.readLine() 
                 var line = reader.readLine()
                 var count = 0
                 while (line != null) {
