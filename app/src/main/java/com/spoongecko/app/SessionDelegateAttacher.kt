@@ -103,15 +103,31 @@ class SessionDelegateAttacher(
             activity.runOnUiThread { onFullScreenRequested(fullScreen) }
         }
 
-        /**
-         * GeckoView calls this for responses it cannot render
-         * (e.g. Content-Disposition: attachment, octet-stream).
-         * This is the PRIMARY download hook.
-         */
         override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
             val uri = response.uri ?: return
             val fileName = guessFileName(uri)
             startDownload(uri, fileName)
+        }
+
+        // MAGIC FIX: Save tab state continuously to prevent about:blank on crash/OOM
+        override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
+            tab.sessionState = sessionState
+        }
+
+        // MAGIC FIX: Restore tab seamlessly if the OS kills the rendering process
+        override fun onCrash(session: GeckoSession) {
+            session.open(runtime)
+            val state = tab.sessionState
+            if (state != null) {
+                session.restoreState(state)
+            } else {
+                val lastUrl = tab.url
+                if (lastUrl.isNotEmpty() && !lastUrl.startsWith("data:") && lastUrl != "about:blank") {
+                    session.loadUri(lastUrl)
+                } else {
+                    session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
+                }
+            }
         }
     }
 
