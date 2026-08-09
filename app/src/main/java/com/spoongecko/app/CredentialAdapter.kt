@@ -35,8 +35,8 @@ class CredentialAdapter(
         holder.host.text = cred.host
         holder.username.text = cred.username
         holder.password.text = if (isRevealed) cred.password else "••••••••"
-        holder.reveal.setImageResource(
-            if (isRevealed) android.R.drawable.ic_menu_hide else android.R.drawable.ic_menu_view
+        holder.reveal.setImageResource(    
+            if (isRevealed) android.R.drawable.ic_menu_close_clear_cancel else android.R.drawable.ic_menu_view
         )
 
         holder.reveal.setOnClickListener {
