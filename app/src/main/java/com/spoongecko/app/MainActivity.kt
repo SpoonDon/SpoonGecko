@@ -190,7 +190,7 @@ class MainActivity : AppCompatActivity() {
         btnForward.setOnClickListener { tabManager.activeTab?.let { if (it.canGoForward) it.session.goForward() } }
         findViewById<ImageButton>(R.id.btn_reload).setOnClickListener { tabManager.activeTab?.session?.reload() }
         findViewById<ImageButton>(R.id.btn_tabs).setOnClickListener { menus.openTabManager() }
-        findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { menus.showMenuOptions() }
+        findViewById<ImageButton>(R.id.btn_menu).setOnClickListener { menus.showMenuOptions(it) }
 
         setupSuggestions()
     }
