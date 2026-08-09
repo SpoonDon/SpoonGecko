@@ -20,7 +20,7 @@ class TabManager(
         session.open(runtime)
         val tab = TabInfo(session)
         tabs.add(tab)
-        onSessionCreated(tab) // Triggers delegate attachment
+        onSessionCreated(tab)
         switchToSession(tab)
         session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
     }
@@ -33,6 +33,10 @@ class TabManager(
         onActiveTabChanged(tab)
     }
 
+    /**
+     * Close a tab. If it is the LAST tab, calls [onLastTabClosed]
+     * (which the Activity uses to show a confirmation dialog).
+     */
     fun closeSession(tab: TabInfo) {
         tab.session.close()
         tabs.remove(tab)
@@ -43,4 +47,7 @@ class TabManager(
             switchToSession(tabs.last())
         }
     }
+
+    /** Returns true when the given tab is the only remaining tab. */
+    fun isLastTab(tab: TabInfo): Boolean = tabs.size == 1 && tabs.firstOrNull() == tab
 }
