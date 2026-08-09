@@ -1,7 +1,10 @@
 package com.spoongecko.app
 
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
@@ -32,22 +35,32 @@ class VaultUiHelper(
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_vault)
         val emptyText = view.findViewById<TextView>(R.id.vault_empty)
         val countLabel = view.findViewById<TextView>(R.id.vault_count)
+        val searchBox = view.findViewById<EditText>(R.id.vault_search)
         recycler.layoutManager = LinearLayoutManager(activity)
 
-        // Renamed to refreshVault() to avoid clashing with the private loadCredentials() below
-        fun refreshVault() {
-            val credentials = loadCredentials()
-            countLabel.text = "${credentials.size} saved login" + if (credentials.size != 1) "s" else ""
-            if (credentials.isEmpty()) {
+        var allCredentials = loadCredentials()
+
+        fun updateList(query: String) {
+            val filtered = if (query.isEmpty()) {
+                allCredentials
+            } else {
+                allCredentials.filter { 
+                    it.host.contains(query, ignoreCase = true) || 
+                    it.username.contains(query, ignoreCase = true) 
+                }
+            }
+            
+            countLabel.text = "${filtered.size} saved login" + if (filtered.size != 1) "s" else ""
+            if (filtered.isEmpty()) {
                 recycler.visibility = View.GONE
                 emptyText.visibility = View.VISIBLE
             } else {
                 recycler.visibility = View.VISIBLE
                 emptyText.visibility = View.GONE
                 recycler.adapter = CredentialAdapter(
-                    credentials = credentials,
+                    credentials = filtered,
                     onEdit = { cred ->
-                        val input = android.widget.EditText(activity)
+                        val input = EditText(activity)
                         input.hint = "New password"
                         AlertDialog.Builder(activity)
                             .setTitle("Edit password")
@@ -80,7 +93,15 @@ class VaultUiHelper(
             }
         }
 
-        refreshVault()
+        updateList("")
+
+        searchBox.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                updateList(s.toString())
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
 
         view.findViewById<ImageButton>(R.id.vault_export)?.setOnClickListener { onExportCsv() }
         view.findViewById<ImageButton>(R.id.vault_import)?.setOnClickListener { onImportCsv() }
