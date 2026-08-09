@@ -18,7 +18,6 @@ class SessionDelegateAttacher(
     private val onTabStateChanged: (TabInfo) -> Unit,
     private val onFullScreenRequested: (Boolean) -> Unit
 ) {
-
     private val downloadableExtensions = setOf(
         ".pdf", ".zip", ".rar", ".7z", ".apk", ".tar", ".gz",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -33,31 +32,27 @@ class SessionDelegateAttacher(
         tab.session.progressDelegate = createProgressDelegate(tab)
     }
 
+    // ── Navigation delegate ─────────────────────────────────────────
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
-
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
             val uri = request.uri
-
             if (uri.startsWith("spoonvault://save")) {
                 handleAutoSaveUri(uri)
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
-
             if (uri.endsWith(".xpi", ignoreCase = true) ||
                 (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))
             ) {
                 runtime.webExtensionController.install(uri).accept(
                     { ext -> activity.runOnUiThread { Toast.makeText(activity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
-                    { t -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${t?.message}", Toast.LENGTH_SHORT).show() } }
+                    { t   -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${t?.message}", Toast.LENGTH_SHORT).show() } }
                 )
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
-
             if (isDownloadable(uri)) {
                 startDownload(uri, guessFileName(uri))
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
-
             return GeckoResult.fromValue(AllowOrDeny.ALLOW)
         }
 
@@ -89,9 +84,8 @@ class SessionDelegateAttacher(
         }
     }
 
-    // ── Content delegate (downloads via Content-Disposition) ────────
+    // ── Content delegate ────────────────────────────────────────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
-        
         override fun onTitleChange(session: GeckoSession, title: String?) {
             title?.let {
                 tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
@@ -108,14 +102,6 @@ class SessionDelegateAttacher(
             val fileName = guessFileName(uri)
             startDownload(uri, fileName)
         }
-    }
-
-    // ── Progress delegate (for session state saving) ────────
-    private fun createProgressDelegate(tab: TabInfo) = object : GeckoSession.ProgressDelegate {
-        override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
-            tab.sessionState = sessionState
-        }
-    }
 
         // MAGIC FIX: Restore tab seamlessly if the OS kills the rendering process
         override fun onCrash(session: GeckoSession) {
@@ -125,14 +111,22 @@ class SessionDelegateAttacher(
                 session.restoreState(state)
             } else {
                 val lastUrl = tab.url
-                if (lastUrl.isNotEmpty() && !lastUrl.startsWith("data:") && lastUrl != "about:blank") {
+                if (!lastUrl.isNullOrEmpty() && !lastUrl.startsWith("data:") && lastUrl != "about:blank") {
                     session.loadUri(lastUrl)
                 } else {
                     session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
                 }
             }
         }
-    
+    }
+
+    // ── Progress delegate ───────────────────────────────────────────
+    private fun createProgressDelegate(tab: TabInfo) = object : GeckoSession.ProgressDelegate {
+        // MAGIC FIX: Save tab state continuously to prevent about:blank on crash/OOM
+        override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
+            tab.sessionState = sessionState
+        }
+    }
 
     // ── download helpers ────────────────────────────────────────────
     private fun isDownloadable(uri: String): Boolean {
@@ -158,7 +152,6 @@ class SessionDelegateAttacher(
                 .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(false)
-
             val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             dm.enqueue(request)
             activity.runOnUiThread {
