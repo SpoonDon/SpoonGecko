@@ -1,6 +1,5 @@
 package com.spoongecko.app
 
-import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.ImageButton
@@ -35,7 +34,8 @@ class VaultUiHelper(
         val countLabel = view.findViewById<TextView>(R.id.vault_count)
         recycler.layoutManager = LinearLayoutManager(activity)
 
-        fun loadCredentials() {
+        // Renamed to refreshVault() to avoid clashing with the private loadCredentials() below
+        fun refreshVault() {
             val credentials = loadCredentials()
             countLabel.text = "${credentials.size} saved login" + if (credentials.size != 1) "s" else ""
             if (credentials.isEmpty()) {
@@ -80,7 +80,7 @@ class VaultUiHelper(
             }
         }
 
-        loadCredentials()
+        refreshVault()
 
         view.findViewById<ImageButton>(R.id.vault_export)?.setOnClickListener { onExportCsv() }
         view.findViewById<ImageButton>(R.id.vault_import)?.setOnClickListener { onImportCsv() }
