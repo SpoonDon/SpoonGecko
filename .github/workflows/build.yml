@@ -5,11 +5,16 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions: 
-     contents: write
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,11 +24,13 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Generate Gradle Wrapper
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure Gradle Wrapper Exists
         run: |
-          gradle wrapper --gradle-version 8.11.1
+          if [ ! -f "./gradlew" ]; then gradle wrapper --gradle-version 8.11.1; fi
           chmod +x gradlew
 
       - name: Decode Keystore
@@ -36,16 +43,19 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+          
+        run: ./gradlew assembleRelease --no-daemon --build-cache
 
       - name: Rename APK for Easy Download
-        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-Nightly.apk
+        run: |
+          mkdir -p app/build/outputs/apk/release/
+          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-Nightly-${{ github.run_number }}.apk
 
       - name: Create GitHub Release & Upload APK
         uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'push'
         with:
-          files: app/build/outputs/apk/release/SpoonGecko-Nightly.apk
+          files: app/build/outputs/apk/release/SpoonGecko-Nightly-${{ github.run_number }}.apk
           name: "SpoonGecko Nightly Build ${{ github.run_number }}"
           tag_name: "nightly-${{ github.run_number }}"
           draft: false
