@@ -5,7 +5,6 @@
     android:orientation="vertical"
     android:background="?attr/colorSurface"
     android:padding="8dp">
-
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -14,7 +13,6 @@
         android:textStyle="bold"
         android:textColor="?attr/colorOnSurface"
         android:padding="12dp" />
-
     <TextView
         android:id="@+id/menu_new_tab"
         android:layout_width="match_parent"
@@ -26,7 +24,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="New Tab" />
-
     <TextView
         android:id="@+id/menu_add_bookmark"
         android:layout_width="match_parent"
@@ -38,7 +35,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Add Bookmark" />
-
     <TextView
         android:id="@+id/menu_bookmarks"
         android:layout_width="match_parent"
@@ -50,7 +46,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Bookmarks" />
-
     <TextView
         android:id="@+id/menu_history"
         android:layout_width="match_parent"
@@ -62,7 +57,28 @@
         android:clickable="true"
         android:focusable="true"
         android:text="History" />
-
+    <TextView
+        android:id="@+id/menu_downloads"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:textSize="16sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Downloads" />
+    <TextView
+        android:id="@+id/menu_find_in_page"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:textSize="16sp"
+        android:textColor="?attr/colorOnSurface"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:text="Find in Page" />
     <TextView
         android:id="@+id/menu_vault"
         android:layout_width="match_parent"
@@ -74,7 +90,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Vault" />
-
     <TextView
         android:id="@+id/menu_extensions"
         android:layout_width="match_parent"
@@ -86,7 +101,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Extensions" />
-
     <TextView
         android:id="@+id/menu_search_engine"
         android:layout_width="match_parent"
@@ -98,8 +112,6 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Search Engine" />
-
-    <!-- RED EXIT BUTTON (visual tweak) -->
     <TextView
         android:id="@+id/menu_exit"
         android:layout_width="match_parent"
@@ -112,5 +124,4 @@
         android:clickable="true"
         android:focusable="true"
         android:text="Exit" />
-
 </LinearLayout>
