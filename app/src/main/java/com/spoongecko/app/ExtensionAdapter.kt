@@ -12,6 +12,7 @@ import org.mozilla.geckoview.WebExtension
 class ExtensionAdapter(
     private val extensions: List<WebExtension>,
     private val onToggle: (WebExtension, Boolean) -> Unit,
+    private val onSettings: (WebExtension) -> Unit,
     private val onUninstall: (WebExtension) -> Unit
 ) : RecyclerView.Adapter<ExtensionAdapter.ViewHolder>() {
 
@@ -19,7 +20,8 @@ class ExtensionAdapter(
         val name: TextView = view.findViewById(R.id.ext_name)
         val version: TextView = view.findViewById(R.id.ext_version)
         val toggle: SwitchCompat = view.findViewById(R.id.ext_toggle)
-        val delete: ImageButton = view.findViewById(R.id.ext_delete)
+        val settings: ImageButton = view.findViewById(R.id.ext_settings)
+        val uninstall: ImageButton = view.findViewById(R.id.ext_uninstall)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -29,17 +31,20 @@ class ExtensionAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val ext = extensions[position]
         val meta = ext.metaData
-        holder.name.text = meta?.name ?: ext.id
-        holder.version.text = "v${meta?.version ?: "?"}"
+        val isEnabled = meta.disabledFlags == 0
 
-        // Prevent triggering the listener while we set the initial state
+        holder.name.text = meta.name ?: "Unknown"
+        holder.version.text = "v${meta.version ?: "?"}"
+
         holder.toggle.setOnCheckedChangeListener(null)
-        holder.toggle.isChecked = ext.isEnabled
-        holder.toggle.setOnCheckedChangeListener { _, isChecked ->
-            onToggle(ext, isChecked)
+        holder.toggle.isChecked = isEnabled
+        holder.toggle.setOnCheckedChangeListener { _, checked ->
+            onToggle(ext, checked)
         }
 
-        holder.delete.setOnClickListener { onUninstall(ext) }
+        holder.settings.visibility = if (meta.optionsPageUrl.isNullOrEmpty()) View.GONE else View.VISIBLE
+        holder.settings.setOnClickListener { onSettings(ext) }
+        holder.uninstall.setOnClickListener { onUninstall(ext) }
     }
 
     override fun getItemCount() = extensions.size
