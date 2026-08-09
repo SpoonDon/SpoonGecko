@@ -3,10 +3,8 @@ package com.spoongecko.app
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.util.Base64
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import org.mozilla.geckoview.*
 
@@ -18,21 +16,29 @@ class SessionDelegateAttacher(
     private val onTabStateChanged: (TabInfo) -> Unit,
     private val onFullScreenRequested: (Boolean) -> Unit
 ) {
-    private val AUTOSAVE_JS = """ ... """.trimIndent() // Paste your JS string here
+
+    private val downloadableExtensions = setOf(
+        ".pdf", ".zip", ".rar", ".7z", ".apk",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
+    )
 
     fun attach(tab: TabInfo) {
         tab.session.navigationDelegate = createNavigationDelegate(tab)
-        tab.session.progressDelegate = createProgressDelegate(tab)
         tab.session.contentDelegate = createContentDelegate(tab)
     }
 
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
+
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
             val uri = request.uri
+
+            // Internal vault save hook
             if (uri.startsWith("spoonvault://save")) {
                 handleAutoSaveUri(uri)
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
+
+            // Web extension (.xpi) installation
             if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
                 runtime.webExtensionController.install(uri).accept(
                     { ext -> activity.runOnUiThread { Toast.makeText(activity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
@@ -40,7 +46,13 @@ class SessionDelegateAttacher(
                 )
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
-            // Handle Downloads (.pdf, .zip, etc)...
+
+            // Binary files go to the system DownloadManager
+            if (isDownloadable(uri)) {
+                startDownload(uri)
+                return GeckoResult.fromValue(AllowOrDeny.DENY)
+            }
+
             return GeckoResult.fromValue(AllowOrDeny.ALLOW)
         }
 
@@ -49,9 +61,11 @@ class SessionDelegateAttacher(
                 val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
                 val logicalUrl = if (isCustomNewTab) "about:blank" else it
                 tab.url = logicalUrl
+
                 if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                     Thread { dbHelper.addHistory(it, tab.title) }.start()
                 }
+
                 onTabStateChanged(tab)
             }
         }
@@ -65,33 +79,58 @@ class SessionDelegateAttacher(
             tab.canGoForward = canGoForward
             onTabStateChanged(tab)
         }
-        
-        override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
-             val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p></body></html>"
-             return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
-        }
-    }
 
-    private fun createProgressDelegate(tab: TabInfo) = object : GeckoSession.ProgressDelegate {
-        override fun onPageStop(session: GeckoSession, success: Boolean) {
-            if (success) session.loadUri("javascript:$AUTOSAVE_JS")
+        override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
+            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p></body></html>"
+            return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
         }
     }
 
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
+
         override fun onTitleChange(session: GeckoSession, title: String?) {
             title?.let {
                 tab.title = if (it.startsWith("data:") || it == "about:blank" || it.isEmpty()) "New Tab" else it
                 onTabStateChanged(tab)
             }
         }
+
         override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
             activity.runOnUiThread { onFullScreenRequested(fullScreen) }
         }
-        // Move ContextMenu logic here or to BrowserMenusHelper
+    }
+
+    private fun isDownloadable(uri: String): Boolean {
+        return try {
+            val path = Uri.parse(uri).path?.lowercase() ?: ""
+            downloadableExtensions.any { path.endsWith(it) }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun startDownload(uri: String) {
+        try {
+            val request = DownloadManager.Request(Uri.parse(uri))
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            activity.runOnUiThread { Toast.makeText(activity, "Download started", Toast.LENGTH_SHORT).show() }
+        } catch (e: Exception) {
+            activity.runOnUiThread { Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+        }
     }
 
     private fun handleAutoSaveUri(uri: String) {
-        // Paste your existing handleAutoSaveUri logic here
+        try {
+            val parsed = Uri.parse(uri)
+            val host = parsed.getQueryParameter("host") ?: ""
+            val user = parsed.getQueryParameter("user") ?: ""
+            val pass = parsed.getQueryParameter("pass") ?: ""
+            if (host.isNotEmpty() && user.isNotEmpty()) {
+                vaultManager.saveCredentials(host, user, pass)
+            }
+        } catch (e: Exception) {
+        }
     }
 }
