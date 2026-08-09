@@ -151,21 +151,38 @@ class BrowserMenusHelper(
     }
 
     private fun showFindInPage() {
-        val input = EditText(activity)
-        input.hint = "Find in page..."
-        AlertDialog.Builder(activity)
-            .setTitle("Find")
-            .setView(input)
-            .setPositiveButton("Find") { _, _ ->
-                val q = input.text.toString()
-                if (q.isNotEmpty()) tabManager.activeTab?.session?.finder?.find(q, 0)
-            }
-            .setNeutralButton("Prev") { _, _ -> 
-                val q = input.text.toString()
-                if (q.isNotEmpty()) tabManager.activeTab?.session?.finder?.find(q, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS) 
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val dialog = BottomSheetDialog(activity)
+        dialog.setContentView(R.layout.sheet_find_in_page)
+        
+        // Make the bottom sheet background transparent so it doesn't obscure the page
+        dialog.setOnShowListener {
+            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            bottomSheet?.setBackgroundResource(android.R.color.transparent)
+        }
+
+        val input = dialog.findViewById<EditText>(R.id.find_input)
+        val btnPrev = dialog.findViewById<TextView>(R.id.find_prev)
+        val btnNext = dialog.findViewById<TextView>(R.id.find_next)
+        val btnClose = dialog.findViewById<TextView>(R.id.find_close)
+
+        val session = tabManager.activeTab?.session
+
+        btnNext?.setOnClickListener {
+            val query = input?.text.toString()
+            if (query.isNotEmpty()) session?.finder?.find(query, 0)
+        }
+
+        btnPrev?.setOnClickListener {
+            val query = input?.text.toString()
+            if (query.isNotEmpty()) session?.finder?.find(query, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)
+        }
+
+        btnClose?.setOnClickListener {
+            session?.finder?.clear()
+            dialog.dismiss()
+        }
+        
+        dialog.show()
     }
 
     private fun showExtensions() {
