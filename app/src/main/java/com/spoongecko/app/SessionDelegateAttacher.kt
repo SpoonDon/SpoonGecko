@@ -94,15 +94,12 @@ class SessionDelegateAttacher(
 
     // ── Content delegate (downloads via Content-Disposition) ────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
-
-        import org.mozilla.geckoview.WebResponse
-
-// Inside your createContentDelegate function:
-override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
-    val uri = response.uri
-    
-    // WebResponse no longer has a 'filename' property.
-    // Extract it from the Content-Disposition header or fallback to the URI.
+        
+        override fun onExternalResponse(session: GeckoSession, response: WebResponse) {               
+            val uri = response.uri               
+            val filename = response.filename        
+        }
+        
     val disposition = response.headers["Content-Disposition"] ?: response.headers["content-disposition"]
     val filename = if (disposition != null) {
         val matches = Regex("filename=\"?([^\"]+)\"?").find(disposition)
