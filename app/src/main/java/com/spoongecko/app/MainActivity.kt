@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gestureManager: GestureManager
     private lateinit var extensionManager: ExtensionManager
     private lateinit var menus: BrowserMenusHelper
+    private lateinit var vaultUi: VaultUiHelper
 
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
 
@@ -86,69 +87,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initManagers() {
-        tabManager = TabManager(
-            runtime = runtime,
-            geckoView = geckoView,
-            onActiveTabChanged = { tab -> onActiveTabChanged(tab) },
-            onLastTabClosed = { exitApp() },
-            onSessionCreated = { tab -> sessionAttacher.attach(tab) }
-        )
+    tabManager = TabManager(
+        runtime = runtime,
+        geckoView = geckoView,
+        onActiveTabChanged = { tab -> onActiveTabChanged(tab) },
+        onLastTabClosed = { exitApp() },
+        onSessionCreated = { tab -> sessionAttacher.attach(tab) }
+    )
 
-        sessionAttacher = SessionDelegateAttacher(
-            activity = this,
-            runtime = runtime,
-            dbHelper = dbHelper,
-            vaultManager = vaultManager,
-            onTabStateChanged = { tab -> onTabStateChanged(tab) },
-            onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
-        )
+    sessionAttacher = SessionDelegateAttacher(
+        activity = this,
+        runtime = runtime,
+        dbHelper = dbHelper,
+        vaultManager = vaultManager,
+        onTabStateChanged = { tab -> onTabStateChanged(tab) },
+        onFullScreenRequested = { fullScreen -> setFullScreen(fullScreen) }
+    )
 
-        gestureManager = GestureManager(this, geckoView) { tabManager.activeTab }
-        gestureManager.attach()
+    gestureManager = GestureManager(this, geckoView) { tabManager.activeTab }
+    gestureManager.attach()
 
-        extensionManager = ExtensionManager(runtime, this)
-        extensionManager.setupDelegates()
+    extensionManager = ExtensionManager(runtime, this)
+    extensionManager.setupDelegates()
 
-        menus = BrowserMenusHelper(
-            activity = this,
-            dbHelper = dbHelper,
-            tabManager = tabManager,
-            vaultManager = vaultManager,
-            extensionManager = extensionManager,
-            onExportVault = { data ->
-                pendingExportData = data
-                exportLauncher.launch("vault.csv")
-            },
-            onExitRequested = { showExitConfirmation() }
-        )
+    // ── NEW: Initialize VaultUiHelper ──
+    vaultUi = VaultUiHelper(
+        activity = this,
+        vaultManager = vaultManager,
+        getCurrentUrl = { tabManager.activeTab?.url },
+        onExport = { data ->
+            pendingExportData = data
+            exportLauncher.launch("vault.csv")
+        }
+    )
 
-        // Attach the correct Storage Delegate to the GeckoRuntime
-runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
-    
-    // Correct signature: directly receives the LoginEntry object
-    override fun onLoginSave(login: Autocomplete.LoginEntry) {
-        // Extract the form data directly from the 'login' parameter
-        val origin = login.origin
-        val username = login.username
-        val password = login.password
-        
-        // Save to your SecureCredentialManager (ensure fields are not null/empty)
-        if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
-            vaultManager.saveCredentials(origin, username, password)
-            
-            // Optional: Show a toast or UI indicator that the password was saved
-            runOnUiThread {
-                android.widget.Toast.makeText(this@MainActivity, "Login saved for $origin", android.widget.Toast.LENGTH_SHORT).show()
+    menus = BrowserMenusHelper(
+        activity = this,
+        dbHelper = dbHelper,
+        tabManager = tabManager,
+        vaultManager = vaultManager,
+        extensionManager = extensionManager,
+        vaultUi = vaultUi,
+        onExportVault = { data ->
+            pendingExportData = data
+            exportLauncher.launch("vault.csv")
+        },
+        onExitRequested = { showExitConfirmation() }
+    )
+
+    // Attach the correct Storage Delegate to the GeckoRuntime
+    runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
+        override fun onLoginSave(login: Autocomplete.LoginEntry) {
+            val origin = login.origin
+            val username = login.username
+            val password = login.password
+            if (!origin.isNullOrEmpty() && !username.isNullOrEmpty() && !password.isNullOrEmpty()) {
+                vaultManager.saveCredentials(origin, username, password)
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Login saved for $origin", Toast.LENGTH_SHORT).show()
+                }
             }
         }
-    }
-     
-      override fun onLoginFetch(): GeckoResult<Array<Autocomplete.LoginEntry>> {
-          return GeckoResult.fromValue(emptyArray())
-      }
-     
-})
-    }
+        override fun onLoginFetch(): GeckoResult<Array<Autocomplete.LoginEntry>> {
+            return GeckoResult.fromValue(emptyArray())
+        }
+    })
+}
 
     private fun onTabStateChanged(tab: TabInfo) {
         if (tab == tabManager.activeTab) {
