@@ -1,15 +1,14 @@
 package com.spoongecko.app
 
-import android.app.DownloadManager
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.app.DownloadManager
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
@@ -34,12 +33,10 @@ class BrowserMenusHelper(
     private val onExportCsv: () -> Unit,
     private val onImportCsv: () -> Unit
 ) {
-
     fun showMenuOptions(anchorView: View) {
         val popup = android.widget.PopupMenu(activity, anchorView, android.view.Gravity.END)
         popup.menuInflater.inflate(R.menu.main_menu, popup.menu)
 
-        // MAGIC FIX: Make the "Exit" button text red
         val exitItem = popup.menu.findItem(R.id.menu_exit)
         if (exitItem != null) {
             val spannableString = android.text.SpannableString(exitItem.title)
@@ -75,7 +72,7 @@ class BrowserMenusHelper(
                         return@setOnMenuItemClickListener true
                     }
 
-                    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
                     
                     AlertDialog.Builder(activity)
@@ -86,7 +83,7 @@ class BrowserMenusHelper(
                                 .setTitle(selected.username)
                                 .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
                                     val textToCopy = if (choice == 0) selected.username else selected.password
-                                    val clip = android.content.ClipData.newPlainText("SpoonGecko Credential", textToCopy)
+                                    val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
                                     clipboard.setPrimaryClip(clip)
                                     Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 }
@@ -170,7 +167,7 @@ class BrowserMenusHelper(
         load()
         search?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { load(s.toString()) }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { load(s?.toString() ?: "") }
             override fun afterTextChanged(s: Editable?) {}
         })
         view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener {
@@ -192,7 +189,6 @@ class BrowserMenusHelper(
         val dialog = BottomSheetDialog(activity)
         dialog.setContentView(R.layout.sheet_find_in_page)
         
-        // Make the bottom sheet background transparent so it doesn't obscure the page
         dialog.setOnShowListener {
             val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.setBackgroundResource(android.R.color.transparent)
@@ -206,12 +202,12 @@ class BrowserMenusHelper(
         val session = tabManager.activeTab?.session
 
         btnNext?.setOnClickListener {
-            val query = input?.text.toString()
+            val query = (input?.text ?: "").toString()
             if (query.isNotEmpty()) session?.finder?.find(query, 0)
         }
 
         btnPrev?.setOnClickListener {
-            val query = input?.text.toString()
+            val query = (input?.text ?: "").toString()
             if (query.isNotEmpty()) session?.finder?.find(query, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)
         }
 
