@@ -163,6 +163,28 @@ class SecureCredentialManager(context: Context) {
         return entries
     }
 
+    fun getCredentialsForUrl(url: String): List<VaultCredential> {
+        val list = mutableListOf<VaultCredential>()
+        if (!isReady) return list
+        try {
+            val uri = Uri.parse(url)
+            val host = uri.host?.removePrefix("www.") ?: return list
+            val arr = JSONArray(getAllCredentialsAsJson())
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val savedHost = obj.optString("host", "").removePrefix("www.")
+                if (savedHost.contains(host, ignoreCase = true) || host.contains(savedHost, ignoreCase = true)) {
+                    list.add(VaultCredential(
+                        host = obj.optString("host", ""),
+                        username = obj.optString("username", ""),
+                        password = obj.optString("password", "")
+                    ))
+                }
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
     // --- CSV IMPORT / EXPORT ---
     fun exportToCsv(uri: Uri, context: Context) {
         val jsonStr = getAllCredentialsAsJson()
