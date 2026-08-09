@@ -16,14 +16,15 @@ import java.io.OutputStreamWriter
 class SecureCredentialManager(context: Context) {
     private var encryptedPrefs: SharedPreferences? = null
     private var isReady = false
+    private val appContext = context.applicationContext
 
     init {
         try {
-            val masterKey = MasterKey.Builder(context.applicationContext)
+            val masterKey = MasterKey.Builder(appContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
             encryptedPrefs = EncryptedSharedPreferences.create(
-                context.applicationContext,
+                appContext,
                 "spoon_secure_vault",
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
@@ -35,50 +36,43 @@ class SecureCredentialManager(context: Context) {
         }
     }
 
+    // MAGIC FIX: Strips "https://" and "www." so CSV imports match GeckoView's domain requests
+    private fun cleanHost(host: String): String {
+        return try {
+            val uri = Uri.parse(if (host.contains("://")) host else "http://$host")
+            uri.host?.removePrefix("www.") ?: host
+        } catch (e: Exception) {
+            host
+        }
+    }
+
     @Synchronized
     fun saveCredentials(host: String, username: String, password: String) {
         if (!isReady || host.isEmpty() || username.isEmpty()) return
         val cleanUser = username.trim()
+        val cleanDomain = cleanHost(host)
+        
         encryptedPrefs?.edit()
-            ?.putString("${host}_${cleanUser}_user", cleanUser)
-            ?.putString("${host}_${cleanUser}_pass", password)
-            ?.putString("${host}_primary_user", cleanUser)
+            ?.putString("${cleanDomain}_${cleanUser}_user", cleanUser)
+            ?.putString("${cleanDomain}_${cleanUser}_pass", password)
+            ?.putString("${cleanDomain}_primary_user", cleanUser)
             ?.apply()
     }
 
     @Synchronized
     fun getUsername(host: String): String {
         if (!isReady) return ""
-        return encryptedPrefs?.getString("${host}_primary_user", "") ?: ""
+        val cleanDomain = cleanHost(host)
+        return encryptedPrefs?.getString("${cleanDomain}_primary_user", "") ?: ""
     }
 
     @Synchronized
     fun getPassword(host: String): String {
         if (!isReady) return ""
-        val username = getUsername(host)
+        val cleanDomain = cleanHost(host)
+        val username = getUsername(cleanDomain)
         if (username.isEmpty()) return ""
-        return encryptedPrefs?.getString("${host}_${username}_pass", "") ?: ""
-    }
-
-    @Synchronized
-    fun getAllAccountsForHost(host: String): String {
-        if (!isReady || host.isEmpty()) return "[]"
-        return try {
-            val array = JSONArray()
-            val all = encryptedPrefs?.all ?: return "[]"
-            for (key in all.keys) {
-                if (key.startsWith("${host}_") && key.endsWith("_user") && !key.endsWith("_primary_user")) {
-                    val username = all[key] as? String ?: continue
-                    if (username.isEmpty()) continue
-                    val password = encryptedPrefs?.getString("${host}_${username}_pass", "") ?: ""
-                    val obj = JSONObject()
-                    obj.put("username", username)
-                    obj.put("password", password)
-                    array.put(obj)
-                }
-            }
-            array.toString()
-        } catch (e: Exception) { "[]" }
+        return encryptedPrefs?.getString("${cleanDomain}_${username}_pass", "") ?: ""
     }
 
     @Synchronized
@@ -87,6 +81,8 @@ class SecureCredentialManager(context: Context) {
         if (!isReady) return array.toString()
         try {
             val all = encryptedPrefs?.all ?: return array.toString()
+            val processed = mutableSetOf<String>()
+            
             for (key in all.keys) {
                 if (key.endsWith("_user") && !key.endsWith("_primary_user")) {
                     val username = all[key] as? String ?: continue
@@ -94,6 +90,10 @@ class SecureCredentialManager(context: Context) {
                     val suffix = "_${username}_user"
                     if (key.endsWith(suffix) && key.length > suffix.length) {
                         val host = key.substring(0, key.length - suffix.length)
+                        val uniqueKey = "$host|$username"
+                        if (processed.contains(uniqueKey)) continue
+                        processed.add(uniqueKey)
+                        
                         val password = encryptedPrefs?.getString("${host}_${username}_pass", "") ?: ""
                         val obj = JSONObject()
                         obj.put("host", host)
@@ -110,11 +110,12 @@ class SecureCredentialManager(context: Context) {
     @Synchronized
     fun deleteCredentials(host: String, username: String) {
         if (!isReady || host.isEmpty() || username.isEmpty()) return
+        val cleanDomain = cleanHost(host)
         val editor = encryptedPrefs?.edit() ?: return
-        editor.remove("${host}_${username}_pass")
-        editor.remove("${host}_${username}_user")
-        if (username == (encryptedPrefs?.getString("${host}_primary_user", "") ?: "")) {
-            editor.remove("${host}_primary_user")
+        editor.remove("${cleanDomain}_${username}_pass")
+        editor.remove("${cleanDomain}_${username}_user")
+        if (username == (encryptedPrefs?.getString("${cleanDomain}_primary_user", "") ?: "")) {
+            editor.remove("${cleanDomain}_primary_user")
         }
         editor.commit()
     }
@@ -122,25 +123,40 @@ class SecureCredentialManager(context: Context) {
     @Synchronized
     fun editCredentialPassword(host: String, username: String, newPassword: String) {
         if (!isReady || host.isEmpty() || username.isEmpty()) return
+        val cleanDomain = cleanHost(host)
         encryptedPrefs?.edit()
-            ?.putString("${host}_${username.trim()}_pass", newPassword)
+            ?.putString("${cleanDomain}_${username.trim()}_pass", newPassword)
             ?.apply()
     }
 
-    @Synchronized
-    fun clearCredentials(host: String) {
-        if (!isReady || host.isEmpty()) return
-        val editor = encryptedPrefs?.edit() ?: return
-        val all = encryptedPrefs?.all ?: return
-        for (key in all.keys) {
-            if (key.startsWith("${host}_")) {
-                editor.remove(key)
+    // --- AUTOFILL SUPPORT ---
+    fun getLoginsForDomain(domain: String): List<Autocomplete.LoginEntry> {
+        val entries = mutableListOf<Autocomplete.LoginEntry>()
+        if (!isReady) return entries
+        val cleanDomain = cleanHost(domain)
+        
+        try {
+            val all = encryptedPrefs?.all ?: return entries
+            for (key in all.keys) {
+                if (key.startsWith("${cleanDomain}_") && key.endsWith("_user") && !key.endsWith("_primary_user")) {
+                    val username = all[key] as? String ?: continue
+                    if (username.isEmpty()) continue
+                    val password = encryptedPrefs?.getString("${cleanDomain}_${username}_pass", "") ?: ""
+                    if (password.isNotEmpty()) {
+                        val origin = "https://$cleanDomain"
+                        entries.add(Autocomplete.LoginEntry.Builder()
+                            .origin(origin)
+                            .username(username)
+                            .password(password)
+                            .build())
+                    }
+                }
             }
-        }
-        editor.apply()
+        } catch (_: Exception) {}
+        return entries
     }
 
-    // --- NEW: CSV EXPORT & IMPORT ---
+    // --- CSV IMPORT / EXPORT ---
     fun exportToCsv(uri: Uri, context: Context) {
         val jsonStr = getAllCredentialsAsJson()
         if (jsonStr == "[]") {
@@ -161,7 +177,7 @@ class SecureCredentialManager(context: Context) {
                 }
                 writer.flush()
             }
-            Toast.makeText(context, "CSV Exported successfully", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "CSV Exported successfully", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
@@ -182,7 +198,7 @@ class SecureCredentialManager(context: Context) {
                     }
                     line = reader.readLine()
                 }
-                Toast.makeText(context, "Imported $count logins", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Imported $count logins successfully!", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -202,31 +218,5 @@ class SecureCredentialManager(context: Context) {
         }
         result.add(current.toString())
         return result
-    }
-
-    // --- NEW: AUTOFILL HELPER FOR GECKOVIEW ---
-    fun getLoginsForDomain(domain: String): List<Autocomplete.LoginEntry> {
-        val entries = mutableListOf<Autocomplete.LoginEntry>()
-        if (!isReady) return entries
-        try {
-            val all = encryptedPrefs?.all ?: return entries
-            val hosts = mutableSetOf<String>()
-            for (key in all.keys) {
-                if (key.endsWith("_primary_user")) {
-                    hosts.add(key.removeSuffix("_primary_user"))
-                }
-            }
-            for (host in hosts) {
-                if (host.contains(domain, ignoreCase = true) || domain.contains(host, ignoreCase = true)) {
-                    val user = getUsername(host)
-                    val pass = getPassword(host)
-                    if (user.isNotEmpty() && pass.isNotEmpty()) {
-                        val origin = if (host.startsWith("http")) host else "https://$host"
-                        entries.add(Autocomplete.LoginEntry.Builder().origin(origin).username(user).password(pass).build())
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        return entries
     }
 }
