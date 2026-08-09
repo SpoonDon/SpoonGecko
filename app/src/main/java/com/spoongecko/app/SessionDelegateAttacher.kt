@@ -3,6 +3,7 @@ package com.spoongecko.app
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.util.Base64
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -18,38 +19,44 @@ class SessionDelegateAttacher(
 ) {
 
     private val downloadableExtensions = setOf(
-        ".pdf", ".zip", ".rar", ".7z", ".apk",
-        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
+        ".pdf", ".zip", ".rar", ".7z", ".apk", ".tar", ".gz",
+        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".mp3", ".mp4", ".mkv", ".avi", ".webm",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+        ".txt", ".csv", ".json", ".xml", ".iso", ".exe"
     )
 
     fun attach(tab: TabInfo) {
         tab.session.navigationDelegate = createNavigationDelegate(tab)
-        tab.session.contentDelegate = createContentDelegate(tab)
+        tab.session.contentDelegate  = createContentDelegate(tab)
     }
 
+    // ── Navigation delegate ─────────────────────────────────────────
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
 
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
             val uri = request.uri
 
-            // Internal vault save hook
+            // Vault internal scheme
             if (uri.startsWith("spoonvault://save")) {
                 handleAutoSaveUri(uri)
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
-            // Web extension (.xpi) installation
-            if (uri.endsWith(".xpi", ignoreCase = true) || (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))) {
+            // Web-extension (.xpi) install
+            if (uri.endsWith(".xpi", ignoreCase = true) ||
+                (uri.contains("addons.mozilla.org") && uri.contains("/downloads/"))
+            ) {
                 runtime.webExtensionController.install(uri).accept(
                     { ext -> activity.runOnUiThread { Toast.makeText(activity, "Installed: ${ext?.metaData?.name}", Toast.LENGTH_SHORT).show() } },
-                    { throwable -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${throwable?.message}", Toast.LENGTH_SHORT).show() } }
+                    { t   -> activity.runOnUiThread { Toast.makeText(activity, "Install failed: ${t.message}", Toast.LENGTH_SHORT).show() } }
                 )
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
-            // Binary files go to the system DownloadManager
+            // Known downloadable file types → DownloadManager
             if (isDownloadable(uri)) {
-                startDownload(uri)
+                startDownload(uri, guessFileName(uri))
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
@@ -61,11 +68,9 @@ class SessionDelegateAttacher(
                 val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
                 val logicalUrl = if (isCustomNewTab) "about:blank" else it
                 tab.url = logicalUrl
-
                 if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                     Thread { dbHelper.addHistory(it, tab.title) }.start()
                 }
-
                 onTabStateChanged(tab)
             }
         }
@@ -86,6 +91,7 @@ class SessionDelegateAttacher(
         }
     }
 
+    // ── Content delegate (downloads via Content-Disposition) ────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
 
         override fun onTitleChange(session: GeckoSession, title: String?) {
@@ -98,26 +104,53 @@ class SessionDelegateAttacher(
         override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
             activity.runOnUiThread { onFullScreenRequested(fullScreen) }
         }
+
+        /**
+         * GeckoView calls this for responses it cannot render
+         * (e.g. Content-Disposition: attachment, octet-stream).
+         * This is the PRIMARY download hook.
+         */
+        override fun onExternalResponse(session: GeckoSession, response: GeckoSession.WebResponse) {
+            val uri = response.uri ?: return
+            val fileName = response.filename ?: guessFileName(uri)
+            startDownload(uri, fileName)
+        }
     }
 
+    // ── download helpers ────────────────────────────────────────────
     private fun isDownloadable(uri: String): Boolean {
         return try {
             val path = Uri.parse(uri).path?.lowercase() ?: ""
             downloadableExtensions.any { path.endsWith(it) }
-        } catch (e: Exception) {
-            false
-        }
+        } catch (_: Exception) { false }
     }
 
-    private fun startDownload(uri: String) {
+    private fun guessFileName(uri: String): String {
+        return try {
+            val path = Uri.parse(uri).lastPathSegment ?: "download"
+            if (path.contains('.')) path else "$path.download"
+        } catch (_: Exception) { "download" }
+    }
+
+    private fun startDownload(uri: String, fileName: String) {
         try {
             val request = DownloadManager.Request(Uri.parse(uri))
+                .setTitle(fileName)
+                .setDescription("Downloading via Spoon Gecko")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(false)
+
             val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             dm.enqueue(request)
-            activity.runOnUiThread { Toast.makeText(activity, "Download started", Toast.LENGTH_SHORT).show() }
+            activity.runOnUiThread {
+                Toast.makeText(activity, "Downloading: $fileName", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
-            activity.runOnUiThread { Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+            activity.runOnUiThread {
+                Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -130,7 +163,6 @@ class SessionDelegateAttacher(
             if (host.isNotEmpty() && user.isNotEmpty()) {
                 vaultManager.saveCredentials(host, user, pass)
             }
-        } catch (e: Exception) {
-        }
+        } catch (_: Exception) { }
     }
 }
