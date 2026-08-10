@@ -83,28 +83,33 @@ class BrowserMenusHelper(
             Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
             return
         }
-        val credentials = vaultManager.getCredentialsForUrl(currentUrl)
-        if (credentials.isEmpty()) {
-            Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
-        AlertDialog.Builder(activity)
-            .setTitle("Select Account")
-            .setItems(titles) { _, which ->
-                val selected = credentials[which]
+        
+        BackgroundExecutor.execute {
+            val credentials = vaultManager.getCredentialsForUrl(currentUrl)
+            activity.runOnUiThread {
+                if (credentials.isEmpty()) {
+                    Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
                 AlertDialog.Builder(activity)
-                    .setTitle(selected.username)
-                    .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
-                        val textToCopy = if (choice == 0) selected.username else selected.password
-                        val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
-                        clipboard.setPrimaryClip(clip)
-                        Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                    .setTitle("Select Account")
+                    .setItems(titles) { _, which ->
+                        val selected = credentials[which]
+                        AlertDialog.Builder(activity)
+                            .setTitle(selected.username)
+                            .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
+                                val textToCopy = if (choice == 0) selected.username else selected.password
+                                val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            }
+                            .show()
                     }
                     .show()
             }
-            .show()
+        }
     }
 
     fun openTabManager() {
