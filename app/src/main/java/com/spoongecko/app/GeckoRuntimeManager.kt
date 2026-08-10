@@ -6,27 +6,32 @@ import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 
 object GeckoRuntimeManager {
+    @Volatile
     private var runtime: GeckoRuntime? = null
 
     fun getRuntime(context: Context): GeckoRuntime {
-        if (runtime == null) {
-            val cbSettings = ContentBlocking.Settings.Builder()
-                .antiTracking(ContentBlocking.AntiTracking.DEFAULT)
-                .safeBrowsing(ContentBlocking.SafeBrowsing.DEFAULT)
-                .cookieBehavior(ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
-                .build()
-
-            val runtimeSettings = GeckoRuntimeSettings.Builder()
-                .contentBlocking(cbSettings)
-                .extensionsProcessEnabled(true)
-                .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
-                .loginAutofillEnabled(true) // MAGIC FIX: Turns on the engine's login form scanner
-                .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL) 
-                .build()
-
-            runtime = GeckoRuntime.create(context.applicationContext, runtimeSettings)
+        return runtime ?: synchronized(this) {
+            runtime ?: createRuntime(context.applicationContext).also { runtime = it }
         }
-        return runtime!!
+    }
+
+    private fun createRuntime(appContext: Context): GeckoRuntime {
+        val cbSettings = ContentBlocking.Settings.Builder()
+            .antiTracking(ContentBlocking.AntiTracking.DEFAULT)
+            .safeBrowsing(ContentBlocking.SafeBrowsing.DEFAULT)
+            .cookieBehavior(ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
+            .build()
+
+        val runtimeSettings = GeckoRuntimeSettings.Builder()
+            .contentBlocking(cbSettings)
+            .extensionsProcessEnabled(true)
+            .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
+            .loginStorageEnabled(true)
+            .loginAutofillEnabled(true)
+            .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
+            .build()
+
+        return GeckoRuntime.create(appContext, runtimeSettings)
     }
 
     fun shutdown() {
