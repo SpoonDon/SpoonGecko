@@ -33,19 +33,17 @@ jobs:
           if [ ! -f "./gradlew" ]; then gradle wrapper --gradle-version 8.11.1; fi
           chmod +x gradlew
 
-      - name: Decode Keystore
+      - name: Calculate Version
+        id: version
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/spoon-release.jks
+          PATCH=$(( ${{ github.run_number }} - 392 ))
+          echo "VERSION_NAME=0.0.${PATCH}" >> $GITHUB_ENV
+          echo "VERSION_CODE=${PATCH}" >> $GITHUB_ENV
+          echo "APK_NAME=SpoonGecko-0.0.${PATCH}.apk" >> $GITHUB_ENV
 
       - name: Decode Keystore
         run: |
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/spoon-release.jks
-
-      # NEW: Calculate the auto-incrementing 0.0.X version
-      - name: Set Build Version
-        run: |
-          echo "VERSION_NAME=0.0.$(( ${{ github.run_number }} - 390 ))" >> $GITHUB_ENV )
-          echo "VERSION_CODE=${{ github.run_number }}" >> $GITHUB_ENV
 
       - name: Build Signed Release APK
         env:
@@ -53,19 +51,18 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        # Pass the versions to Gradle
         run: ./gradlew assembleRelease --no-daemon --build-cache -PversionName=${{ env.VERSION_NAME }} -PversionCode=${{ env.VERSION_CODE }}
 
-      - name: Rename APK for Easy Download
+      - name: Rename APK
         run: |
           mkdir -p app/build/outputs/apk/release/
-          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-${{ env.VERSION_NAME }}.apk
+          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/${{ env.APK_NAME }}
 
       - name: Create GitHub Release & Upload APK
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push'
         with:
-          files: app/build/outputs/apk/release/SpoonGecko-${{ env.VERSION_NAME }}.apk
+          files: app/build/outputs/apk/release/${{ env.APK_NAME }}
           name: "SpoonGecko v${{ env.VERSION_NAME }}"
           tag_name: "v${{ env.VERSION_NAME }}"
           draft: false
