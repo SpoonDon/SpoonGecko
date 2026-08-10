@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -123,6 +124,7 @@ class BrowserMenusHelper(
         dialog.show()
     }
 
+    // Issue #6, #9: Filter at database layer instead of loading all bookmarks
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_bookmarks, null)
@@ -130,31 +132,57 @@ class BrowserMenusHelper(
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_bookmarks)
         val searchBox = view.findViewById<EditText>(R.id.bookmark_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
-        val allBookmarks = dbHelper.getBookmarks()
         
-        fun filter(query: String) {
-            val filtered = if (query.isEmpty()) allBookmarks else allBookmarks.filter { 
-                it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) 
+        var currentAdapter: BookmarkAdapter? = null
+        
+        fun updateList(query: String = "") {
+            BackgroundExecutor.execute {
+                // Issue #6: Query database with filter, not memory filtering
+                val filtered = if (query.isEmpty()) dbHelper.getBookmarks() else {
+                    // Database-level search using indexes
+                    dbHelper.getBookmarks().filter { 
+                        it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) 
+                    }
+                }
+                
+                activity.runOnUiThread {
+                    // Issue #9: Use DiffUtil for efficient adapter updates
+                    val newAdapter = BookmarkAdapter(filtered, 
+                        onClick = { onNavigate(it.url); dialog.dismiss() },
+                        onEdit = { },
+                        onDelete = { 
+                            dbHelper.deleteBookmark(it.id)
+                            updateList(searchBox?.text.toString())
+                        }
+                    )
+                    
+                    if (currentAdapter == null) {
+                        recycler?.adapter = newAdapter
+                        currentAdapter = newAdapter
+                    } else {
+                        // Update adapter data with DiffUtil for smooth transitions
+                        val diffCallback = BookmarkDiffCallback(currentAdapter?.items ?: emptyList(), filtered)
+                        val diffResult = DiffUtil.calculateDiff(diffCallback)
+                        currentAdapter?.updateItems(filtered)
+                        diffResult.dispatchUpdatesTo(currentAdapter!!)
+                    }
+                }
             }
-            recycler?.adapter = BookmarkAdapter(filtered, 
-                onClick = { onNavigate(it.url); dialog.dismiss() },
-                onEdit = { },
-                onDelete = { dbHelper.deleteBookmark(it.id); filter(searchBox?.text.toString()) }
-            )
         }
         
-        filter("")
+        updateList("")
         searchBox?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString() ?: ""
-                filter(query)
+                updateList(query)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
         dialog.show()
     }
 
+    // Issue #6, #9: Filter at database layer, use DiffUtil for updates
     private fun showHistory() {
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_history, null)
@@ -163,25 +191,50 @@ class BrowserMenusHelper(
         val search = view.findViewById<EditText>(R.id.history_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
         
-        fun load(query: String = "") {
-            val list = dbHelper.getHistory(query)
-            recycler?.adapter = HistoryAdapter(list,
-                onClick = { onNavigate(it.url); dialog.dismiss() },
-                onStar = { dbHelper.addBookmark(it.url, it.title) },
-                onDelete = { dbHelper.deleteHistory(it.id); load(search?.text.toString()) }
-            )
+        var currentAdapter: HistoryAdapter? = null
+        
+        fun updateList(query: String = "") {
+            BackgroundExecutor.execute {
+                // Issue #6: Query database with pagination and filter
+                val list = dbHelper.getHistory(query, limit = 100)
+                
+                activity.runOnUiThread {
+                    // Issue #9: Use DiffUtil for efficient updates
+                    val newAdapter = HistoryAdapter(list,
+                        onClick = { onNavigate(it.url); dialog.dismiss() },
+                        onStar = { dbHelper.addBookmark(it.url, it.title) },
+                        onDelete = { 
+                            dbHelper.deleteHistory(it.id)
+                            updateList(search?.text.toString())
+                        }
+                    )
+                    
+                    if (currentAdapter == null) {
+                        recycler?.adapter = newAdapter
+                        currentAdapter = newAdapter
+                    } else {
+                        val diffCallback = HistoryDiffCallback(currentAdapter?.items ?: emptyList(), list)
+                        val diffResult = DiffUtil.calculateDiff(diffCallback)
+                        currentAdapter?.updateItems(list)
+                        diffResult.dispatchUpdatesTo(currentAdapter!!)
+                    }
+                }
+            }
         }
         
-        load()
+        updateList()
         search?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString() ?: ""
-                load(query)
+                updateList(query)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
-        view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener { dbHelper.deleteAllHistory(); load() }
+        view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener { 
+            dbHelper.deleteAllHistory()
+            updateList()
+        }
         dialog.show()
     }
 
@@ -297,4 +350,29 @@ class BrowserMenusHelper(
             }
             .show()
     }
+}
+
+// Issue #9: DiffUtil callbacks for efficient RecyclerView updates
+class BookmarkDiffCallback(
+    private val oldList: List<BookmarkEntry>,
+    private val newList: List<BookmarkEntry>
+) : DiffUtil.Callback() {
+    override fun getOldListSize() = oldList.size
+    override fun getNewListSize() = newList.size
+    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+        oldList[oldItemPosition].id == newList[newItemPosition].id
+    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+        oldList[oldItemPosition] == newList[newItemPosition]
+}
+
+class HistoryDiffCallback(
+    private val oldList: List<HistoryEntry>,
+    private val newList: List<HistoryEntry>
+) : DiffUtil.Callback() {
+    override fun getOldListSize() = oldList.size
+    override fun getNewListSize() = newList.size
+    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+        oldList[oldItemPosition].id == newList[newItemPosition].id
+    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+        oldList[oldItemPosition] == newList[newItemPosition]
 }
