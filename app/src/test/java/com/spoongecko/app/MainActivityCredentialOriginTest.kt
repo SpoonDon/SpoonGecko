@@ -36,6 +36,16 @@ class MainActivityCredentialOriginTest {
     }
 
     @Test
+    fun `falls back to active tab url when login origin is empty`() {
+        val origin = resolveCredentialOrigin(
+            loginOrigin = "",
+            activeTabUrl = "https://example.com/login"
+        )
+
+        assertEquals("https://example.com", origin)
+    }
+
+    @Test
     fun `keeps fallback port when active tab url has explicit port`() {
         val origin = resolveCredentialOrigin(
             loginOrigin = null,
