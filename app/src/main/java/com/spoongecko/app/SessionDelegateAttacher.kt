@@ -64,6 +64,20 @@ class SessionDelegateAttacher(
                 val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
                 val logicalUrl = if (isCustomNewTab) "about:blank" else it
                 tab.url = logicalUrl
+                // Inject an unobtrusive "Local network page (HTTP)" banner when browsing
+                // a private/local host over plain HTTP so the user is aware.
+                if (logicalUrl.startsWith("http://") && LocalNetworkPolicy.isLocalUrl(logicalUrl)) {
+                    val bannerJs = "javascript:(function(){" +
+                        "if(document.getElementById('_spoon_local_banner'))return;" +
+                        "var b=document.createElement('div');" +
+                        "b.id='_spoon_local_banner';" +
+                        "b.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#1a237e;color:#e8eaf6;" +
+                        "font-size:12px;text-align:center;padding:4px 8px;z-index:2147483647;" +
+                        "font-family:sans-serif;pointer-events:none;';" +
+                        "b.textContent='\uD83C\uDFE0 Local network page (HTTP)';" +
+                        "document.body && document.body.appendChild(b);})();"
+                    session.loadUri(bannerJs)
+                }
                 if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                     // Issue #5: Use BackgroundExecutor instead of Thread.start()
                     BackgroundExecutor.execute { dbHelper.addHistory(it, tab.title) }
@@ -77,16 +91,32 @@ class SessionDelegateAttacher(
 
         override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
             val isSslError = error.category == WebRequestError.ERROR_CATEGORY_SECURITY
-            val isLocalIp = uri?.matches(Regex("^(http|https)://(\\d{1,3}\\.){3}\\d{1,3}.*")) == true || uri?.contains("localhost") == true
-            
-            var actionHtml = ""
-            if (isSslError && isLocalIp) {
-                val httpUrl = uri?.replace("https://", "http://") ?: ""
-                actionHtml = "<br><a href='$httpUrl' style='color:#4CAF50;font-size:18px;'>⚠️ Router/Local IP detected SSL error. Tap here to try HTTP instead.</a>"
+            val isLocal = uri != null && LocalNetworkPolicy.isLocalUrl(uri)
+
+            // One-time automatic HTTP fallback for local hosts with SSL errors
+            if (isSslError && isLocal && uri != null && uri.startsWith("https://", ignoreCase = true)) {
+                val host = LocalNetworkPolicy.extractHost(uri)
+                if (host != null) LocalNetworkPolicy.clearHttpsVerified(host, activity)
+                val httpUrl = "http://" + uri.removePrefix("https://")
+                // Navigate to the HTTP version automatically – no user tap needed
+                activity.runOnUiThread { session.loadUri(httpUrl) }
+                // Return a minimal transitional page while the redirect fires
+                val transitHtml = "<html><body style='background:#121212;color:#aaa;font-family:sans-serif;" +
+                    "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;'>" +
+                    "<p>Switching to HTTP for local network page…</p></body></html>"
+                return GeckoResult.fromValue(
+                    "data:text/html;base64," + Base64.encodeToString(transitHtml.toByteArray(), Base64.DEFAULT)
+                )
             }
 
-            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;padding:24px;'><h2>⚠️ Page failed to load</h2><p>${error.message ?: "Unknown error"}</p>$actionHtml</body></html>"
-            return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
+            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;" +
+                "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;" +
+                "flex-direction:column;text-align:center;padding:24px;'>" +
+                "<h2>⚠️ Page failed to load</h2><p>${error.message ?: "Unknown error"}</p>" +
+                "</body></html>"
+            return GeckoResult.fromValue(
+                "data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT)
+            )
         }
     }
 
