@@ -22,6 +22,11 @@ class SessionDelegateAttacher(
     private val onTabStateChanged: (TabInfo) -> Unit,
     private val onFullScreenRequested: (Boolean) -> Unit
 ) {
+    private companion object {
+        // Placeholder page returned by onLoadError while we immediately re-navigate to HTTP.
+        private const val BLANK_ERROR_PLACEHOLDER_HTML = "<html></html>"
+    }
+
     private val downloadableExtensions = setOf(
         ".pdf", ".zip", ".rar", ".7z", ".apk", ".tar", ".gz",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -84,7 +89,10 @@ class SessionDelegateAttacher(
                 val host = LocalNetworkPolicy.extractHost(uri)
                 if (host != null) LocalNetworkPolicy.clearHttpsVerified(host, activity)
                 val httpUrl = "http://" + uri.removePrefix("https://")
-                return GeckoResult.fromValue(httpUrl)
+                activity.runOnUiThread { session.loadUri(httpUrl) }
+                return GeckoResult.fromValue(
+                    "data:text/html;base64," + Base64.encodeToString(BLANK_ERROR_PLACEHOLDER_HTML.toByteArray(), Base64.NO_WRAP)
+                )
             }
 
             val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;" +

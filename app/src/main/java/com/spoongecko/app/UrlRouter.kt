@@ -15,8 +15,7 @@ object UrlRouter {
 
         val navigationUrl = resolveNavigationUrl(trimmed)
         if (navigationUrl != null) {
-            val finalUrl = navigationUrl
-            session.loadUri(finalUrl)
+            session.loadUri(navigationUrl)
         } else {
             val prefs = context.getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
             val engine = prefs.getString("search_engine", "duckduckgo") ?: "duckduckgo"
@@ -32,8 +31,8 @@ object UrlRouter {
         }
     }
 
-    internal fun resolveNavigationUrl(trimmedInput: String): String? {
-        val trimmed = trimmedInput.trim()
+    internal fun resolveNavigationUrl(input: String): String? {
+        val trimmed = input.trim()
         if (trimmed.isEmpty()) return null
 
         val isIp = ipv4Pattern.matcher(trimmed).matches()
@@ -50,8 +49,19 @@ object UrlRouter {
 
         return when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            LocalNetworkPolicy.isLocalUrl("https://$trimmed") -> "http://$trimmed"
+            isLikelyLocalTarget(trimmed) -> "http://$trimmed"
             else -> "https://$trimmed"
         }
+    }
+
+    private fun isLikelyLocalTarget(input: String): Boolean {
+        val authority = input.substringBefore("/").substringBefore("?").substringBefore("#")
+        if (authority.isBlank()) return false
+        val host = if (authority.startsWith("[")) {
+            authority.substringBefore("]").removePrefix("[")
+        } else {
+            authority.substringBefore(":")
+        }
+        return host.isNotBlank() && LocalNetworkPolicy.isLocalHost(host)
     }
 }
