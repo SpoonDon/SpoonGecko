@@ -34,4 +34,14 @@ class MainActivityCredentialOriginTest {
 
         assertNull(origin)
     }
+
+    @Test
+    fun `returns null when both login origin and active tab url are null`() {
+        val origin = resolveCredentialOrigin(
+            loginOrigin = null,
+            activeTabUrl = null
+        )
+
+        assertNull(origin)
+    }
 }
