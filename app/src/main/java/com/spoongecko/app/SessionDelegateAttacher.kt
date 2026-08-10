@@ -117,25 +117,37 @@ class SessionDelegateAttacher(
         override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) { tab.canGoForward = canGoForward; onTabStateChanged(tab) }
 
         override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
-            val isSslError = error.category == WebRequestError.ERROR_CATEGORY_SECURITY
-            val isLocal = uri != null && LocalNetworkPolicy.isLocalUrl(uri)
+    val isSslError = error.category == WebRequestError.ERROR_CATEGORY_SECURITY
+    val isLocal = uri != null && LocalNetworkPolicy.isLocalUrl(uri)
 
-            // Automatic HTTP fallback for local hosts with SSL errors.
-            if (isSslError && isLocal && uri != null && uri.startsWith("https://", ignoreCase = true)) {
-                val host = LocalNetworkPolicy.extractHost(uri)
-                if (host != null) LocalNetworkPolicy.clearHttpsVerified(host, activity)
-                val httpUrl = "http://" + uri.removePrefix("https://")
-                activity.runOnUiThread { session.loadUri(httpUrl) }
-                return GeckoResult.fromValue(
-                    "data:text/html;base64," + Base64.encodeToString(BLANK_ERROR_PLACEHOLDER_HTML.toByteArray(), Base64.NO_WRAP)
-                )
-            }
+    // ADDED: If ANY error occurs on a local https URL, fall back to http
+    if (isLocal && uri != null && uri.startsWith("https://", ignoreCase = true)) {
+        val host = LocalNetworkPolicy.extractHost(uri)
+        if (host != null) LocalNetworkPolicy.clearHttpsVerified(host, activity)
+        val httpUrl = "http://" + uri.removePrefix("https://")
+        activity.runOnUiThread { session.loadUri(httpUrl) }
+        return GeckoResult.fromValue(
+            "data:text/html;base64," + Base64.encodeToString(BLANK_ERROR_PLACEHOLDER_HTML.toByteArray(), Base64.NO_WRAP)
+        )
+    }
 
-            showLoadFailureMessage(uri)
-            val html = buildLoadErrorHtml(uri, error.message)
+    // ADDED: If an SSL error occurs on any URL that looks like a private IP, retry with http
+    if (isSslError && uri != null) {
+        val host = LocalNetworkPolicy.extractHost(uri)
+        if (host != null && LocalNetworkPolicy.isLocalHost(host) && uri.startsWith("https://", ignoreCase = true)) {
+            val httpUrl = "http://" + uri.removePrefix("https://")
+            activity.runOnUiThread { session.loadUri(httpUrl) }
             return GeckoResult.fromValue(
-                "data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT)
+                "data:text/html;base64," + Base64.encodeToString(BLANK_ERROR_PLACEHOLDER_HTML.toByteArray(), Base64.NO_WRAP)
             )
+        }
+    }
+
+    showLoadFailureMessage(uri)
+    val html = buildLoadErrorHtml(uri, error.message)
+    return GeckoResult.fromValue(
+        "data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT)
+    )
         }
     }
 
