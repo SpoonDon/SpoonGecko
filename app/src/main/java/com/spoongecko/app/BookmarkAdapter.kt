@@ -8,11 +8,15 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class BookmarkAdapter(
-    private val entries: List<BookmarkEntry>,
+    private var entries: List<BookmarkEntry>,
     private val onClick: (BookmarkEntry) -> Unit,
     private val onEdit: (BookmarkEntry) -> Unit,
     private val onDelete: (BookmarkEntry) -> Unit
 ) : RecyclerView.Adapter<BookmarkAdapter.ViewHolder>() {
+
+    // Issue #9: Expose items for DiffUtil
+    val items: List<BookmarkEntry>
+        get() = entries
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.bookmark_title)
@@ -35,4 +39,9 @@ class BookmarkAdapter(
     }
 
     override fun getItemCount() = entries.size
+
+    // Issue #9: Update items for DiffUtil integration
+    fun updateItems(newEntries: List<BookmarkEntry>) {
+        this.entries = newEntries
+    }
 }
