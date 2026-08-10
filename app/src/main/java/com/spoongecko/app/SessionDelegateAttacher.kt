@@ -24,7 +24,7 @@ class SessionDelegateAttacher(
 ) {
     private companion object {
         // Placeholder page returned by onLoadError while we immediately re-navigate to HTTP.
-        private const val BLANK_ERROR_PLACEHOLDER_HTML = "<html></html>"
+        const val BLANK_ERROR_PLACEHOLDER_HTML = "<html></html>"
     }
 
     private val downloadableExtensions = setOf(

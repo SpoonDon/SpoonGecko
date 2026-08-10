@@ -23,5 +23,7 @@ class UrlRouterTest {
 
     @Test fun `resolveNavigationUrl returns null for search terms`() {
         assertNull(UrlRouter.resolveNavigationUrl("android gecko browser"))
+        assertNull(UrlRouter.resolveNavigationUrl("what is v1.0"))
+        assertNull(UrlRouter.resolveNavigationUrl("v1.0"))
     }
 }

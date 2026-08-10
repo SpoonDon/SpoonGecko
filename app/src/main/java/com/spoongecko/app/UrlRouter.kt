@@ -38,13 +38,22 @@ object UrlRouter {
         val isIp = ipv4Pattern.matcher(trimmed).matches()
         val isDomain = domainPattern.matcher(trimmed).matches()
         val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
+        val authorityLike = trimmed.substringBefore("/").substringBefore("?").substringBefore("#")
+        val hostCandidate = if (authorityLike.startsWith("[")) {
+            authorityLike.substringBefore("]").removePrefix("[")
+        } else {
+            authorityLike.substringBefore(":")
+        }
+        val isHostLikeWithPath = hostCandidate.equals("localhost", ignoreCase = true) ||
+            domainPattern.matcher(hostCandidate).matches() ||
+            LocalNetworkPolicy.parseIpv4(hostCandidate) != null
 
         val isUrl = trimmed.startsWith("http://") ||
             trimmed.startsWith("https://") ||
             isIp ||
             isDomain ||
             isLocalhost ||
-            trimmed.contains(".")
+            isHostLikeWithPath
         if (!isUrl) return null
 
         return when {
