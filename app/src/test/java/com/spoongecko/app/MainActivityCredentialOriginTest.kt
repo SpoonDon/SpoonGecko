@@ -26,6 +26,16 @@ class MainActivityCredentialOriginTest {
     }
 
     @Test
+    fun `falls back to active tab url when login origin is blank`() {
+        val origin = resolveCredentialOrigin(
+            loginOrigin = " ",
+            activeTabUrl = "https://example.com/login"
+        )
+
+        assertEquals("https://example.com/login", origin)
+    }
+
+    @Test
     fun `returns null when login origin is blank and active tab url is missing`() {
         val origin = resolveCredentialOrigin(
             loginOrigin = " ",
