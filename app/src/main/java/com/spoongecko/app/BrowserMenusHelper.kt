@@ -13,11 +13,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import org.mozilla.geckoview.GeckoResult
 
 class BrowserMenusHelper(
     private val activity: AppCompatActivity,
@@ -39,8 +37,9 @@ class BrowserMenusHelper(
 
         val exitItem = popup.menu.findItem(R.id.menu_exit)
         if (exitItem != null) {
-            val spannableString = android.text.SpannableString(exitItem.title)
-            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title?.length ?: 0, 0)
+            val title = exitItem.title ?: ""
+            val spannableString = android.text.SpannableString(title)
+            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, title.length, 0)
             exitItem.title = spannableString
         }
 
@@ -50,8 +49,10 @@ class BrowserMenusHelper(
                 R.id.menu_add_bookmark -> {
                     val tab = tabManager.activeTab
                     if (tab != null && tab.url.isNotEmpty()) {
-                        dbHelper.addBookmark(tab.url, tab.title)
-                        Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
+                        BackgroundExecutor.execute {
+                            dbHelper.addBookmark(tab.url, tab.title)
+                            activity.runOnUiThread { Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show() }
+                        }
                     }
                     true
                 }
@@ -80,28 +81,34 @@ class BrowserMenusHelper(
             Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
             return
         }
-        val credentials = vaultManager.getCredentialsForUrl(currentUrl)
-        if (credentials.isEmpty()) {
-            Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
-        AlertDialog.Builder(activity)
-            .setTitle("Select Account")
-            .setItems(titles) { _, which ->
-                val selected = credentials[which]
+        
+        BackgroundExecutor.execute {
+            val credentials = vaultManager.getCredentialsForUrl(currentUrl)
+            activity.runOnUiThread {
+                if (credentials.isEmpty()) {
+                    Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
+                
                 AlertDialog.Builder(activity)
-                    .setTitle(selected.username)
-                    .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
-                        val textToCopy = if (choice == 0) selected.username else selected.password
-                        val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
-                        clipboard.setPrimaryClip(clip)
-                        Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                    .setTitle("Select Account")
+                    .setItems(titles) { _, which ->
+                        val selected = credentials[which]
+                        AlertDialog.Builder(activity)
+                            .setTitle(selected.username)
+                            .setItems(arrayOf("Copy Username", "Copy Password")) { _, choice ->
+                                val textToCopy = if (choice == 0) selected.username else selected.password
+                                val clip = ClipData.newPlainText("SpoonGecko Credential", textToCopy)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(activity, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            }
+                            .show()
                     }
                     .show()
             }
-            .show()
+        }
     }
 
     fun openTabManager() {
@@ -124,7 +131,6 @@ class BrowserMenusHelper(
         dialog.show()
     }
 
-    // Issue #6, #9: Filter at database layer instead of loading all bookmarks
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_bookmarks, null)
@@ -133,56 +139,40 @@ class BrowserMenusHelper(
         val searchBox = view.findViewById<EditText>(R.id.bookmark_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
         
-        var currentAdapter: BookmarkAdapter? = null
+        var allBookmarks: List<BookmarkEntry> = emptyList()
         
-        fun updateList(query: String = "") {
+        fun filter(query: String) {
             BackgroundExecutor.execute {
-                // Issue #6: Query database with filter, not memory filtering
-                val filtered = if (query.isEmpty()) dbHelper.getBookmarks() else {
-                    // Database-level search using indexes
-                    dbHelper.getBookmarks().filter { 
-                        it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) 
-                    }
+                if (allBookmarks.isEmpty()) allBookmarks = dbHelper.getBookmarks()
+                val filtered = if (query.isEmpty()) allBookmarks else allBookmarks.filter { 
+                    it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) 
                 }
-                
                 activity.runOnUiThread {
-                    // Issue #9: Use DiffUtil for efficient adapter updates
-                    val newAdapter = BookmarkAdapter(filtered, 
+                    recycler?.adapter = BookmarkAdapter(filtered, 
                         onClick = { onNavigate(it.url); dialog.dismiss() },
                         onEdit = { },
                         onDelete = { 
                             dbHelper.deleteBookmark(it.id)
-                            updateList(searchBox?.text.toString())
+                            allBookmarks = emptyList()
+                            filter(searchBox?.text.toString()) 
                         }
                     )
-                    
-                    if (currentAdapter == null) {
-                        recycler?.adapter = newAdapter
-                        currentAdapter = newAdapter
-                    } else {
-                        // Update adapter data with DiffUtil for smooth transitions
-                        val diffCallback = BookmarkDiffCallback(currentAdapter?.items ?: emptyList(), filtered)
-                        val diffResult = DiffUtil.calculateDiff(diffCallback)
-                        currentAdapter?.updateItems(filtered)
-                        diffResult.dispatchUpdatesTo(currentAdapter!!)
-                    }
                 }
             }
         }
         
-        updateList("")
+        filter("")
         searchBox?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString() ?: ""
-                updateList(query)
+                filter(query)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
         dialog.show()
     }
 
-    // Issue #6, #9: Filter at database layer, use DiffUtil for updates
     private fun showHistory() {
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_history, null)
@@ -191,49 +181,33 @@ class BrowserMenusHelper(
         val search = view.findViewById<EditText>(R.id.history_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
         
-        var currentAdapter: HistoryAdapter? = null
-        
-        fun updateList(query: String = "") {
+        fun load(query: String = "") {
             BackgroundExecutor.execute {
-                // Issue #6: Query database with pagination and filter
-                val list = dbHelper.getHistory(query, limit = 100)
-                
+                val list = dbHelper.getHistory(query)
                 activity.runOnUiThread {
-                    // Issue #9: Use DiffUtil for efficient updates
-                    val newAdapter = HistoryAdapter(list,
+                    recycler?.adapter = HistoryAdapter(list,
                         onClick = { onNavigate(it.url); dialog.dismiss() },
                         onStar = { dbHelper.addBookmark(it.url, it.title) },
-                        onDelete = { 
-                            dbHelper.deleteHistory(it.id)
-                            updateList(search?.text.toString())
-                        }
+                        onDelete = { dbHelper.deleteHistory(it.id); load(search?.text.toString()) }
                     )
-                    
-                    if (currentAdapter == null) {
-                        recycler?.adapter = newAdapter
-                        currentAdapter = newAdapter
-                    } else {
-                        val diffCallback = HistoryDiffCallback(currentAdapter?.items ?: emptyList(), list)
-                        val diffResult = DiffUtil.calculateDiff(diffCallback)
-                        currentAdapter?.updateItems(list)
-                        diffResult.dispatchUpdatesTo(currentAdapter!!)
-                    }
                 }
             }
         }
         
-        updateList()
+        load()
         search?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 val query = s?.toString() ?: ""
-                updateList(query)
+                load(query)
             }
             override fun afterTextChanged(s: Editable?) {}
         })
         view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener { 
-            dbHelper.deleteAllHistory()
-            updateList()
+            BackgroundExecutor.execute {
+                dbHelper.deleteAllHistory()
+                activity.runOnUiThread { load() }
+            }
         }
         dialog.show()
     }
@@ -269,8 +243,8 @@ class BrowserMenusHelper(
                 if (q.isNotEmpty()) {
                     session?.finder?.find(q, 0)?.then({ result ->
                         activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
-                        GeckoResult<Void>()
-                    }, { GeckoResult<Void>() })
+                        org.mozilla.geckoview.GeckoResult<Void>()
+                    }, { org.mozilla.geckoview.GeckoResult<Void>() })
                 } else {
                     countText?.text = "0/0"
                     session?.finder?.clear()
@@ -282,16 +256,16 @@ class BrowserMenusHelper(
             val q = input?.text.toString()
             if (q.isNotEmpty()) session?.finder?.find(q, 0)?.then({ result ->
                 activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
-                GeckoResult<Void>()
-            }, { GeckoResult<Void>() })
+                org.mozilla.geckoview.GeckoResult<Void>()
+            }, { org.mozilla.geckoview.GeckoResult<Void>() })
         }
 
         btnPrev?.setOnClickListener {
             val q = input?.text.toString()
             if (q.isNotEmpty()) session?.finder?.find(q, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)?.then({ result ->
                 activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
-                GeckoResult<Void>()
-            }, { GeckoResult<Void>() })
+                org.mozilla.geckoview.GeckoResult<Void>()
+            }, { org.mozilla.geckoview.GeckoResult<Void>() })
         }
 
         btnClose?.setOnClickListener {
@@ -350,29 +324,4 @@ class BrowserMenusHelper(
             }
             .show()
     }
-}
-
-// Issue #9: DiffUtil callbacks for efficient RecyclerView updates
-class BookmarkDiffCallback(
-    private val oldList: List<BookmarkEntry>,
-    private val newList: List<BookmarkEntry>
-) : DiffUtil.Callback() {
-    override fun getOldListSize() = oldList.size
-    override fun getNewListSize() = newList.size
-    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition].id == newList[newItemPosition].id
-    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition] == newList[newItemPosition]
-}
-
-class HistoryDiffCallback(
-    private val oldList: List<HistoryEntry>,
-    private val newList: List<HistoryEntry>
-) : DiffUtil.Callback() {
-    override fun getOldListSize() = oldList.size
-    override fun getNewListSize() = newList.size
-    override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition].id == newList[newItemPosition].id
-    override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
-        oldList[oldItemPosition] == newList[newItemPosition]
 }
