@@ -13,23 +13,9 @@ object UrlRouter {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
 
-        val isIp = ipv4Pattern.matcher(trimmed).matches()
-        val isDomain = domainPattern.matcher(trimmed).matches()
-        val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
-        
-        // Check if it looks like a URL or IP
-        val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost || trimmed.contains(".")
-
-        if (isUrl) {
-            val rawUrl = when {
-                // Respect explicit http:// or https://
-                trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-                // Default to HTTP instead of forcing HTTPS
-                else -> "http://$trimmed"
-            }
-            // Normalise HTTPS → HTTP for local/private network targets
-            val finalUrl = LocalNetworkPolicy.normaliseLocalUrl(rawUrl, context)
-            session.loadUri(finalUrl)
+        val navigationUrl = resolveNavigationUrl(trimmed)
+        if (navigationUrl != null) {
+            session.loadUri(navigationUrl)
         } else {
             val prefs = context.getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
             val engine = prefs.getString("search_engine", "duckduckgo") ?: "duckduckgo"
@@ -43,5 +29,48 @@ object UrlRouter {
             }
             session.loadUri(searchUrl)
         }
+    }
+
+    internal fun resolveNavigationUrl(input: String): String? {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return null
+
+        val isIp = ipv4Pattern.matcher(trimmed).matches()
+        val isDomain = domainPattern.matcher(trimmed).matches()
+        val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
+        val authorityLike = trimmed.substringBefore("/").substringBefore("?").substringBefore("#")
+        val hostCandidate = if (authorityLike.startsWith("[")) {
+            authorityLike.substringBefore("]").removePrefix("[")
+        } else {
+            authorityLike.substringBefore(":")
+        }
+        val isHostLikeWithPath = hostCandidate.equals("localhost", ignoreCase = true) ||
+            domainPattern.matcher(hostCandidate).matches() ||
+            LocalNetworkPolicy.parseIpv4(hostCandidate) != null
+
+        val isUrl = trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://") ||
+            isIp ||
+            isDomain ||
+            isLocalhost ||
+            isHostLikeWithPath
+        if (!isUrl) return null
+
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            isLikelyLocalTarget(trimmed) -> "http://$trimmed"
+            else -> "https://$trimmed"
+        }
+    }
+
+    private fun isLikelyLocalTarget(input: String): Boolean {
+        val authority = input.substringBefore("/").substringBefore("?").substringBefore("#")
+        if (authority.isBlank()) return false
+        val host = if (authority.startsWith("[")) {
+            authority.substringBefore("]").removePrefix("[")
+        } else {
+            authority.substringBefore(":")
+        }
+        return host.isNotBlank() && LocalNetworkPolicy.isLocalHost(host)
     }
 }

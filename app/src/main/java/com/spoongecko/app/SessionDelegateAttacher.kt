@@ -22,6 +22,11 @@ class SessionDelegateAttacher(
     private val onTabStateChanged: (TabInfo) -> Unit,
     private val onFullScreenRequested: (Boolean) -> Unit
 ) {
+    private companion object {
+        // Placeholder page returned by onLoadError while we immediately re-navigate to HTTP.
+        const val BLANK_ERROR_PLACEHOLDER_HTML = "<html></html>"
+    }
+
     private val downloadableExtensions = setOf(
         ".pdf", ".zip", ".rar", ".7z", ".apk", ".tar", ".gz",
         ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -64,20 +69,6 @@ class SessionDelegateAttacher(
                 val isCustomNewTab = it.startsWith("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'>")
                 val logicalUrl = if (isCustomNewTab) "about:blank" else it
                 tab.url = logicalUrl
-                // Inject an unobtrusive "Local network page (HTTP)" banner when browsing
-                // a private/local host over plain HTTP so the user is aware.
-                if (logicalUrl.startsWith("http://") && LocalNetworkPolicy.isLocalUrl(logicalUrl)) {
-                    val bannerJs = "javascript:(function(){" +
-                        "if(document.getElementById('_spoon_local_banner'))return;" +
-                        "var b=document.createElement('div');" +
-                        "b.id='_spoon_local_banner';" +
-                        "b.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#1a237e;color:#e8eaf6;" +
-                        "font-size:12px;text-align:center;padding:4px 8px;z-index:2147483647;" +
-                        "font-family:sans-serif;pointer-events:none;';" +
-                        "b.textContent='\uD83C\uDFE0 Local network page (HTTP)';" +
-                        "document.body && document.body.appendChild(b);})();"
-                    session.loadUri(bannerJs)
-                }
                 if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
                     // Issue #5: Use BackgroundExecutor instead of Thread.start()
                     BackgroundExecutor.execute { dbHelper.addHistory(it, tab.title) }
@@ -93,19 +84,14 @@ class SessionDelegateAttacher(
             val isSslError = error.category == WebRequestError.ERROR_CATEGORY_SECURITY
             val isLocal = uri != null && LocalNetworkPolicy.isLocalUrl(uri)
 
-            // One-time automatic HTTP fallback for local hosts with SSL errors
+            // Automatic HTTP fallback for local hosts with SSL errors.
             if (isSslError && isLocal && uri != null && uri.startsWith("https://", ignoreCase = true)) {
                 val host = LocalNetworkPolicy.extractHost(uri)
                 if (host != null) LocalNetworkPolicy.clearHttpsVerified(host, activity)
                 val httpUrl = "http://" + uri.removePrefix("https://")
-                // Navigate to the HTTP version automatically – no user tap needed
                 activity.runOnUiThread { session.loadUri(httpUrl) }
-                // Return a minimal transitional page while the redirect fires
-                val transitHtml = "<html><body style='background:#121212;color:#aaa;font-family:sans-serif;" +
-                    "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;'>" +
-                    "<p>Switching to HTTP for local network page…</p></body></html>"
                 return GeckoResult.fromValue(
-                    "data:text/html;base64," + Base64.encodeToString(transitHtml.toByteArray(), Base64.DEFAULT)
+                    "data:text/html;base64," + Base64.encodeToString(BLANK_ERROR_PLACEHOLDER_HTML.toByteArray(), Base64.NO_WRAP)
                 )
             }
 
