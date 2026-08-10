@@ -27,6 +27,26 @@ import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoView
 import java.util.concurrent.atomic.AtomicReference
 
+internal fun resolveCredentialOrigin(loginOrigin: String?, activeTabUrl: String?): String? {
+    val origin = loginOrigin.orEmpty().trim()
+    if (origin.isNotEmpty()) return origin
+    val fallback = activeTabUrl.orEmpty().trim()
+    if (fallback.isEmpty()) return null
+    return try {
+        val uri = Uri.parse(fallback)
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host
+        if ((scheme == "http" || scheme == "https") && !host.isNullOrEmpty()) {
+            val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
+            "$scheme://$host$portSuffix"
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
 class MainActivity : AppCompatActivity() {
     private lateinit var geckoView: GeckoView
     private lateinit var urlBar: AutoCompleteTextView
@@ -132,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         // Issue #5: Replace Thread.start() with bounded executor
         runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
             override fun onLoginSave(login: Autocomplete.LoginEntry) {
-                val origin = login.origin ?: return
+                val origin = resolveCredentialOrigin(login.origin, tabManager.activeTab?.url) ?: return
                 val username = login.username ?: return
                 val password = login.password ?: return
                 
