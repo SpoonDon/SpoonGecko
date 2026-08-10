@@ -3,6 +3,9 @@ package com.spoongecko.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.app.DownloadManager
+import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -16,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import org.mozilla.geckoview.GeckoResult
 
 class BrowserMenusHelper(
     private val activity: AppCompatActivity,
@@ -38,7 +42,7 @@ class BrowserMenusHelper(
         val exitItem = popup.menu.findItem(R.id.menu_exit)
         if (exitItem != null) {
             val spannableString = android.text.SpannableString(exitItem.title)
-            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title?.length ?: 0, 0)
+            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title.length, 0)
             exitItem.title = spannableString
         }
 
@@ -55,8 +59,9 @@ class BrowserMenusHelper(
                 }
                 R.id.menu_bookmarks -> { showBookmarks(); true }
                 R.id.menu_history -> { showHistory(); true }
-                R.id.menu_vault_copy -> { showVaultCopy(); true }
+                R.id.menu_downloads -> { showDownloads(); true }
                 R.id.menu_find_in_page -> { showFindInPage(); true }
+                R.id.menu_vault_copy -> { showVaultCopy(); true }
                 R.id.menu_vault -> {
                     val vaultUi = VaultUiHelper(activity, vaultManager, onExportCsv, onImportCsv)
                     vaultUi.showVault()
@@ -71,22 +76,34 @@ class BrowserMenusHelper(
         popup.show()
     }
 
+    private fun showDownloads() {
+        try {
+            activity.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(Uri.parse("content://downloads/all_downloads"), "vnd.android.cursor.dir/download")
+                }
+                activity.startActivity(intent)
+            } catch (e2: Exception) {
+                Toast.makeText(activity, "Download manager not found on this device", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun showVaultCopy() {
         val currentUrl = tabManager.activeTab?.url ?: ""
         if (currentUrl.isEmpty() || currentUrl == "about:blank" || currentUrl.startsWith("data:")) {
             Toast.makeText(activity, "No active web page", Toast.LENGTH_SHORT).show()
             return
         }
-        
         val credentials = vaultManager.getCredentialsForUrl(currentUrl)
         if (credentials.isEmpty()) {
             Toast.makeText(activity, "No saved credentials for this site", Toast.LENGTH_SHORT).show()
             return
         }
-
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val titles = credentials.map { "${it.username} (${it.host})" }.toTypedArray()
-        
         AlertDialog.Builder(activity)
             .setTitle("Select Account")
             .setItems(titles) { _, which ->
@@ -108,10 +125,8 @@ class BrowserMenusHelper(
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_tabs, null)
         dialog.setContentView(view)
-
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_tabs)
         recyclerView?.layoutManager = LinearLayoutManager(activity)
-        
         val currentTab = tabManager.activeTab
         if (currentTab != null) {
             val adapter = TabAdapter(
@@ -122,7 +137,6 @@ class BrowserMenusHelper(
             )
             recyclerView?.adapter = adapter
         }
-
         view.findViewById<ImageButton>(R.id.btn_new_tab)?.setOnClickListener { tabManager.createNewSession(); dialog.dismiss() }
         dialog.show()
     }
@@ -132,17 +146,37 @@ class BrowserMenusHelper(
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_bookmarks, null)
         dialog.setContentView(view)
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_bookmarks)
+        val searchBox = view.findViewById<EditText>(R.id.bookmark_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
         
-        fun load() {
-            val list = dbHelper.getBookmarks()
-            recycler?.adapter = BookmarkAdapter(list, 
+        val allBookmarks = dbHelper.getBookmarks()
+        
+        fun filter(query: String) {
+            val filtered = if (query.isEmpty()) allBookmarks else allBookmarks.filter { 
+                it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) 
+            }
+            recycler?.adapter = BookmarkAdapter(filtered, 
                 onClick = { onNavigate(it.url); dialog.dismiss() },
                 onEdit = { },
-                onDelete = { dbHelper.deleteBookmark(it.id); load() }
+                onDelete = { dbHelper.deleteBookmark(it.id); filter(searchBox?.text.toString()) }
             )
         }
-        load()
+        
+        filter("")
+        searchBox?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { filter(s.toString()) }
+        })
+        
+        view.findViewById<ImageButton>(R.id.btn_add_bookmark)?.setOnClickListener {
+            val tab = tabManager.activeTab
+            if (tab != null && tab.url.isNotEmpty()) {
+                dbHelper.addBookmark(tab.url, tab.title)
+                Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
+                filter(searchBox?.text.toString())
+            }
+        }
         dialog.show()
     }
 
@@ -153,62 +187,73 @@ class BrowserMenusHelper(
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_history)
         val search = view.findViewById<EditText>(R.id.history_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
-        
         fun load(query: String = "") {
             val list = dbHelper.getHistory(query)
             recycler?.adapter = HistoryAdapter(list,
                 onClick = { onNavigate(it.url); dialog.dismiss() },
                 onStar = { dbHelper.addBookmark(it.url, it.title) },
-                onDelete = { dbHelper.deleteHistory(it.id); load(query) }
+                onDelete = { dbHelper.deleteHistory(it.id); load(search?.text.toString()) }
             )
         }
         load()
         search?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val query = s?.toString() ?: ""
-                load(query)
-            }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { load(s?.toString() ?: "") }
             override fun afterTextChanged(s: Editable?) {}
         })
-        view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener {
-            dbHelper.deleteAllHistory()
-            load()
-        }
+        view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener { dbHelper.deleteAllHistory(); load() }
         dialog.show()
     }
 
     private fun showFindInPage() {
         val dialog = BottomSheetDialog(activity)
         dialog.setContentView(R.layout.sheet_find_in_page)
-        
         dialog.setOnShowListener {
             val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.setBackgroundResource(android.R.color.transparent)
         }
 
         val input = dialog.findViewById<EditText>(R.id.find_input)
+        val countText = dialog.findViewById<TextView>(R.id.find_count)
         val btnPrev = dialog.findViewById<TextView>(R.id.find_prev)
         val btnNext = dialog.findViewById<TextView>(R.id.find_next)
         val btnClose = dialog.findViewById<TextView>(R.id.find_close)
-
         val session = tabManager.activeTab?.session
 
+        input?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val q = s.toString()
+                if (q.isNotEmpty()) {
+                    session?.finder?.find(q, 0)?.then({ result ->
+                        activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                        GeckoResult<Void>()
+                    }, { GeckoResult<Void>() })
+                } else {
+                    countText?.text = "0/0"
+                    session?.finder?.clear()
+                }
+            }
+        })
+
         btnNext?.setOnClickListener {
-            val query = input?.text?.toString() ?: ""
-            if (query.isNotEmpty()) session?.finder?.find(query, 0)
+            val q = input?.text.toString()
+            if (q.isNotEmpty()) session?.finder?.find(q, 0)?.then({ result ->
+                activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                GeckoResult<Void>()
+            }, { GeckoResult<Void>() })
         }
 
         btnPrev?.setOnClickListener {
-            val query = input?.text?.toString() ?: ""
-            if (query.isNotEmpty()) session?.finder?.find(query, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)
+            val q = input?.text.toString()
+            if (q.isNotEmpty()) session?.finder?.find(q, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)?.then({ result ->
+                activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                GeckoResult<Void>()
+            }, { GeckoResult<Void>() })
         }
 
-        btnClose?.setOnClickListener {
-            session?.finder?.clear()
-            dialog.dismiss()
-        }
-        
+        btnClose?.setOnClickListener { session?.finder?.clear(); dialog.dismiss() }
         dialog.show()
     }
 
@@ -216,14 +261,11 @@ class BrowserMenusHelper(
         val dialog = BottomSheetDialog(activity)
         val view = LayoutInflater.from(activity).inflate(R.layout.sheet_extensions, null)
         dialog.setContentView(view)
-
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_extensions)
         recyclerView?.layoutManager = LinearLayoutManager(activity)
-
         view.findViewById<TextView>(R.id.ext_install_file)?.setOnClickListener { onInstallExtensionFromFile(); dialog.dismiss() }
         view.findViewById<TextView>(R.id.ext_backup)?.setOnClickListener { onBackupExtensions(); dialog.dismiss() }
         view.findViewById<TextView>(R.id.ext_restore)?.setOnClickListener { onRestoreExtensions(); dialog.dismiss() }
-
         extensionManager.listExtensions { extensions ->
             activity.runOnUiThread {
                 val adapter = ExtensionAdapter(
@@ -242,14 +284,12 @@ class BrowserMenusHelper(
         val engines = arrayOf("DuckDuckGo", "Google", "Startpage", "Brave")
         val current = activity.getSharedPreferences("settings", AppCompatActivity.MODE_PRIVATE)
             .getString("search_engine", "duckduckgo") ?: "duckduckgo"
-        
         val checkedItem = when (current) {
             "google" -> 1
             "startpage" -> 2
             "brave" -> 3
             else -> 0
         }
-
         AlertDialog.Builder(activity)
             .setTitle("Search Engine")
             .setSingleChoiceItems(engines, checkedItem) { dialog, which ->
