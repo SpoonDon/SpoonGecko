@@ -3,9 +3,6 @@ package com.spoongecko.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.app.DownloadManager
-import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -42,7 +39,7 @@ class BrowserMenusHelper(
         val exitItem = popup.menu.findItem(R.id.menu_exit)
         if (exitItem != null) {
             val spannableString = android.text.SpannableString(exitItem.title)
-            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title.length, 0)
+            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title?.length ?: 0, 0)
             exitItem.title = spannableString
         }
 
@@ -74,21 +71,6 @@ class BrowserMenusHelper(
             }
         }
         popup.show()
-    }
-
-    private fun showDownloads() {
-        try {
-            activity.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
-        } catch (e: Exception) {
-            try {
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.parse("content://downloads/all_downloads"), "vnd.android.cursor.dir/download")
-                }
-                activity.startActivity(intent)
-            } catch (e2: Exception) {
-                Toast.makeText(activity, "Download manager not found on this device", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     private fun showVaultCopy() {
@@ -148,7 +130,6 @@ class BrowserMenusHelper(
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_bookmarks)
         val searchBox = view.findViewById<EditText>(R.id.bookmark_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
-        
         val allBookmarks = dbHelper.getBookmarks()
         
         fun filter(query: String) {
@@ -165,18 +146,12 @@ class BrowserMenusHelper(
         filter("")
         searchBox?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) { filter(s.toString()) }
-        })
-        
-        view.findViewById<ImageButton>(R.id.btn_add_bookmark)?.setOnClickListener {
-            val tab = tabManager.activeTab
-            if (tab != null && tab.url.isNotEmpty()) {
-                dbHelper.addBookmark(tab.url, tab.title)
-                Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
-                filter(searchBox?.text.toString())
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString() ?: ""
+                filter(query)
             }
-        }
+            override fun afterTextChanged(s: Editable?) {}
+        })
         dialog.show()
     }
 
@@ -187,6 +162,7 @@ class BrowserMenusHelper(
         val recycler = view.findViewById<RecyclerView>(R.id.recycler_history)
         val search = view.findViewById<EditText>(R.id.history_search)
         recycler?.layoutManager = LinearLayoutManager(activity)
+        
         fun load(query: String = "") {
             val list = dbHelper.getHistory(query)
             recycler?.adapter = HistoryAdapter(list,
@@ -195,14 +171,26 @@ class BrowserMenusHelper(
                 onDelete = { dbHelper.deleteHistory(it.id); load(search?.text.toString()) }
             )
         }
+        
         load()
         search?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { load(s?.toString() ?: "") }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString() ?: ""
+                load(query)
+            }
             override fun afterTextChanged(s: Editable?) {}
         })
         view.findViewById<ImageButton>(R.id.btn_delete_all_history)?.setOnClickListener { dbHelper.deleteAllHistory(); load() }
         dialog.show()
+    }
+
+    private fun showDownloads() {
+        try {
+            activity.startActivity(android.content.Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (e: Exception) {
+            Toast.makeText(activity, "No download manager app found", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun showFindInPage() {
@@ -227,7 +215,7 @@ class BrowserMenusHelper(
                 val q = s.toString()
                 if (q.isNotEmpty()) {
                     session?.finder?.find(q, 0)?.then({ result ->
-                        activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                        activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
                         GeckoResult<Void>()
                     }, { GeckoResult<Void>() })
                 } else {
@@ -240,7 +228,7 @@ class BrowserMenusHelper(
         btnNext?.setOnClickListener {
             val q = input?.text.toString()
             if (q.isNotEmpty()) session?.finder?.find(q, 0)?.then({ result ->
-                activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
                 GeckoResult<Void>()
             }, { GeckoResult<Void>() })
         }
@@ -248,12 +236,15 @@ class BrowserMenusHelper(
         btnPrev?.setOnClickListener {
             val q = input?.text.toString()
             if (q.isNotEmpty()) session?.finder?.find(q, org.mozilla.geckoview.GeckoSession.FINDER_FIND_BACKWARDS)?.then({ result ->
-                activity.runOnUiThread { countText?.text = "${result.current}/${result.total}" }
+                activity.runOnUiThread { countText?.text = "${result?.current ?: 0}/${result?.total ?: 0}" }
                 GeckoResult<Void>()
             }, { GeckoResult<Void>() })
         }
 
-        btnClose?.setOnClickListener { session?.finder?.clear(); dialog.dismiss() }
+        btnClose?.setOnClickListener {
+            session?.finder?.clear()
+            dialog.dismiss()
+        }
         dialog.show()
     }
 
