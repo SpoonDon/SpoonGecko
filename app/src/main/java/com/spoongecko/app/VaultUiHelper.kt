@@ -32,74 +32,78 @@ class VaultUiHelper(
         val searchBox = view.findViewById<EditText>(R.id.vault_search)
         recycler.layoutManager = LinearLayoutManager(activity)
 
-        var allCredentials = loadCredentials()
-
-        fun updateList(query: String) {
-            val filtered = if (query.isEmpty()) {
-                allCredentials
-            } else {
-                allCredentials.filter { 
-                    it.host.contains(query, ignoreCase = true) || 
-                    it.username.contains(query, ignoreCase = true) 
+        fun updateList(query: String = "") {
+            BackgroundExecutor.execute {
+                val allCredentials = loadCredentials()
+                val filtered = if (query.isEmpty()) allCredentials else allCredentials.filter {
+                    it.host.contains(query, ignoreCase = true) || it.username.contains(query, ignoreCase = true)
                 }
-            }
-            
-            countLabel.text = "${filtered.size} saved login" + if (filtered.size != 1) "s" else ""
-            if (filtered.isEmpty()) {
-                recycler.visibility = View.GONE
-                emptyText.visibility = View.VISIBLE
-            } else {
-                recycler.visibility = View.VISIBLE
-                emptyText.visibility = View.GONE
-                recycler.adapter = CredentialAdapter(
-                    credentials = filtered,
-                    onEdit = { cred ->
-                        val input = EditText(activity)
-                        input.hint = "New password"
-                        AlertDialog.Builder(activity)
-                            .setTitle("Edit password")
-                            .setMessage("${cred.username} @ ${cred.host}")
-                            .setView(input)
-                            .setPositiveButton("Save") { _, _ ->
-                                val newPass = input.text.toString()
-                                if (newPass.isNotEmpty()) {
-                                    vaultManager.editCredentialPassword(cred.host, cred.username, newPass)
-                                    Toast.makeText(activity, "Password updated.", Toast.LENGTH_SHORT).show()
-                                    dialog.dismiss(); showVault()
-                                }
+                
+                activity.runOnUiThread {
+                    countLabel.text = "${filtered.size} saved login" + if (filtered.size != 1) "s" else ""
+                    if (filtered.isEmpty()) {
+                        recycler.visibility = View.GONE
+                        emptyText.visibility = View.VISIBLE
+                    } else {
+                        recycler.visibility = View.VISIBLE
+                        emptyText.visibility = View.GONE
+                        recycler.adapter = CredentialAdapter(
+                            credentials = filtered,
+                            onEdit = { cred ->
+                                val input = android.widget.EditText(activity)
+                                input.hint = "New password"
+                                AlertDialog.Builder(activity)
+                                    .setTitle("Edit password")
+                                    .setMessage("${cred.username} @ ${cred.host}")
+                                    .setView(input)
+                                    .setPositiveButton("Save") { _, _ ->
+                                        val newPass = input.text.toString()
+                                        if (newPass.isNotEmpty()) {
+                                            BackgroundExecutor.execute {
+                                                vaultManager.editCredentialPassword(cred.host, cred.username, newPass)
+                                                activity.runOnUiThread {
+                                                    Toast.makeText(activity, "Password updated.", Toast.LENGTH_SHORT).show()
+                                                    dialog.dismiss(); showVault()
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .setNegativeButton("Cancel", null)
+                                    .show()
+                            },
+                            onDelete = { cred ->
+                                AlertDialog.Builder(activity)
+                                    .setTitle("Delete login")
+                                    .setMessage("Delete ${cred.username} @ ${cred.host}?")
+                                    .setPositiveButton("Delete") { _, _ ->
+                                        BackgroundExecutor.execute {
+                                            vaultManager.deleteCredentials(cred.host, cred.username)
+                                            activity.runOnUiThread {
+                                                Toast.makeText(activity, "Deleted.", Toast.LENGTH_SHORT).show()
+                                                dialog.dismiss(); showVault()
+                                            }
+                                        }
+                                    }
+                                    .setNegativeButton("Cancel", null)
+                                    .show()
                             }
-                            .setNegativeButton("Cancel", null)
-                            .show()
-                    },
-                    onDelete = { cred ->
-                        AlertDialog.Builder(activity)
-                            .setTitle("Delete login")
-                            .setMessage("Delete ${cred.username} @ ${cred.host}?")
-                            .setPositiveButton("Delete") { _, _ ->
-                                vaultManager.deleteCredentials(cred.host, cred.username)
-                                Toast.makeText(activity, "Deleted.", Toast.LENGTH_SHORT).show()
-                                dialog.dismiss(); showVault()
-                            }
-                            .setNegativeButton("Cancel", null)
-                            .show()
+                        )
                     }
-                )
+                }
             }
         }
 
         updateList("")
-
         searchBox.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                updateList(s.toString())
+                updateList(s?.toString() ?: "")
             }
             override fun afterTextChanged(s: Editable?) {}
         })
-
+        
         view.findViewById<ImageButton>(R.id.vault_export)?.setOnClickListener { onExportCsv() }
         view.findViewById<ImageButton>(R.id.vault_import)?.setOnClickListener { onImportCsv() }
-
         dialog.show()
     }
 
