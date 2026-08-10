@@ -44,7 +44,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           
-        run: ./gradlew clean assembleRelease --no-daemon --no-build-cache --rerun-tasks
+        run: ./gradlew assembleRelease --no-daemon --build-cache
 
       - name: Rename APK for Easy Download
         run: |
