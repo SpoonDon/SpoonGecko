@@ -20,7 +20,7 @@ object GeckoRuntimeManager {
                 .contentBlocking(cbSettings)
                 .extensionsProcessEnabled(true)
                 .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
-                .loginAutofillEnabled(true) // MAGIC FIX: Enables login form detection and autosave prompts
+                .loginAutofillEnabled(true) // MAGIC FIX: Turns on the engine's login form scanner
                 .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL) 
                 .build()
 
