@@ -63,8 +63,10 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
     }
 
     fun listExtensions(callback: (List<WebExtension>) -> Unit) {
-        runtime.webExtensionController.list().accept { extensions ->
-            callback(extensions ?: emptyList())
+        activity.runOnUiThread {
+            runtime.webExtensionController.list().accept { extensions ->
+                callback(extensions ?: emptyList())
+            }
         }
     }
 
@@ -141,10 +143,12 @@ class ExtensionManager(private val runtime: GeckoRuntime, private val activity: 
     }
 
     fun updateAll() {
-        runtime.webExtensionController.list().accept { extensions ->
-            if (extensions.isNullOrEmpty()) return@accept
-            for (ext in extensions) {
-                try { runtime.webExtensionController.update(ext) } catch (_: Exception) {}
+        activity.runOnUiThread {
+            runtime.webExtensionController.list().accept { extensions ->
+                if (extensions.isNullOrEmpty()) return@accept
+                for (ext in extensions) {
+                    try { runtime.webExtensionController.update(ext) } catch (_: Exception) {}
+                }
             }
         }
     }
