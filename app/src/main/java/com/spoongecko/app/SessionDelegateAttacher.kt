@@ -50,16 +50,14 @@ class SessionDelegateAttacher(
         private fun escapeHtml(text: String): String {
             return buildString(text.length) {
                 text.forEach { ch ->
-                    append(
-                        when (ch) {
-                            '&' -> "&amp;"
-                            '<' -> "&lt;"
-                            '>' -> "&gt;"
-                            '"' -> "&quot;"
-                            '\'' -> "&#39;"
-                            else -> ch.toString()
-                        }
-                    )
+                    when (ch) {
+                        '&' -> append("&amp;")
+                        '<' -> append("&lt;")
+                        '>' -> append("&gt;")
+                        '"' -> append("&quot;")
+                        '\'' -> append("&#39;")
+                        else -> append(ch)
+                    }
                 }
             }
         }
@@ -236,14 +234,12 @@ class SessionDelegateAttacher(
     private fun showLoadFailureMessage(uri: String?) {
         val message = buildLoadFailureMessage(uri)
         activity.runOnUiThread {
-            val rootView = activity.findViewById<View>(android.R.id.content)
-            if (rootView != null) {
-                try {
-                    Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show()
-                    return@runOnUiThread
-                } catch (_: Throwable) { }
+            val anchor = activity.findViewById<View>(android.R.id.content)
+            try {
+                Snackbar.make(anchor, message, Snackbar.LENGTH_LONG).show()
+            } catch (_: IllegalArgumentException) {
+                Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
             }
-            Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
         }
     }
 }
