@@ -107,22 +107,24 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        // Auto-confirms the "Save Password" prompt so MainActivity's StorageDelegate catches it
-        override fun onLoginSave(
-            session: GeckoSession,
-            request: GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSaveOption>
-        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
             if (request.options.isNotEmpty()) {
+                val entry = request.options[0].value
+                val origin = entry.origin ?: ""
+                val username = entry.username ?: ""
+                val password = entry.password ?: ""
+                if (origin.isNotEmpty() && username.isNotEmpty()) {
+                    vaultManager.saveCredentials(origin, username, password)
+                    activity.runOnUiThread {
+                        Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
             }
             return GeckoResult.fromValue(request.dismiss())
         }
 
-        // Auto-fills the first matching credential when a user taps a login field
-        override fun onLoginSelect(
-            session: GeckoSession,
-            request: GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSelectOption>
-        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
             if (request.options.isNotEmpty()) {
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
             }
