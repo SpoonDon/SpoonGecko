@@ -36,10 +36,13 @@ jobs:
       - name: Calculate Version
         id: version
         run: |
-          PATCH=$(( ${{ github.run_number }} - 392 ))
-          echo "VERSION_NAME=0.0.${PATCH}" >> $GITHUB_ENV
-          echo "VERSION_CODE=${PATCH}" >> $GITHUB_ENV
-          echo "APK_NAME=SpoonGecko-0.0.${PATCH}.apk" >> $GITHUB_ENV
+          COUNTER=$(( ${{ github.run_number }} - 392 ))
+          if [ $COUNTER -lt 0 ]; then COUNTER=0; fi
+          MINOR=$(( COUNTER / 10 ))
+          PATCH=$(( COUNTER % 10 ))
+          echo "VERSION_NAME=0.${MINOR}.${PATCH}" >> $GITHUB_ENV
+          echo "VERSION_CODE=${COUNTER}" >> $GITHUB_ENV
+          echo "APK_NAME=SpoonGecko-0.${MINOR}.${PATCH}.apk" >> $GITHUB_ENV
 
       - name: Decode Keystore
         run: |
