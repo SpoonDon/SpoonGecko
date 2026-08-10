@@ -37,27 +37,37 @@ jobs:
         run: |
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/spoon-release.jks
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > ${{ github.workspace }}/spoon-release.jks
+
+      # NEW: Calculate the auto-incrementing 0.0.X version
+      - name: Set Build Version
+        run: |
+          echo "VERSION_NAME=0.0.$(( ${{ github.run_number }} - 390 ))" >> $GITHUB_ENV )
+          echo "VERSION_CODE=${{ github.run_number }}" >> $GITHUB_ENV
+
       - name: Build Signed Release APK
         env:
           KEYSTORE_FILE: ${{ github.workspace }}/spoon-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          
-        run: ./gradlew assembleRelease --no-daemon --build-cache
+        # Pass the versions to Gradle
+        run: ./gradlew assembleRelease --no-daemon --build-cache -PversionName=${{ env.VERSION_NAME }} -PversionCode=${{ env.VERSION_CODE }}
 
       - name: Rename APK for Easy Download
         run: |
           mkdir -p app/build/outputs/apk/release/
-          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-Nightly-${{ github.run_number }}.apk
+          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/SpoonGecko-${{ env.VERSION_NAME }}.apk
 
       - name: Create GitHub Release & Upload APK
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push'
         with:
-          files: app/build/outputs/apk/release/SpoonGecko-Nightly-${{ github.run_number }}.apk
-          name: "SpoonGecko Nightly Build ${{ github.run_number }}"
-          tag_name: "nightly-${{ github.run_number }}"
+          files: app/build/outputs/apk/release/SpoonGecko-${{ env.VERSION_NAME }}.apk
+          name: "SpoonGecko v${{ env.VERSION_NAME }}"
+          tag_name: "v${{ env.VERSION_NAME }}"
           draft: false
           prerelease: false
         env:
