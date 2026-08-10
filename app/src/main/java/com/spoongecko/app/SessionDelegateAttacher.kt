@@ -5,8 +5,10 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Base64
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.snackbar.Snackbar
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoRuntime
@@ -22,9 +24,45 @@ class SessionDelegateAttacher(
     private val onTabStateChanged: (TabInfo) -> Unit,
     private val onFullScreenRequested: (Boolean) -> Unit
 ) {
-    private companion object {
+    companion object {
         // Placeholder page returned by onLoadError while we immediately re-navigate to HTTP.
         const val BLANK_ERROR_PLACEHOLDER_HTML = "<html></html>"
+
+        internal fun buildLoadFailureMessage(uri: String?): String {
+            val trimmedUri = uri?.trim().orEmpty()
+            return if (trimmedUri.isNotEmpty()) {
+                "Failed to load: $trimmedUri"
+            } else {
+                "Failed to load page"
+            }
+        }
+
+        internal fun buildLoadErrorHtml(uri: String?, errorMessage: String?): String {
+            val primaryMessage = escapeHtml(buildLoadFailureMessage(uri))
+            val secondaryMessage = escapeHtml(errorMessage?.takeIf { it.isNotBlank() } ?: "Unknown error")
+            return "<html><body style='background:#121212;color:#fff;font-family:sans-serif;" +
+                "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;" +
+                "flex-direction:column;text-align:center;padding:24px;'>" +
+                "<h2>⚠️ Page failed to load</h2><p>$primaryMessage</p><p>$secondaryMessage</p>" +
+                "</body></html>"
+        }
+
+        private fun escapeHtml(text: String): String {
+            return buildString(text.length) {
+                text.forEach { ch ->
+                    append(
+                        when (ch) {
+                            '&' -> "&amp;"
+                            '<' -> "&lt;"
+                            '>' -> "&gt;"
+                            '"' -> "&quot;"
+                            '\'' -> "&#39;"
+                            else -> ch.toString()
+                        }
+                    )
+                }
+            }
+        }
     }
 
     private val downloadableExtensions = setOf(
@@ -95,11 +133,8 @@ class SessionDelegateAttacher(
                 )
             }
 
-            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;" +
-                "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;" +
-                "flex-direction:column;text-align:center;padding:24px;'>" +
-                "<h2>⚠️ Page failed to load</h2><p>${error.message ?: "Unknown error"}</p>" +
-                "</body></html>"
+            showLoadFailureMessage(uri)
+            val html = buildLoadErrorHtml(uri, error.message)
             return GeckoResult.fromValue(
                 "data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT)
             )
@@ -196,5 +231,19 @@ class SessionDelegateAttacher(
                 }
             }
         } catch (_: Exception) { }
+    }
+
+    private fun showLoadFailureMessage(uri: String?) {
+        val message = buildLoadFailureMessage(uri)
+        activity.runOnUiThread {
+            val rootView = activity.findViewById<View>(android.R.id.content)
+            if (rootView != null) {
+                try {
+                    Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show()
+                    return@runOnUiThread
+                } catch (_: Throwable) { }
+            }
+            Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+        }
     }
 }
