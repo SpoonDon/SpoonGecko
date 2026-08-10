@@ -13,22 +13,9 @@ object UrlRouter {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
 
-        val isIp = ipv4Pattern.matcher(trimmed).matches()
-        val isDomain = domainPattern.matcher(trimmed).matches()
-        val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
-        
-        // Check if it looks like a URL or IP
-        val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost || trimmed.contains(".")
-
-        if (isUrl) {
-            val rawUrl = when {
-                // Respect explicit http:// or https://
-                trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-                // Default to HTTP instead of forcing HTTPS
-                else -> "http://$trimmed"
-            }
-            // Normalise HTTPS → HTTP for local/private network targets
-            val finalUrl = LocalNetworkPolicy.normaliseLocalUrl(rawUrl, context)
+        val navigationUrl = resolveNavigationUrl(trimmed)
+        if (navigationUrl != null) {
+            val finalUrl = navigationUrl
             session.loadUri(finalUrl)
         } else {
             val prefs = context.getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
@@ -42,6 +29,29 @@ object UrlRouter {
                 else -> "https://duckduckgo.com/?q=$encoded"
             }
             session.loadUri(searchUrl)
+        }
+    }
+
+    internal fun resolveNavigationUrl(trimmedInput: String): String? {
+        val trimmed = trimmedInput.trim()
+        if (trimmed.isEmpty()) return null
+
+        val isIp = ipv4Pattern.matcher(trimmed).matches()
+        val isDomain = domainPattern.matcher(trimmed).matches()
+        val isLocalhost = trimmed.equals("localhost", ignoreCase = true) || trimmed.startsWith("localhost:", ignoreCase = true)
+
+        val isUrl = trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://") ||
+            isIp ||
+            isDomain ||
+            isLocalhost ||
+            trimmed.contains(".")
+        if (!isUrl) return null
+
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            LocalNetworkPolicy.isLocalUrl("https://$trimmed") -> "http://$trimmed"
+            else -> "https://$trimmed"
         }
     }
 }

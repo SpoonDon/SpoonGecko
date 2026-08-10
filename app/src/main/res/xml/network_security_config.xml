@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      This app is a general-purpose browser and needs HTTP available for user-entered
+      local-network IP literals (for example 192.168.x.x and 10.x.x.x). Android network
+      security config cannot express RFC1918 CIDR ranges, so cleartext is enabled at the
+      base level while URL routing keeps HTTPS as the default for non-local hosts.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

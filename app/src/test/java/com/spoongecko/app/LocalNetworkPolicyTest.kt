@@ -95,6 +95,8 @@ class LocalNetworkPolicyTest {
     @Test fun `isLocalHost public IPv4`() = assertFalse(LocalNetworkPolicy.isLocalHost("1.2.3.4"))
     @Test fun `isLocalHost public domain`() = assertFalse(LocalNetworkPolicy.isLocalHost("example.com"))
     @Test fun `isLocalHost IPv6 loopback host`() = assertTrue(LocalNetworkPolicy.isLocalHost("::1"))
+    @Test fun `isLocalHost emulator alias 10_0_2_2`() = assertTrue(LocalNetworkPolicy.isLocalHost("10.0.2.2"))
+    @Test fun `isLocalHost emulator alias 10_0_3_2`() = assertTrue(LocalNetworkPolicy.isLocalHost("10.0.3.2"))
 
     // -------------------------------------------------------------------------
     // isLocalUrl
