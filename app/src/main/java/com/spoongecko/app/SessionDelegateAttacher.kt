@@ -7,8 +7,12 @@ import android.os.Environment
 import android.util.Base64
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.WebRequestError
 import org.mozilla.geckoview.WebResponse
-import org.mozilla.geckoview.*
 
 class SessionDelegateAttacher(
     private val activity: AppCompatActivity,
@@ -30,21 +34,6 @@ class SessionDelegateAttacher(
         tab.session.navigationDelegate = createNavigationDelegate(tab)
         tab.session.contentDelegate  = createContentDelegate(tab)
         tab.session.promptDelegate = createPromptDelegate(tab)
-    }
-
-    private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        override fun onLoginSave(session: GeckoSession, login: Autocomplete.LoginEntry): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-            val origin = login.origin ?: login.host ?: ""
-            val user = login.username ?: ""
-            val pass = login.password ?: ""
-            if (origin.isNotEmpty() && user.isNotEmpty()) {
-                vaultManager.saveCredentials(origin, user, pass)
-                activity.runOnUiThread {
-                    Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
-                }
-            }
-            return GeckoResult.fromValue(allow())
-        }
     }
 
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
@@ -86,8 +75,8 @@ class SessionDelegateAttacher(
         override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) { tab.canGoForward = canGoForward; onTabStateChanged(tab) }
 
         override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
+            val isSslError = error.category == WebRequestError.ERROR_CATEGORY_SECURITY
             val isLocalIp = uri?.matches(Regex("^(http|https)://(\\d{1,3}\\.){3}\\d{1,3}.*")) == true || uri?.contains("localhost") == true
-            val isSslError = error.category == WebRequestError.ERROR_SECURITY
             
             var actionHtml = ""
             if (isSslError && isLocalIp) {
@@ -115,6 +104,10 @@ class SessionDelegateAttacher(
             val fileName = guessFileName(uri)
             startDownload(uri, fileName)
         }
+    }
+
+    private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
+        // Login saving is handled by the Autocomplete.StorageDelegate in MainActivity.kt
     }
 
     private fun isDownloadable(uri: String): Boolean {
