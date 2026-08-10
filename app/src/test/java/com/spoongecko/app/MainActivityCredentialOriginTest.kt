@@ -22,7 +22,7 @@ class MainActivityCredentialOriginTest {
             activeTabUrl = "https://example.com/login"
         )
 
-        assertEquals("https://example.com/login", origin)
+        assertEquals("https://example.com", origin)
     }
 
     @Test
@@ -32,7 +32,17 @@ class MainActivityCredentialOriginTest {
             activeTabUrl = "https://example.com/login"
         )
 
-        assertEquals("https://example.com/login", origin)
+        assertEquals("https://example.com", origin)
+    }
+
+    @Test
+    fun `keeps fallback port when active tab url has explicit port`() {
+        val origin = resolveCredentialOrigin(
+            loginOrigin = null,
+            activeTabUrl = "https://example.com:8443/login"
+        )
+
+        assertEquals("https://example.com:8443", origin)
     }
 
     @Test
@@ -50,6 +60,16 @@ class MainActivityCredentialOriginTest {
         val origin = resolveCredentialOrigin(
             loginOrigin = null,
             activeTabUrl = null
+        )
+
+        assertNull(origin)
+    }
+
+    @Test
+    fun `returns null when fallback active tab url is not http or https`() {
+        val origin = resolveCredentialOrigin(
+            loginOrigin = null,
+            activeTabUrl = "about:blank"
         )
 
         assertNull(origin)

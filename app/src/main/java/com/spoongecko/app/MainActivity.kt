@@ -28,10 +28,23 @@ import org.mozilla.geckoview.GeckoView
 import java.util.concurrent.atomic.AtomicReference
 
 internal fun resolveCredentialOrigin(loginOrigin: String?, activeTabUrl: String?): String? {
-    val origin = loginOrigin?.trim().orEmpty()
+    val origin = loginOrigin.orEmpty().trim()
     if (origin.isNotEmpty()) return origin
-    val fallback = activeTabUrl?.trim().orEmpty()
-    return fallback.takeIf { it.isNotEmpty() }
+    val fallback = activeTabUrl.orEmpty().trim()
+    if (fallback.isEmpty()) return null
+    return try {
+        val uri = Uri.parse(fallback)
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host
+        if ((scheme == "http" || scheme == "https") && !host.isNullOrEmpty()) {
+            val portSuffix = if (uri.port != -1) ":${uri.port}" else ""
+            "$scheme://$host$portSuffix"
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
 }
 
 class MainActivity : AppCompatActivity() {
