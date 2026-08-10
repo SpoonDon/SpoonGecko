@@ -51,7 +51,9 @@ class BrowserMenusHelper(
                     if (tab != null && tab.url.isNotEmpty()) {
                         BackgroundExecutor.execute {
                             dbHelper.addBookmark(tab.url, tab.title)
-                            activity.runOnUiThread { Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show() }
+                            activity.runOnUiThread {
+                                Toast.makeText(activity, "Bookmark added", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                     true
