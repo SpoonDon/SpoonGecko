@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
 import org.mozilla.geckoview.Autocomplete
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoView
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : AppCompatActivity() {
     private lateinit var geckoView: GeckoView
@@ -40,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var menus: BrowserMenusHelper
     private val runtime by lazy { GeckoRuntimeManager.getRuntime(applicationContext) }
     private var isFullScreen = false
+    private val lastExtensionUpdateTime = AtomicReference<Long>(0L)
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         uri?.let { vaultManager.exportToCsv(it, this) }
@@ -127,24 +129,27 @@ class MainActivity : AppCompatActivity() {
             onImportCsv = { importLauncher.launch("*/*") }
         )
 
+        // Issue #5: Replace Thread.start() with bounded executor
         runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
             override fun onLoginSave(login: Autocomplete.LoginEntry) {
                 val origin = login.origin ?: return
                 val username = login.username ?: return
                 val password = login.password ?: return
                 
-                vaultManager.saveCredentials(origin, username, password)
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "🔐 Password saved for ${login.origin}", Toast.LENGTH_LONG).show()
+                BackgroundExecutor.execute {
+                    vaultManager.saveCredentials(origin, username, password)
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "🔐 Password saved for ${login.origin}", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
             
             override fun onLoginFetch(domain: String): GeckoResult<Array<Autocomplete.LoginEntry>>? {
                 val result = GeckoResult<Array<Autocomplete.LoginEntry>>()
-                Thread {
+                BackgroundExecutor.execute {
                     val logins = vaultManager.getLoginsForDomain(domain)
                     result.complete(logins.toTypedArray())
-                }.start()
+                }
                 return result
             }
         })
@@ -241,7 +246,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleBackNavigation() {
         if (isFullScreen) {
-            tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen(); })();")
+            tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullsc[...]
             return
         }
         val tab = tabManager.activeTab
@@ -341,11 +346,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        extensionManager.updateAll()
+        // Issue #8: Throttle extension updates - max once per 5 minutes
+        val now = System.currentTimeMillis()
+        val lastUpdate = lastExtensionUpdateTime.get()
+        if (now - lastUpdate > 5 * 60 * 1000) {
+            lastExtensionUpdateTime.set(now)
+            BackgroundExecutor.execute {
+                extensionManager.updateAll()
+            }
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isFinishing) GeckoRuntimeManager.shutdown()
+        if (isFinishing) {
+            GeckoRuntimeManager.shutdown()
+            BackgroundExecutor.shutdown()
+        }
     }
 }
