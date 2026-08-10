@@ -85,7 +85,7 @@ class SessionDelegateAttacher(
                 actionHtml = "<br><a href='$httpUrl' style='color:#4CAF50;font-size:18px;'>⚠️ Router/Local IP detected SSL error. Tap here to try HTTP instead.</a>"
             }
 
-            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;t[...]
+            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;padding:24px;'><h2>⚠️ Page failed to load</h2><p>${error.message ?: "Unknown error"}</p>$actionHtml</body></html>"
             return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
         }
     }
@@ -108,7 +108,7 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.Pro[...]
+        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
             if (request.options.isNotEmpty()) {
                 val entry = request.options[0].value
                 val origin = entry.origin ?: ""
@@ -128,7 +128,7 @@ class SessionDelegateAttacher(
             return GeckoResult.fromValue(request.dismiss())
         }
 
-        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession[...]
+        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
             if (request.options.isNotEmpty()) {
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
             }
