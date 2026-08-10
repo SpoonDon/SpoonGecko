@@ -169,23 +169,10 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
-            if (request.options.isNotEmpty()) {
-                val entry = request.options[0].value
-                val origin = entry.origin ?: ""
-                val username = entry.username ?: ""
-                val password = entry.password ?: ""
-                if (origin.isNotEmpty() && username.isNotEmpty()) {
-                    // Issue #5: Use BackgroundExecutor instead of blocking UI thread
-                    BackgroundExecutor.execute {
-                        vaultManager.saveCredentials(origin, username, password)
-                        activity.runOnUiThread {
-                            Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-                return GeckoResult.fromValue(request.confirm(request.options[0]))
-            }
+        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {    
+            if (request.options.isNotEmpty()) {        
+                return GeckoResult.fromValue(request.confirm(request.options[0]))    
+            }    
             return GeckoResult.fromValue(request.dismiss())
         }
 
