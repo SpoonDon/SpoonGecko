@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!--
-      This app is a general-purpose browser and needs HTTP available for user-entered
-      local-network IP literals (for example 192.168.x.x and 10.x.x.x). Android network
-      security config cannot express RFC1918 CIDR ranges, so cleartext is enabled at the
-      base level while URL routing keeps HTTPS as the default for non-local hosts.
-    -->
+    <!-- Allow cleartext globally (browser needs it for user-entered local IPs) -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- Explicitly allow cleartext for all private/local ranges -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
 </network-security-config>
