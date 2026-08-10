@@ -26,7 +26,6 @@ object GeckoRuntimeManager {
             .contentBlocking(cbSettings)
             .extensionsProcessEnabled(true)
             .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
-            .loginStorageEnabled(true)
             .loginAutofillEnabled(true)
             .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
             .build()
