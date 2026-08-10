@@ -8,11 +8,15 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class HistoryAdapter(
-    private val entries: List<HistoryEntry>,
+    private var entries: List<HistoryEntry>,
     private val onClick: (HistoryEntry) -> Unit,
     private val onStar: (HistoryEntry) -> Unit,
     private val onDelete: (HistoryEntry) -> Unit
 ) : RecyclerView.Adapter<HistoryAdapter.ViewHolder>() {
+
+    // Issue #9: Expose items for DiffUtil
+    val items: List<HistoryEntry>
+        get() = entries
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.history_title)
@@ -35,4 +39,9 @@ class HistoryAdapter(
     }
 
     override fun getItemCount() = entries.size
+
+    // Issue #9: Update items for DiffUtil integration
+    fun updateItems(newEntries: List<HistoryEntry>) {
+        this.entries = newEntries
+    }
 }
