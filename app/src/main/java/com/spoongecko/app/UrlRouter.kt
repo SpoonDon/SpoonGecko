@@ -21,12 +21,14 @@ object UrlRouter {
         val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") || isIp || isDomain || isLocalhost || trimmed.contains(".")
 
         if (isUrl) {
-            val finalUrl = when {
+            val rawUrl = when {
                 // Respect explicit http:// or https://
                 trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
                 // Default to HTTP instead of forcing HTTPS
-                else -> "http://$trimmed" 
+                else -> "http://$trimmed"
             }
+            // Normalise HTTPS → HTTP for local/private network targets
+            val finalUrl = LocalNetworkPolicy.normaliseLocalUrl(rawUrl, context)
             session.loadUri(finalUrl)
         } else {
             val prefs = context.getSharedPreferences("browser_prefs", Context.MODE_PRIVATE)
