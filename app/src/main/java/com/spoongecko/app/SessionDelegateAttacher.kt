@@ -107,7 +107,27 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        // Login saving is handled by the Autocomplete.StorageDelegate in MainActivity.kt
+        // Auto-confirms the "Save Password" prompt so MainActivity's StorageDelegate catches it
+        override fun onLoginSave(
+            session: GeckoSession,
+            request: GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSaveOption>
+        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            if (request.options.isNotEmpty()) {
+                return GeckoResult.fromValue(request.confirm(request.options[0]))
+            }
+            return GeckoResult.fromValue(request.dismiss())
+        }
+
+        // Auto-fills the first matching credential when a user taps a login field
+        override fun onLoginSelect(
+            session: GeckoSession,
+            request: GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSelectOption>
+        ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            if (request.options.isNotEmpty()) {
+                return GeckoResult.fromValue(request.confirm(request.options[0]))
+            }
+            return GeckoResult.fromValue(request.dismiss())
+        }
     }
 
     private fun isDownloadable(uri: String): Boolean {
