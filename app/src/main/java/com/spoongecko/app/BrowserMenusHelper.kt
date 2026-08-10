@@ -38,7 +38,7 @@ class BrowserMenusHelper(
         val exitItem = popup.menu.findItem(R.id.menu_exit)
         if (exitItem != null) {
             val spannableString = android.text.SpannableString(exitItem.title)
-            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title.length, 0)
+            spannableString.setSpan(android.text.style.ForegroundColorSpan(android.graphics.Color.parseColor("#FF1744")), 0, exitItem.title?.length ?: 0, 0)
             exitItem.title = spannableString
         }
 
