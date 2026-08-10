@@ -169,14 +169,16 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {    
-            if (request.options.isNotEmpty()) {        
-                return GeckoResult.fromValue(request.confirm(request.options[0]))    
-            }    
+        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            if (request.options.isNotEmpty()) {
+                // ONLY confirm the prompt. GeckoView will automatically trigger 
+                // StorageDelegate.onLoginSave() in MainActivity.kt to do the actual saving.
+                return GeckoResult.fromValue(request.confirm(request.options[0]))
+            }
             return GeckoResult.fromValue(request.dismiss())
         }
 
-        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse> {
+        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
             if (request.options.isNotEmpty()) {
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
             }
