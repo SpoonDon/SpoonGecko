@@ -65,7 +65,8 @@ class SessionDelegateAttacher(
                 val logicalUrl = if (isCustomNewTab) "about:blank" else it
                 tab.url = logicalUrl
                 if (logicalUrl != "about:blank" && !it.startsWith("data:") && !it.startsWith("moz-extension:") && !it.startsWith("spoonvault://") && !it.startsWith("javascript:")) {
-                    Thread { dbHelper.addHistory(it, tab.title) }.start()
+                    // Issue #5: Use BackgroundExecutor instead of Thread.start()
+                    BackgroundExecutor.execute { dbHelper.addHistory(it, tab.title) }
                 }
                 onTabStateChanged(tab)
             }
@@ -84,7 +85,7 @@ class SessionDelegateAttacher(
                 actionHtml = "<br><a href='$httpUrl' style='color:#4CAF50;font-size:18px;'>⚠️ Router/Local IP detected SSL error. Tap here to try HTTP instead.</a>"
             }
 
-            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;padding:20px;box-sizing:border-box;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p>$actionHtml</body></html>"
+            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;t[...]
             return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
         }
     }
@@ -107,16 +108,19 @@ class SessionDelegateAttacher(
     }
 
     private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
-        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+        override fun onLoginSave(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption>): GeckoResult<GeckoSession.Pro[...]
             if (request.options.isNotEmpty()) {
                 val entry = request.options[0].value
                 val origin = entry.origin ?: ""
                 val username = entry.username ?: ""
                 val password = entry.password ?: ""
                 if (origin.isNotEmpty() && username.isNotEmpty()) {
-                    vaultManager.saveCredentials(origin, username, password)
-                    activity.runOnUiThread {
-                        Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
+                    // Issue #5: Use BackgroundExecutor instead of blocking UI thread
+                    BackgroundExecutor.execute {
+                        vaultManager.saveCredentials(origin, username, password)
+                        activity.runOnUiThread {
+                            Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
@@ -124,7 +128,7 @@ class SessionDelegateAttacher(
             return GeckoResult.fromValue(request.dismiss())
         }
 
-        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+        override fun onLoginSelect(session: GeckoSession, request: GeckoSession.PromptDelegate.AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption>): GeckoResult<GeckoSession[...]
             if (request.options.isNotEmpty()) {
                 return GeckoResult.fromValue(request.confirm(request.options[0]))
             }
@@ -169,7 +173,12 @@ class SessionDelegateAttacher(
             val host = parsed.getQueryParameter("host") ?: ""
             val user = parsed.getQueryParameter("user") ?: ""
             val pass = parsed.getQueryParameter("pass") ?: ""
-            if (host.isNotEmpty() && user.isNotEmpty()) vaultManager.saveCredentials(host, user, pass)
+            if (host.isNotEmpty() && user.isNotEmpty()) {
+                // Issue #5: Use BackgroundExecutor to avoid blocking
+                BackgroundExecutor.execute {
+                    vaultManager.saveCredentials(host, user, pass)
+                }
+            }
         } catch (_: Exception) { }
     }
 }
