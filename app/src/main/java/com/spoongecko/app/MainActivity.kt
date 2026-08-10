@@ -246,7 +246,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleBackNavigation() {
         if (isFullScreen) {
-            tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullsc[...]
+            tabManager.activeTab?.session?.loadUri("javascript:(function(){ if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen(); })();")
             return
         }
         val tab = tabManager.activeTab
