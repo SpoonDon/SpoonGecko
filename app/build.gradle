@@ -11,10 +11,8 @@ android {
         applicationId "com.spoongecko.app"
         minSdk 34
         targetSdk 36
-        
         versionCode (project.findProperty('versionCode')?.toString()?.toInteger() ?: 1)
-        versionName (project.findProperty('versionName')?.toString() ?: "0.0.1-local")
-        
+        versionName (project.findProperty('versionName')?.toString() ?: "0.0.1-dev")
         ndk { abiFilters 'arm64-v8a' }
     }
 
@@ -35,11 +33,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
     kotlinOptions { jvmTarget = '17' }
 }
 
