@@ -27,6 +27,13 @@ import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoView
 import java.util.concurrent.atomic.AtomicReference
 
+internal fun resolveCredentialOrigin(loginOrigin: String?, activeTabUrl: String?): String? {
+    val origin = loginOrigin?.trim().orEmpty()
+    if (origin.isNotEmpty()) return origin
+    val fallback = activeTabUrl?.trim().orEmpty()
+    return fallback.takeIf { it.isNotEmpty() }
+}
+
 class MainActivity : AppCompatActivity() {
     private lateinit var geckoView: GeckoView
     private lateinit var urlBar: AutoCompleteTextView
@@ -132,7 +139,7 @@ class MainActivity : AppCompatActivity() {
         // Issue #5: Replace Thread.start() with bounded executor
         runtime.setAutocompleteStorageDelegate(object : Autocomplete.StorageDelegate {
             override fun onLoginSave(login: Autocomplete.LoginEntry) {
-                val origin = login.origin ?: return
+                val origin = resolveCredentialOrigin(login.origin, tabManager.activeTab?.url) ?: return
                 val username = login.username ?: return
                 val password = login.password ?: return
                 
