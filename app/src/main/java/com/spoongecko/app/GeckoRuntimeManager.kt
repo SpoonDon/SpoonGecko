@@ -20,7 +20,7 @@ object GeckoRuntimeManager {
                 .contentBlocking(cbSettings)
                 .extensionsProcessEnabled(true)
                 .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_SYSTEM)
-                // FIX: Correct GeckoView API to allow HTTP traffic for local networks
+                .loginAutofillEnabled(true) // MAGIC FIX: Enables login form detection and autosave prompts
                 .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL) 
                 .build()
 
