@@ -29,10 +29,24 @@ class SessionDelegateAttacher(
     fun attach(tab: TabInfo) {
         tab.session.navigationDelegate = createNavigationDelegate(tab)
         tab.session.contentDelegate  = createContentDelegate(tab)
-        tab.session.progressDelegate = createProgressDelegate(tab)
+        tab.session.promptDelegate = createPromptDelegate(tab)
     }
 
-    // ── Navigation delegate ─────────────────────────────────────────
+    private fun createPromptDelegate(tab: TabInfo) = object : GeckoSession.PromptDelegate {
+        override fun onLoginSave(session: GeckoSession, login: Autocomplete.LoginEntry): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
+            val origin = login.origin ?: login.host ?: ""
+            val user = login.username ?: ""
+            val pass = login.password ?: ""
+            if (origin.isNotEmpty() && user.isNotEmpty()) {
+                vaultManager.saveCredentials(origin, user, pass)
+                activity.runOnUiThread {
+                    Toast.makeText(activity, "Saved login for $origin", Toast.LENGTH_SHORT).show()
+                }
+            }
+            return GeckoResult.fromValue(allow())
+        }
+    }
+
     private fun createNavigationDelegate(tab: TabInfo) = object : GeckoSession.NavigationDelegate {
         override fun onLoadRequest(session: GeckoSession, request: GeckoSession.NavigationDelegate.LoadRequest): GeckoResult<AllowOrDeny>? {
             val uri = request.uri
@@ -68,23 +82,24 @@ class SessionDelegateAttacher(
             }
         }
 
-        override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
-            tab.canGoBack = canGoBack
-            onTabStateChanged(tab)
-        }
-
-        override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
-            tab.canGoForward = canGoForward
-            onTabStateChanged(tab)
-        }
+        override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) { tab.canGoBack = canGoBack; onTabStateChanged(tab) }
+        override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) { tab.canGoForward = canGoForward; onTabStateChanged(tab) }
 
         override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
-            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p></body></html>"
+            val isLocalIp = uri?.matches(Regex("^(http|https)://(\\d{1,3}\\.){3}\\d{1,3}.*")) == true || uri?.contains("localhost") == true
+            val isSslError = error.category == WebRequestError.ERROR_SECURITY
+            
+            var actionHtml = ""
+            if (isSslError && isLocalIp) {
+                val httpUrl = uri?.replace("https://", "http://") ?: ""
+                actionHtml = "<br><a href='$httpUrl' style='color:#4CAF50;font-size:18px;'>⚠️ Router/Local IP detected SSL error. Tap here to try HTTP instead.</a>"
+            }
+
+            val html = "<html><body style='background:#121212;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center;padding:20px;box-sizing:border-box;'><h1>Connection Failed</h1><p>Cannot reach ${uri ?: "this site"}</p>$actionHtml</body></html>"
             return GeckoResult.fromValue("data:text/html;base64," + Base64.encodeToString(html.toByteArray(), Base64.DEFAULT))
         }
     }
 
-    // ── Content delegate ────────────────────────────────────────────
     private fun createContentDelegate(tab: TabInfo) = object : GeckoSession.ContentDelegate {
         override fun onTitleChange(session: GeckoSession, title: String?) {
             title?.let {
@@ -92,43 +107,16 @@ class SessionDelegateAttacher(
                 onTabStateChanged(tab)
             }
         }
-
         override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
             activity.runOnUiThread { onFullScreenRequested(fullScreen) }
         }
-
         override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
             val uri = response.uri ?: return
             val fileName = guessFileName(uri)
             startDownload(uri, fileName)
         }
-
-        // MAGIC FIX: Restore tab seamlessly if the OS kills the rendering process
-        override fun onCrash(session: GeckoSession) {
-            session.open(runtime)
-            val state = tab.sessionState
-            if (state != null) {
-                session.restoreState(state)
-            } else {
-                val lastUrl = tab.url
-                if (!lastUrl.isNullOrEmpty() && !lastUrl.startsWith("data:") && lastUrl != "about:blank") {
-                    session.loadUri(lastUrl)
-                } else {
-                    session.loadUri("data:text/html;charset=utf-8,<html><head><meta name='color-scheme' content='dark'><style>body{background-color:#121212;margin:0;}</style></head><body></body></html>")
-                }
-            }
-        }
     }
 
-    // ── Progress delegate ───────────────────────────────────────────
-    private fun createProgressDelegate(tab: TabInfo) = object : GeckoSession.ProgressDelegate {
-        // MAGIC FIX: Save tab state continuously to prevent about:blank on crash/OOM
-        override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
-            tab.sessionState = sessionState
-        }
-    }
-
-    // ── download helpers ────────────────────────────────────────────
     private fun isDownloadable(uri: String): Boolean {
         return try {
             val path = Uri.parse(uri).path?.lowercase() ?: ""
@@ -154,13 +142,9 @@ class SessionDelegateAttacher(
                 .setAllowedOverRoaming(false)
             val dm = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             dm.enqueue(request)
-            activity.runOnUiThread {
-                Toast.makeText(activity, "Downloading: $fileName", Toast.LENGTH_SHORT).show()
-            }
+            activity.runOnUiThread { Toast.makeText(activity, "Downloading: $fileName", Toast.LENGTH_SHORT).show() }
         } catch (e: Exception) {
-            activity.runOnUiThread {
-                Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
+            activity.runOnUiThread { Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show() }
         }
     }
 
@@ -170,9 +154,7 @@ class SessionDelegateAttacher(
             val host = parsed.getQueryParameter("host") ?: ""
             val user = parsed.getQueryParameter("user") ?: ""
             val pass = parsed.getQueryParameter("pass") ?: ""
-            if (host.isNotEmpty() && user.isNotEmpty()) {
-                vaultManager.saveCredentials(host, user, pass)
-            }
+            if (host.isNotEmpty() && user.isNotEmpty()) vaultManager.saveCredentials(host, user, pass)
         } catch (_: Exception) { }
     }
 }
