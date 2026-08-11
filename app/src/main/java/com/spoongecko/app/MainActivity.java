@@ -12,7 +12,6 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -25,7 +24,6 @@ import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
-import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -68,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
                 .glMsaaLevel(0)
                 .lowMemoryDetection(true)
                 .crashHandler(CrashHandlerService.class)
+                .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)  // Disable HTTPS-Only mode
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -176,68 +175,10 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
+        @Override
         public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
                                                       GeckoSession.NavigationDelegate.LoadRequest request) {
-            MainActivity activity = activityRef.get();
-            if (activity == null) {
-                return GeckoResult.deny();
-            }
-
-            String uri = request.uri;
-            if (uri == null) {
-                return GeckoResult.allow();
-            }
-
-            if (uri.startsWith("https://")) {
-                return GeckoResult.allow();
-            }
-
-            if (uri.startsWith("http://")) {
-                String host;
-                try {
-                    String withoutProtocol = uri.substring(7);
-                    int slashIdx = withoutProtocol.indexOf('/');
-                    int colonIdx = withoutProtocol.indexOf(':');
-                    int endIdx = withoutProtocol.length();
-                    if (slashIdx != -1 && (colonIdx == -1 || slashIdx < colonIdx)) {
-                        endIdx = slashIdx;
-                    } else if (colonIdx != -1) {
-                        endIdx = colonIdx;
-                    }
-                    host = withoutProtocol.substring(0, endIdx);
-                } catch (Exception e) {
-                    host = null;
-                }
-
-                boolean isLocal = false;
-                if (host != null) {
-                    try {
-                        InetAddress address = InetAddress.getByName(host);
-                        if (address.isSiteLocalAddress() || address.isLoopbackAddress() || address.isAnyLocalAddress()) {
-                            isLocal = true;
-                        }
-                    } catch (Exception e) {
-                        // not a valid IP, treat as external
-                    }
-                }
-
-                if (isLocal) {
-                    return GeckoResult.allow();
-                } else {
-                    GeckoResult<AllowOrDeny> result = new GeckoResult<>();
-                    activity.runOnUiThread(() -> {
-                        new AlertDialog.Builder(activity)
-                                .setTitle("Insecure Connection")
-                                .setMessage("You are about to visit an insecure site (HTTP):\n\n" + uri + "\n\nContinue?")
-                                .setPositiveButton("Continue", (dialog, which) -> result.complete(AllowOrDeny.ALLOW))
-                                .setNegativeButton("Cancel", (dialog, which) -> result.complete(AllowOrDeny.DENY))
-                                .setOnCancelListener(dialog -> result.complete(AllowOrDeny.DENY))
-                                .show();
-                    });
-                    return result;
-                }
-            }
-
+            // Allow all requests (HTTPS-Only mode is disabled via runtime settings)
             return GeckoResult.allow();
         }
 
@@ -253,13 +194,8 @@ public class MainActivity extends AppCompatActivity {
         public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
             MainActivity activity = activityRef.get();
             if (activity != null) {
-                String message = "Error loading page";
-                if (error.code == 0x32) {
-                    message = "Insecure connection blocked. Use HTTPS or confirm loading.";
-                }
-                final String finalMessage = message;
                 activity.runOnUiThread(() ->
-                        Toast.makeText(activity, finalMessage + ": " + error.getMessage(), Toast.LENGTH_LONG).show()
+                        Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
                 );
             }
             return GeckoResult.fromValue(null);
