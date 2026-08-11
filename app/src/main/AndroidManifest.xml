@@ -1,18 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    
+
     <uses-permission android:name="android.permission.INTERNET" />
-    
-    <!-- Runtime permissions for web features -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    
-    <!-- Foreground service permissions (required on Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -20,12 +16,18 @@
         android:theme="@style/Theme.SpoonGecko"
         android:usesCleartextTraffic="true">
 
-        <service    
-            android:name=".BrowserService"    
-            android:enabled="true"    
-            android:exported="false"    
+        <service
+            android:name=".BrowserService"
+            android:enabled="true"
+            android:exported="false"
             android:foregroundServiceType="dataSync" />
-        
+
+        <service
+            android:name=".CrashHandlerService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":crash_handler" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
