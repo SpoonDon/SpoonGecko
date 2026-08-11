@@ -29,6 +29,8 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String KEY_SESSION_STATE = "sessionState";
+
     private GeckoView geckoView;
     private GeckoSession geckoSession;
     private GeckoRuntime geckoRuntime;
@@ -54,6 +56,14 @@ public class MainActivity extends AppCompatActivity {
 
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
+                .consoleOutput(false)
+                .remoteDebuggingEnabled(false)
+                .fissionEnabled(true)
+                .isolatedProcessEnabled(true)
+                .appZygoteProcessEnabled(true)
+                .glMsaaLevel(0)
+                .lowMemoryDetection(true)
+                .crashHandler(CrashHandlerService.class)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -65,6 +75,17 @@ public class MainActivity extends AppCompatActivity {
         geckoSession.setPermissionDelegate(new PermissionDelegate(this));
 
         geckoView.setSession(geckoSession);
+
+        if (savedInstanceState != null) {
+            String stateStr = savedInstanceState.getString(KEY_SESSION_STATE);
+            if (stateStr != null) {
+                GeckoSession.SessionState state = GeckoSession.SessionState.fromString(stateStr);
+                if (state != null) {
+                    geckoSession.restoreState(state);
+                    return;
+                }
+            }
+        }
         geckoSession.loadUri("https://www.mozilla.org");
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
@@ -98,6 +119,17 @@ public class MainActivity extends AppCompatActivity {
             geckoSession.goBack();
         } else {
             super.onBackPressed();
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (geckoSession != null) {
+            GeckoSession.SessionState state = geckoSession.saveState();
+            if (state != null) {
+                outState.putString(KEY_SESSION_STATE, state.toString());
+            }
         }
     }
 
@@ -253,6 +285,10 @@ public class MainActivity extends AppCompatActivity {
                             REQUEST_CODE_PERMISSIONS);
                     return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
                 }
+            }
+            if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE ||
+                type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE) {
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
             }
             return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
         }
