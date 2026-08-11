@@ -1,8 +1,16 @@
-
-# Keep GeckoView engine classes intact
+# Keep GeckoView classes
 -keep class org.mozilla.geckoview.** { *; }
--keep class org.mozilla.gecko.** { *; }
 -dontwarn org.mozilla.geckoview.**
+-keepclassmembers class * implements android.os.Parcelable {
+    static ** CREATOR;
+}
+
+# Keep JavaScript interface methods (if you use addJavascriptInterface)
 -keepclassmembers class * {
-    @org.mozilla.geckoview.GeckoView.* <methods>;
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Keep native methods
+-keepclasseswithmembernames class * {
+    native <methods>;
 }
