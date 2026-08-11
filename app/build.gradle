@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    // Removed: id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -38,8 +37,6 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    
-    // Removed: kotlinOptions { jvmTarget = '17' }
 }
 
 dependencies {
@@ -51,6 +48,5 @@ dependencies {
     // GeckoView Engine
     implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:153.0.20260803132010'
     
-    // Removed: Kotlin stdlib dependencies
     testImplementation 'junit:junit:4.13.2'
 }
