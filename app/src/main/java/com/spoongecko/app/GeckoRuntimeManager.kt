@@ -16,7 +16,6 @@ object GeckoRuntimeManager {
     }
 
     private fun createRuntime(appContext: Context): GeckoRuntime {
-        // Content blocking configuration
         val cbSettings = ContentBlocking.Settings.Builder()
             .antiTracking(
                 ContentBlocking.AntiTracking.AD or
@@ -28,12 +27,12 @@ object GeckoRuntimeManager {
             .cookieBehavior(ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS)
             .cookieBehaviorPrivateMode(ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS)
             .cookiePurging(true)
-            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.DEFAULT)
+            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
             .strictSocialTrackingProtection(true)
             .safeBrowsing(ContentBlocking.SafeBrowsing.DEFAULT)
             .queryParameterStrippingEnabled(true)
             .queryParameterStrippingPrivateBrowsingEnabled(true)
-            .bounceTrackingProtectionMode(1) // Mode 1 = enabled
+            .bounceTrackingProtectionMode(1)
             .emailTrackerBlockingPrivateMode(true)
             .build()
 
@@ -46,12 +45,15 @@ object GeckoRuntimeManager {
             .javaScriptEnabled(true)
             .webFontsEnabled(true)
             .globalPrivacyControlEnabled(true)
-            .fissionEnabled(true) // Site isolation for security
+            .fissionEnabled(true)
             .automaticFontSizeAdjustment(true)
-            .forceUserScalableEnabled(true) // Override user-scalable=no
+            .forceUserScalableEnabled(true)
             .inputAutoZoomEnabled(true)
             .doubleTapZoomingEnabled(true)
             .lowMemoryDetection(true)
+            .isolatedProcessEnabled(true)
+            .appZygoteProcessEnabled(true)
+            .largeKeepaliveFactor(2)
             .build()
 
         return GeckoRuntime.create(appContext, runtimeSettings)
