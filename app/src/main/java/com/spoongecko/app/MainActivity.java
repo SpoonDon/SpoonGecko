@@ -69,6 +69,9 @@ public class MainActivity extends AppCompatActivity {
                 .lowMemoryDetection(true)
                 .crashHandler(CrashHandlerService.class)
                 .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
+                .setLnaEnabled(false)
+                .setLnaBlocking(false)
+                .setLnaBlockTrackers(false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -107,8 +110,14 @@ public class MainActivity extends AppCompatActivity {
     private void loadUrl() {
         String input = urlBar.getText().toString().trim();
         if (input.isEmpty()) return;
+        
         if (!input.startsWith("http://") && !input.startsWith("https://")) {
-            if (input.contains(".")) {
+            boolean isIpAddress = input.matches("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$");
+            boolean isLocalNetwork = input.startsWith("localhost") || input.contains(".local");
+
+            if (isIpAddress || isLocalNetwork) {
+                input = "http://" + input;
+            } else if (input.contains(".")) {
                 input = "https://" + input;
             } else {
                 input = "https://duckduckgo.com/?q=" + input.replace(" ", "+");
@@ -197,9 +206,7 @@ public class MainActivity extends AppCompatActivity {
                 return GeckoResult.fromValue(null);
             }
 
-            // Handle certificate errors (ERROR_SECURITY_BAD_CERT = 0x32)
             if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
-                // Try to reload the page over HTTP if the URI was HTTPS
                 if (uri != null && uri.startsWith("https://")) {
                     String httpUri = uri.replace("https://", "http://");
                     session.loadUri(httpUri);
@@ -207,7 +214,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            // Show generic error for other failures
             activity.runOnUiThread(() ->
                     Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
             );
