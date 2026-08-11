@@ -10,6 +10,7 @@ import org.mozilla.geckoview.CrashReporter;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URISyntaxException;
 
 public class CrashHandlerService extends Service {
 
@@ -30,9 +31,8 @@ public class CrashHandlerService extends Service {
                 File minidump = new File(minidumpPath);
                 File extras = new File(extrasPath);
                 try {
-                    // Send the crash report to Mozilla's Socorro server
                     CrashReporter.sendCrashReport(this, minidump, extras, "SpoonGecko");
-                } catch (IOException e) {
+                } catch (IOException | URISyntaxException e) {
                     Log.e(LOGTAG, "Failed to send crash report", e);
                 }
             }
