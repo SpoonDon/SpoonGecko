@@ -213,13 +213,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public GeckoResult<Integer> onContentPermissionRequest(GeckoSession session, ContentPermission perm) {
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.CONTENT_PERMISSION_ALLOW);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
         }
 
         public GeckoResult<Integer> onMediaPermissionRequest(GeckoSession session, String uri,
                                                              MediaSource[] video, MediaSource[] audio) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
 
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
@@ -234,27 +234,27 @@ public class MainActivity extends AppCompatActivity {
             }
             if (!needed.isEmpty()) {
                 activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
         }
 
         public GeckoResult<Integer> onGeckoPermissionRequest(GeckoSession session, String uri,
                                                              int type, Callback callback) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
 
             if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
                 if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) {
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
                 } else {
                     activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                             REQUEST_CODE_PERMISSIONS);
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
                 }
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
         }
 
         public void onPermissionResult(int requestCode, String[] permissions, int[] grantResults) {}
