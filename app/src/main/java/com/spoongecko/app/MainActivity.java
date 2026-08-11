@@ -50,12 +50,10 @@ public class MainActivity extends AppCompatActivity {
         goButton = findViewById(R.id.btn_go);
         progressBar = findViewById(R.id.progress_bar);
 
-        // Start foreground service to keep app in RAM
         startService(new Intent(this, BrowserService.class));
 
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
-                .setPreference("toolkit.telemetry.enabled", false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -215,13 +213,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public GeckoResult<Integer> onContentPermissionRequest(GeckoSession session, ContentPermission perm) {
-            return GeckoResult.fromValue(CONTENT_PERMISSION_ALLOW);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.CONTENT_PERMISSION_ALLOW);
         }
 
         public GeckoResult<Integer> onMediaPermissionRequest(GeckoSession session, String uri,
                                                              MediaSource[] video, MediaSource[] audio) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
 
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
@@ -236,27 +234,27 @@ public class MainActivity extends AppCompatActivity {
             }
             if (!needed.isEmpty()) {
                 activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(PERMISSION_DENY);
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
             }
-            return GeckoResult.fromValue(PERMISSION_ALLOW);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
         }
 
         public GeckoResult<Integer> onGeckoPermissionRequest(GeckoSession session, String uri,
                                                              int type, Callback callback) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
 
-            if (type == PERMISSION_GEOLOCATION) {
+            if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
                 if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) {
-                    return GeckoResult.fromValue(PERMISSION_ALLOW);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
                 } else {
                     activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                             REQUEST_CODE_PERMISSIONS);
-                    return GeckoResult.fromValue(PERMISSION_DENY);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
                 }
             }
-            return GeckoResult.fromValue(PERMISSION_DENY);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
         }
 
         public void onPermissionResult(int requestCode, String[] permissions, int[] grantResults) {}
