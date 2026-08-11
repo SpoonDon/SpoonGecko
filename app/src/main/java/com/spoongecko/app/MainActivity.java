@@ -25,6 +25,7 @@ import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,7 +58,6 @@ public class MainActivity extends AppCompatActivity {
 
         startService(new Intent(this, BrowserService.class));
 
-        // 移除了 allowInsecureConnections(ALLOW_ALL)
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
                 .consoleOutput(false)
@@ -176,7 +176,6 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
                                                       GeckoSession.NavigationDelegate.LoadRequest request) {
             MainActivity activity = activityRef.get();
@@ -185,23 +184,60 @@ public class MainActivity extends AppCompatActivity {
             }
 
             String uri = request.uri;
-            // 检查是否为 HTTP 请求（非 HTTPS）
-            if (uri != null && uri.startsWith("http://")) {
-                // 使用 GeckoResult 来异步处理用户的选择[reference:7]
-                GeckoResult<AllowOrDeny> result = new GeckoResult<>();
-                activity.runOnUiThread(() -> {
-                    new AlertDialog.Builder(activity)
-                            .setTitle("Insecure Connection")
-                            .setMessage("You are about to visit an insecure site (HTTP):\n\n" + uri + "\n\nContinue?")
-                            .setPositiveButton("Continue", (dialog, which) -> result.complete(AllowOrDeny.ALLOW))
-                            .setNegativeButton("Cancel", (dialog, which) -> result.complete(AllowOrDeny.DENY))
-                            .setOnCancelListener(dialog -> result.complete(AllowOrDeny.DENY))
-                            .show();
-                });
-                return result;
+            if (uri == null) {
+                return GeckoResult.allow();
             }
 
-            // 对于 HTTPS 或其他请求，默认允许
+            if (uri.startsWith("https://")) {
+                return GeckoResult.allow();
+            }
+
+            if (uri.startsWith("http://")) {
+                String host;
+                try {
+                    String withoutProtocol = uri.substring(7);
+                    int slashIdx = withoutProtocol.indexOf('/');
+                    int colonIdx = withoutProtocol.indexOf(':');
+                    int endIdx = withoutProtocol.length();
+                    if (slashIdx != -1 && (colonIdx == -1 || slashIdx < colonIdx)) {
+                        endIdx = slashIdx;
+                    } else if (colonIdx != -1) {
+                        endIdx = colonIdx;
+                    }
+                    host = withoutProtocol.substring(0, endIdx);
+                } catch (Exception e) {
+                    host = null;
+                }
+
+                boolean isLocal = false;
+                if (host != null) {
+                    try {
+                        InetAddress address = InetAddress.getByName(host);
+                        if (address.isSiteLocalAddress() || address.isLoopbackAddress() || address.isAnyLocalAddress()) {
+                            isLocal = true;
+                        }
+                    } catch (Exception e) {
+                        // not a valid IP, treat as external
+                    }
+                }
+
+                if (isLocal) {
+                    return GeckoResult.allow();
+                } else {
+                    GeckoResult<AllowOrDeny> result = new GeckoResult<>();
+                    activity.runOnUiThread(() -> {
+                        new AlertDialog.Builder(activity)
+                                .setTitle("Insecure Connection")
+                                .setMessage("You are about to visit an insecure site (HTTP):\n\n" + uri + "\n\nContinue?")
+                                .setPositiveButton("Continue", (dialog, which) -> result.complete(AllowOrDeny.ALLOW))
+                                .setNegativeButton("Cancel", (dialog, which) -> result.complete(AllowOrDeny.DENY))
+                                .setOnCancelListener(dialog -> result.complete(AllowOrDeny.DENY))
+                                .show();
+                    });
+                    return result;
+                }
+            }
+
             return GeckoResult.allow();
         }
 
