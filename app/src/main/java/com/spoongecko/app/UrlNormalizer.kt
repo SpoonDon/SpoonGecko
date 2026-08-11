@@ -12,84 +12,37 @@ object UrlNormalizer {
 
     fun normalize(rawInput: String): String {
         val input = rawInput.trim()
-
-        if (input.isEmpty()) {
-            return ""
-        }
-
-        if (input.any { it.isWhitespace() }) {
-            return search(input)
-        }
+        if (input.isEmpty()) return ""
+        if (input.any { it.isWhitespace() }) return search(input)
 
         val lower = input.lowercase(Locale.ROOT)
 
         if (lower.startsWith("http://") || lower.startsWith("https://")) {
             val host = input.substringAfter("://", "")
-            if (host.isBlank() || host.any { it.isWhitespace() }) {
-                return search(input)
-            }
+            if (host.isBlank() || host.any { it.isWhitespace() }) return search(input)
             return input
         }
 
-        if (URL_SCHEME_REGEX.containsMatchIn(input)) {
-            return search(input)
-        }
+        if (URL_SCHEME_REGEX.containsMatchIn(input)) return search(input)
 
-        if (isLocalTarget(input)) {
-            return "http://$input"
-        }
-
-        if (looksLikePublicHost(input)) {
-            return "https://$input"
-        }
+        if (isLocalTarget(input)) return "http://$input"
+        if (looksLikePublicHost(input)) return "https://$input"
 
         return search(input)
     }
 
-    private fun search(query: String): String {
-        val encoded = URLEncoder.encode(query, Charsets.UTF_8.name())
-            .replace("+", "%20")
-
-        return "https://duckduckgo.com/?q=$encoded"
-    }
-
-    private fun isLocalTarget(input: String): Boolean {
+    // Exposed internally for MainActivity's onLoadError fallback logic
+    internal fun isLocalTarget(input: String): Boolean {
         val lower = input.lowercase(Locale.ROOT)
-
-        if (LOCAL_HOST_REGEX.matches(lower)) {
-            return true
-        }
-
-        if (lower == "::1" || lower == "[::1]" || lower.startsWith("[::1]:")) {
-            return true
-        }
-
-        if (lower.startsWith("fe80:") || lower.startsWith("[fe80:")) {
-            return true
-        }
-
-        if (
-            lower.startsWith("fc") ||
-            lower.startsWith("fd") ||
-            lower.startsWith("[fc") ||
-            lower.startsWith("[fd")
-        ) {
-            return true
-        }
+        if (LOCAL_HOST_REGEX.matches(lower)) return true
+        if (lower == "::1" || lower == "[::1]" || lower.startsWith("[::1]:")) return true
+        if (lower.startsWith("fe80:") || lower.startsWith("[fe80:")) return true
+        if (lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("[fc") || lower.startsWith("[fd")) return true
 
         val host = hostWithoutPort(input)
-
-        if (host.endsWith(".local", ignoreCase = true)) {
-            return true
-        }
-
-        if (host.endsWith(".localhost", ignoreCase = true)) {
-            return true
-        }
-
-        if (isPrivateIpv4(host)) {
-            return true
-        }
+        if (host.endsWith(".local", ignoreCase = true)) return true
+        if (host.endsWith(".localhost", ignoreCase = true)) return true
+        if (isPrivateIpv4(host)) return true
 
         return false
     }
@@ -99,42 +52,27 @@ object UrlNormalizer {
             val host = hostWithoutPort(input)
             return host.contains('.') && !isLocalTarget(host)
         }
-
         if (input.startsWith("[")) {
             val host = hostWithoutPort(input)
             return host.contains(':') && !isLocalTarget(host)
         }
-
         return false
     }
 
     private fun hostWithoutPort(input: String): String {
         if (input.startsWith("[")) {
             val end = input.indexOf(']')
-            if (end > 0) {
-                return input.substring(1, end)
-            }
+            if (end > 0) return input.substring(1, end)
         }
-
         val firstColon = input.indexOf(':')
         val lastColon = input.lastIndexOf(':')
-
-        return if (firstColon != -1 && firstColon == lastColon) {
-            input.substring(0, firstColon)
-        } else {
-            input
-        }
+        return if (firstColon != -1 && firstColon == lastColon) input.substring(0, firstColon) else input
     }
 
     private fun isPrivateIpv4(host: String): Boolean {
         val match = IPV4_REGEX.matchEntire(host) ?: return false
-
         val octets = match.groupValues.drop(1).map { it.toIntOrNull() ?: return false }
-
-        if (octets.size != 4 || octets.any { it > 255 }) {
-            return false
-        }
-
+        if (octets.size != 4 || octets.any { it > 255 }) return false
         return when (octets[0]) {
             127 -> true
             10 -> true
@@ -143,5 +81,10 @@ object UrlNormalizer {
             169 -> octets[1] == 254
             else -> false
         }
+    }
+
+    private fun search(query: String): String {
+        val encoded = URLEncoder.encode(query, Charsets.UTF_8.name()).replace("+", "%20")
+        return "https://duckduckgo.com/?q=$encoded"
     }
 }
