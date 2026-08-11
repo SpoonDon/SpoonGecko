@@ -1,5 +1,6 @@
 package com.spoongecko.app
 
+import android.content.ComponentCallbacks2
 import android.os.Bundle
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -42,6 +43,44 @@ class MainActivity : AppCompatActivity() {
                 (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(urlBar.windowToken, 0)
                 true
             } else false
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Official GeckoView best practice: Mark session as active when UI is visible
+        session.setActive(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Official GeckoView best practice: Mark session as inactive to release GPU/rendering resources
+        session.setActive(false)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Handle Android OS memory pressure signals to prevent the app from being killed
+        when (level) {
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                // UI is no longer visible, ensure heavy rendering resources are released
+                session.setActive(false)
+            }
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
+                // System is running low on memory.
+                // GeckoView's internal lowMemoryDetection handles engine caches,
+                // but we force the session inactive if the app is backgrounded.
+                if (!isChangingConfigurations) {
+                    session.setActive(false)
+                }
+            }
+            else -> {
+                // TRIM_MEMORY_BACKGROUND, TRIM_MEMORY_COMPLETE, etc.
+                // App is in background and system is starving. Release everything possible.
+                session.setActive(false)
+            }
         }
     }
 
