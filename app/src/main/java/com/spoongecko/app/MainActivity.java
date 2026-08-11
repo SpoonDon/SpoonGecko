@@ -17,9 +17,8 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationCompat;
-import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import org.mozilla.geckoview.GeckoResult;
@@ -62,12 +61,15 @@ public class MainActivity extends AppCompatActivity {
         createNotificationChannel();
         startForegroundService();
 
+        // Build runtime settings WITHOUT telemetryEnabled (removed in v153)
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
-                .telemetryEnabled(false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
+        // Disable telemetry after runtime creation
+        geckoRuntime.getSettings().setTelemetryEnabled(false);
+
         geckoSession = new GeckoSession();
         geckoSession.open(geckoRuntime);
 
@@ -168,6 +170,8 @@ public class MainActivity extends AppCompatActivity {
         startForeground(NOTIFICATION_ID, notification);
     }
 
+    // ---------- Delegate Classes (separate responsibilities) ----------
+
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
 
@@ -185,11 +189,11 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
-        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
+        public GeckoResult<GeckoSession.AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
             return GeckoResult.allow();
         }
 
-        public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session, LoadRequest request) {
+        public GeckoResult<GeckoSession.AllowOrDeny> onSubframeLoadRequest(GeckoSession session, LoadRequest request) {
             return GeckoResult.allow();
         }
 
