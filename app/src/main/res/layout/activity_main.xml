@@ -5,18 +5,46 @@
     android:orientation="vertical"
     android:background="#121212">
 
-    <EditText
-        android:id="@+id/url_bar"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Search or enter address"
-        android:inputType="textUri"
-        android:imeOptions="actionGo"
-        android:singleLine="true"
-        android:padding="16dp"
-        android:background="#1E1E1E"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#888888" />
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#1E1E1E">
+
+        <EditText
+            android:id="@+id/url_bar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Search or enter address"
+            android:inputType="textUri"
+            android:imeOptions="actionGo"
+            android:singleLine="true"
+            android:padding="12dp"
+            android:background="@android:color/transparent"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888" />
+
+        <Button
+            android:id="@+id/btn_go"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Go"
+            android:backgroundTint="#4d6bfe"
+            android:textColor="#FFFFFF"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#4d6bfe" />
 
     <org.mozilla.geckoview.GeckoView
         android:id="@+id/gecko_view"
