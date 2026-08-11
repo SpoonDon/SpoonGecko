@@ -14,8 +14,12 @@
         android:label="Spoon Gecko"
         android:theme="@style/Theme.SpoonGecko"
         android:usesCleartextTraffic="true">
-        <!-- Note: usesCleartextTraffic is kept for development.
-             Remove it in production if you want HTTPS-only. -->
+
+        <service    
+            android:name=".BrowserService"    
+            android:enabled="true"    
+            android:exported="false"    
+            android:foregroundServiceType="dataSync" />
         
         <activity
             android:name=".MainActivity"
