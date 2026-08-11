@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         session = GeckoSession(sessionSettings)
         session.open(runtime)
         geckoView.setSession(session)
+        geckoView.setAutofillEnabled(true)
 
         session.loadUri("https://duckduckgo.com")
 
