@@ -1,13 +1,8 @@
 package com.spoongecko.app;
 
 import android.Manifest;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.View;
@@ -18,9 +13,9 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
+import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
@@ -45,9 +40,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean canGoBack = false;
     private boolean canGoForward = false;
 
-    private static final int NOTIFICATION_ID = 1001;
-    private static final String CHANNEL_ID = "browser_channel";
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -58,16 +50,15 @@ public class MainActivity extends AppCompatActivity {
         goButton = findViewById(R.id.btn_go);
         progressBar = findViewById(R.id.progress_bar);
 
-        createNotificationChannel();
-        startForegroundService();
+        // Start foreground service to keep app in RAM
+        startService(new Intent(this, BrowserService.class));
 
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
+                .setPreference("toolkit.telemetry.enabled", false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
-        geckoRuntime.getSettings().setTelemetryEnabled(false);
-
         geckoSession = new GeckoSession();
         geckoSession.open(geckoRuntime);
 
@@ -137,37 +128,6 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Browser Service",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("Keeps the browser alive in background.");
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.createNotificationChannel(channel);
-        }
-    }
-
-    private void startForegroundService() {
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Spoon Gecko")
-                .setContentText("Browser running in background")
-                .setSmallIcon(android.R.drawable.ic_menu_search)
-                .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .build();
-
-        startForeground(NOTIFICATION_ID, notification);
-    }
-
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
 
@@ -185,11 +145,11 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
-        public GeckoResult<GeckoSession.AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
+        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
             return GeckoResult.allow();
         }
 
-        public GeckoResult<GeckoSession.AllowOrDeny> onSubframeLoadRequest(GeckoSession session, LoadRequest request) {
+        public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session, LoadRequest request) {
             return GeckoResult.allow();
         }
 
@@ -255,13 +215,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public GeckoResult<Integer> onContentPermissionRequest(GeckoSession session, ContentPermission perm) {
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.CONTENT_PERMISSION_ALLOW);
+            return GeckoResult.fromValue(CONTENT_PERMISSION_ALLOW);
         }
 
         public GeckoResult<Integer> onMediaPermissionRequest(GeckoSession session, String uri,
                                                              MediaSource[] video, MediaSource[] audio) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(PERMISSION_DENY);
 
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
@@ -276,27 +236,27 @@ public class MainActivity extends AppCompatActivity {
             }
             if (!needed.isEmpty()) {
                 activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+                return GeckoResult.fromValue(PERMISSION_DENY);
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
+            return GeckoResult.fromValue(PERMISSION_ALLOW);
         }
 
         public GeckoResult<Integer> onGeckoPermissionRequest(GeckoSession session, String uri,
                                                              int type, Callback callback) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            if (activity == null) return GeckoResult.fromValue(PERMISSION_DENY);
 
-            if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
+            if (type == PERMISSION_GEOLOCATION) {
                 if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) {
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_ALLOW);
+                    return GeckoResult.fromValue(PERMISSION_ALLOW);
                 } else {
                     activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                             REQUEST_CODE_PERMISSIONS);
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+                    return GeckoResult.fromValue(PERMISSION_DENY);
                 }
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.PERMISSION_DENY);
+            return GeckoResult.fromValue(PERMISSION_DENY);
         }
 
         public void onPermissionResult(int requestCode, String[] permissions, int[] grantResults) {}
