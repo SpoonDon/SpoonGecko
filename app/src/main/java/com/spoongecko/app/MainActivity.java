@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -24,8 +25,10 @@ import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -66,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
                 .glMsaaLevel(0)
                 .lowMemoryDetection(true)
                 .crashHandler(CrashHandlerService.class)
-                .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)  // Disable HTTPS-Only mode
+                .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -175,10 +178,8 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
                                                       GeckoSession.NavigationDelegate.LoadRequest request) {
-            // Allow all requests (HTTPS-Only mode is disabled via runtime settings)
             return GeckoResult.allow();
         }
 
@@ -193,11 +194,71 @@ public class MainActivity extends AppCompatActivity {
 
         public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
             MainActivity activity = activityRef.get();
-            if (activity != null) {
-                activity.runOnUiThread(() ->
-                        Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
-                );
+            if (activity == null) {
+                return GeckoResult.fromValue(null);
             }
+
+            // Handle certificate errors (ERROR_SECURITY_BAD_CERT = 0x32)
+            if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
+                String host = null;
+                try {
+                    URL url = new URL(uri);
+                    host = url.getHost();
+                } catch (Exception ignored) {
+                }
+
+                if (host == null) {
+                    return GeckoResult.fromValue(null);
+                }
+
+                final String finalHost = host;
+                final String finalUri = uri;
+                final CountDownLatch latch = new CountDownLatch(1);
+                final boolean[] allowed = {false};
+
+                activity.runOnUiThread(() -> {
+                    new AlertDialog.Builder(activity)
+                            .setTitle("Security Warning")
+                            .setMessage("The certificate for " + finalHost + " is not trusted.\n\n" +
+                                    "Connecting to this site may expose your information.\n\n" +
+                                    "Do you want to proceed anyway?")
+                            .setPositiveButton("Proceed (unsafe)", (dialog, which) -> {
+                                allowed[0] = true;
+                                latch.countDown();
+                            })
+                            .setNegativeButton("Cancel", (dialog, which) -> {
+                                allowed[0] = false;
+                                latch.countDown();
+                            })
+                            .setOnCancelListener(dialog -> {
+                                allowed[0] = false;
+                                latch.countDown();
+                            })
+                            .show();
+                });
+
+                try {
+                    latch.await();
+                } catch (InterruptedException ignored) {
+                    return GeckoResult.fromValue(null);
+                }
+
+                if (allowed[0]) {
+                    // Add certificate exception for the host
+                    GeckoRuntime runtime = activity.geckoRuntime;
+                    if (runtime != null) {
+                        runtime.getHostAuthenticationController().addExceptionForHost(finalHost);
+                    }
+                    // Reload the page
+                    session.loadUri(finalUri);
+                    return GeckoResult.fromValue(null);
+                }
+            }
+
+            // Show generic error for other failures
+            activity.runOnUiThread(() ->
+                    Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
+            );
             return GeckoResult.fromValue(null);
         }
     }
