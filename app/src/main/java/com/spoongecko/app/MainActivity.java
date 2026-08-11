@@ -12,6 +12,7 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -42,7 +43,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean canGoBack = false;
     private boolean canGoForward = false;
 
-    // Store the latest session state received from ProgressDelegate
     private GeckoSession.SessionState currentSessionState;
 
     @Override
@@ -57,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
 
         startService(new Intent(this, BrowserService.class));
 
+        // 移除了 allowInsecureConnections(ALLOW_ALL)
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
                 .consoleOutput(false)
@@ -79,7 +80,6 @@ public class MainActivity extends AppCompatActivity {
 
         geckoView.setSession(geckoSession);
 
-        // Restore session state if available
         if (savedInstanceState != null) {
             String stateStr = savedInstanceState.getString(KEY_SESSION_STATE);
             if (stateStr != null) {
@@ -129,7 +129,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        // Save the stored session state (received from ProgressDelegate)
         if (currentSessionState != null) {
             outState.putString(KEY_SESSION_STATE, currentSessionState.toString());
         }
@@ -177,11 +176,37 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null) activity.canGoForward = canGoForward;
         }
 
-        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
+        @Override
+        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
+                                                      GeckoSession.NavigationDelegate.LoadRequest request) {
+            MainActivity activity = activityRef.get();
+            if (activity == null) {
+                return GeckoResult.deny();
+            }
+
+            String uri = request.uri;
+            // 检查是否为 HTTP 请求（非 HTTPS）
+            if (uri != null && uri.startsWith("http://")) {
+                // 使用 GeckoResult 来异步处理用户的选择[reference:7]
+                GeckoResult<AllowOrDeny> result = new GeckoResult<>();
+                activity.runOnUiThread(() -> {
+                    new AlertDialog.Builder(activity)
+                            .setTitle("Insecure Connection")
+                            .setMessage("You are about to visit an insecure site (HTTP):\n\n" + uri + "\n\nContinue?")
+                            .setPositiveButton("Continue", (dialog, which) -> result.complete(AllowOrDeny.ALLOW))
+                            .setNegativeButton("Cancel", (dialog, which) -> result.complete(AllowOrDeny.DENY))
+                            .setOnCancelListener(dialog -> result.complete(AllowOrDeny.DENY))
+                            .show();
+                });
+                return result;
+            }
+
+            // 对于 HTTPS 或其他请求，默认允许
             return GeckoResult.allow();
         }
 
-        public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session, LoadRequest request) {
+        public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session,
+                                                              GeckoSession.NavigationDelegate.LoadRequest request) {
             return GeckoResult.allow();
         }
 
@@ -192,8 +217,13 @@ public class MainActivity extends AppCompatActivity {
         public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
             MainActivity activity = activityRef.get();
             if (activity != null) {
+                String message = "Error loading page";
+                if (error.code == 0x32) {
+                    message = "Insecure connection blocked. Use HTTPS or confirm loading.";
+                }
+                final String finalMessage = message;
                 activity.runOnUiThread(() ->
-                        Toast.makeText(activity, "Error: " + error.getMessage(), Toast.LENGTH_LONG).show()
+                        Toast.makeText(activity, finalMessage + ": " + error.getMessage(), Toast.LENGTH_LONG).show()
                 );
             }
             return GeckoResult.fromValue(null);
@@ -232,7 +262,6 @@ public class MainActivity extends AppCompatActivity {
         public void onSecurityChange(GeckoSession session, SecurityInformation securityInfo) {}
 
         public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {
-            // Store the session state whenever it changes (called by GeckoView)
             MainActivity activity = activityRef.get();
             if (activity != null) {
                 activity.currentSessionState = sessionState;
