@@ -17,35 +17,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var urlBar: EditText
     private lateinit var session: GeckoSession
 
-    // 1. Helper to detect local network IPs (RFC1918 + localhost)
-    private fun isLocalHost(host: String): Boolean {
-        if (host.equals("localhost", ignoreCase = true)) return true
-        val localIpRegex = Regex("""^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3})$""")
-        return localIpRegex.matches(host)
-    }
-
-    // 2. Smart URL normalization based on README requirements
-    private fun normalizeUrl(query: String): String {
-        if (query.startsWith("http://") || query.startsWith("https://")) {
-            return query
-        }
-        val host = query.split("/").firstOrNull() ?: query
-        return if (isLocalHost(host)) {
-            "http://$query" // Local targets default to http://
-        } else {
-            "https://$query" // Public domains default to https://
-        }
-    }
-
-    // 3. Navigation Delegate to handle redirects and error fallbacks
     private val navigationDelegate = object : GeckoSession.NavigationDelegate {
         override fun onLocationChange(session: GeckoSession, url: String?) {
             super.onLocationChange(session, url)
             url?.let {
-                // FIX 2: Update URL bar on redirects (e.g., HTTP -> HTTPS)
-                val currentText = urlBar.text.toString()
-                if (currentText != it) {
-                    urlBar.setText(it)
+                // Safely update URL bar on the main thread to catch HTTP -> HTTPS redirects
+                urlBar.post {
+                    val currentText = urlBar.text.toString()
+                    if (currentText != it) {
+                        urlBar.setText(it)
+                        urlBar.setSelection(it.length)
+                    }
                 }
             }
         }
@@ -55,29 +37,53 @@ class MainActivity : AppCompatActivity() {
             uri: String?,
             error: WebRequestError
         ): GeckoResult<String>? {
-            // FIX 1 & README Requirement: Fallback to HTTP if HTTPS fails on a local host
-            // (e.g., self-signed cert, connection refused, or HSTS issues on LAN)
-            if (uri != null && uri.startsWith("https://")) {
-                val host = uri.removePrefix("https://").split("/").firstOrNull() ?: ""
-                if (isLocalHost(host)) {
-                    val httpUrl = uri.replaceFirst("https://", "http://")
+            val uriString = uri ?: ""
+            
+            // Fallback to HTTP if HTTPS fails on a local host
+            if (uriString.startsWith("https://")) {
+                val host = uriString.removePrefix("https://").split("/").firstOrNull() ?: ""
+                if (UrlNormalizer.isLocalTarget(host)) {
+                    val httpUrl = uriString.replaceFirst("https://", "http://")
                     session.loadUri(httpUrl)
-                    return GeckoResult.fromValue(null) // Handled, suppress white screen/error page
+                    // Return empty string to prevent error page flash before HTTP load starts
+                    return GeckoResult.fromValue("")
                 }
             }
-            return super.onLoadError(session, uri, error)
+            
+            // FIX: Return a custom dark-themed error page for ALL other errors to prevent the "white tab"
+            val errorHtml = """
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                        body { font-family: sans-serif; background: #121212; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; text-align: center; }
+                        h1 { font-size: 1.5em; margin-bottom: 10px; }
+                        p { color: #aaa; font-size: 0.9em; word-break: break-all; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Unable to load page</h1>
+                    <p>${uriString}</p>
+                    <p>Error code: ${error.code}</p>
+                </body>
+                </html>
+            """.trimIndent()
+            
+            return GeckoResult.fromValue(errorHtml)
         }
     }
 
     private val progressDelegate = object : GeckoSession.ProgressDelegate {
         override fun onPageStart(session: GeckoSession, url: String) {
             super.onPageStart(session, url)
-            // Optional: You could add a loading spinner/progress bar here
-        }
-
-        override fun onPageStop(session: GeckoSession, success: Boolean) {
-            super.onPageStop(session, success)
-            // Optional: Hide loading spinner
+            // Update URL bar immediately when a new load starts
+            urlBar.post {
+                val currentText = urlBar.text.toString()
+                if (currentText != url) {
+                    urlBar.setText(url)
+                    urlBar.setSelection(url.length)
+                }
+            }
         }
     }
 
@@ -100,7 +106,6 @@ class MainActivity : AppCompatActivity() {
         session = GeckoSession(sessionSettings)
         session.open(runtime)
         
-        // Bind delegates to handle URL updates and error fallbacks
         session.navigationDelegate = navigationDelegate
         session.progressDelegate = progressDelegate
         
@@ -113,11 +118,7 @@ class MainActivity : AppCompatActivity() {
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
                 val query = v.text.toString().trim()
                 if (query.isNotEmpty()) {
-                    val url = if (query.contains(".") && !query.contains(" ")) {
-                        normalizeUrl(query) // Use smart normalization
-                    } else {
-                        "https://duckduckgo.com/?q=$query"
-                    }
+                    val url = UrlNormalizer.normalize(query)
                     session.loadUri(url)
                 }
                 urlBar.clearFocus()
@@ -140,19 +141,13 @@ class MainActivity : AppCompatActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         when (level) {
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
-                session.setActive(false)
-            }
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> session.setActive(false)
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
-                if (!isChangingConfigurations) {
-                    session.setActive(false)
-                }
+                if (!isChangingConfigurations) session.setActive(false)
             }
-            else -> {
-                session.setActive(false)
-            }
+            else -> session.setActive(false)
         }
     }
 
