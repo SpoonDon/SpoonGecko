@@ -42,6 +42,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean canGoBack = false;
     private boolean canGoForward = false;
 
+    // Store the latest session state received from ProgressDelegate
+    private GeckoSession.SessionState currentSessionState;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,6 +79,7 @@ public class MainActivity extends AppCompatActivity {
 
         geckoView.setSession(geckoSession);
 
+        // Restore session state if available
         if (savedInstanceState != null) {
             String stateStr = savedInstanceState.getString(KEY_SESSION_STATE);
             if (stateStr != null) {
@@ -125,11 +129,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (geckoSession != null) {
-            GeckoSession.SessionState state = geckoSession.saveState();
-            if (state != null) {
-                outState.putString(KEY_SESSION_STATE, state.toString());
-            }
+        // Save the stored session state (received from ProgressDelegate)
+        if (currentSessionState != null) {
+            outState.putString(KEY_SESSION_STATE, currentSessionState.toString());
         }
     }
 
@@ -229,7 +231,13 @@ public class MainActivity extends AppCompatActivity {
 
         public void onSecurityChange(GeckoSession session, SecurityInformation securityInfo) {}
 
-        public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {}
+        public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {
+            // Store the session state whenever it changes (called by GeckoView)
+            MainActivity activity = activityRef.get();
+            if (activity != null) {
+                activity.currentSessionState = sessionState;
+            }
+        }
 
         public void onCanGoBack(GeckoSession session, boolean canGoBack) {}
 
