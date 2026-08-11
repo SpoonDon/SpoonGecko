@@ -2,12 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     
+    <!-- Runtime permissions for web features -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Spoon Gecko"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+        android:theme="@style/Theme.SpoonGecko"
         android:usesCleartextTraffic="true">
+        <!-- Note: usesCleartextTraffic is kept for development.
+             Remove it in production if you want HTTPS-only. -->
         
         <activity
             android:name=".MainActivity"
