@@ -243,16 +243,11 @@ public class MainActivity extends AppCompatActivity {
                     return GeckoResult.fromValue(null);
                 }
 
-                if (allowed[0]) {
-                    // Add certificate exception for the host
-                    GeckoRuntime runtime = activity.geckoRuntime;
-                    if (runtime != null) {
-                        runtime.getHostAuthenticationController().addExceptionForHost(finalHost);
-                    }
-                    // Reload the page
-                    session.loadUri(finalUri);
-                    return GeckoResult.fromValue(null);
-                }
+                if (allowed[0]) {            
+                    session.getHostAuthenticationController().addExceptionForHost(finalHost);            
+                    session.loadUri(finalUri);            
+                    return GeckoResult.fromValue(null);        
+                }    
             }
 
             // Show generic error for other failures
