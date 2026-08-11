@@ -55,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
             public void onLocationChange(@NonNull GeckoSession session, 
                                          @Nullable String url, 
                                          @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms, 
-                                         boolean hasUserGesture) {
+                                         @NonNull Boolean hasUserGesture) {
                 // Update URL bar only if the user isn't currently typing in it
                 if (url != null && !urlBar.hasFocus()) {
                     urlBar.setText(url);
