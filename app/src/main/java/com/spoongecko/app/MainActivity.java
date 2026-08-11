@@ -61,13 +61,11 @@ public class MainActivity extends AppCompatActivity {
         createNotificationChannel();
         startForegroundService();
 
-        // Build runtime settings WITHOUT telemetryEnabled (removed in v153)
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                 .aboutConfigEnabled(false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
-        // Disable telemetry after runtime creation
         geckoRuntime.getSettings().setTelemetryEnabled(false);
 
         geckoSession = new GeckoSession();
@@ -169,8 +167,6 @@ public class MainActivity extends AppCompatActivity {
 
         startForeground(NOTIFICATION_ID, notification);
     }
-
-    // ---------- Delegate Classes (separate responsibilities) ----------
 
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
