@@ -8,6 +8,7 @@ import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.GeckoSessionSettings
 
 class MainActivity : AppCompatActivity() {
     private lateinit var geckoView: GeckoView
@@ -22,7 +23,16 @@ class MainActivity : AppCompatActivity() {
         urlBar = findViewById(R.id.url_bar)
 
         val runtime = GeckoRuntimeManager.getRuntime(applicationContext)
-        session = GeckoSession()
+        
+        val sessionSettings = GeckoSessionSettings.Builder()
+            .useTrackingProtection(true)
+            .suspendMediaWhenInactive(true)
+            .viewportMode(GeckoSessionSettings.VIEWPORT_MODE_MOBILE)
+            .userAgentMode(GeckoSessionSettings.USER_AGENT_MODE_MOBILE)
+            .allowJavascript(true)
+            .build()
+            
+        session = GeckoSession(sessionSettings)
         session.open(runtime)
         geckoView.setSession(session)
 
