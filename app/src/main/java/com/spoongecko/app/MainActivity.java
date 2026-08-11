@@ -26,8 +26,9 @@ import org.mozilla.geckoview.WebRequestError;
 import java.lang.ref.WeakReference;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
+import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -110,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
     private void loadUrl() {
         String input = urlBar.getText().toString().trim();
         if (input.isEmpty()) return;
-        
+
         if (!input.startsWith("http://") && !input.startsWith("https://")) {
             boolean isIpAddress = input.matches("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$");
             boolean isLocalNetwork = input.startsWith("localhost") || input.contains(".local");
@@ -171,6 +172,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
+        // Track hosts for which we've already attempted an HTTP fallback to avoid infinite redirect loops
+        private final Set<String> retriedHosts = new HashSet<>();
 
         NavigationDelegate(MainActivity activity) {
             this.activityRef = new WeakReference<>(activity);
@@ -208,9 +211,27 @@ public class MainActivity extends AppCompatActivity {
 
             if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
                 if (uri != null && uri.startsWith("https://")) {
-                    String httpUri = uri.replace("https://", "http://");
-                    session.loadUri(httpUri);
-                    return GeckoResult.fromValue(null);
+                    String host = null;
+                    try {
+                        URL url = new URL(uri);
+                        host = url.getHost();
+                    } catch (Exception ignored) {}
+
+                    if (host != null && !retriedHosts.contains(host)) {
+                        // First time seeing this host – attempt HTTP fallback
+                        retriedHosts.add(host);
+                        String httpUri = uri.replace("https://", "http://");
+                        session.loadUri(httpUri);
+                        return GeckoResult.fromValue(null);
+                    } else {
+                        // Already tried – show a message to avoid infinite loop
+                        final String finalHost = host != null ? host : uri;
+                        activity.runOnUiThread(() ->
+                                Toast.makeText(activity, "Unable to load " + finalHost +
+                                        " due to certificate error and redirect loop.", Toast.LENGTH_LONG).show()
+                        );
+                        return GeckoResult.fromValue(null);
+                    }
                 }
             }
 
