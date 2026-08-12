@@ -23,7 +23,6 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.button.MaterialButton;
 
 import org.mozilla.geckoview.AllowOrDeny;
-import org.mozilla.geckoview.FinderResult;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
@@ -294,7 +293,7 @@ public class MainActivity extends AppCompatActivity {
     private void showFindDialog() {
         if (currentTabIndex >= sessions.size()) return;
         GeckoSession session = sessions.get(currentTabIndex);
-        GeckoSession.Finder finder = session.getFinder();
+        GeckoSession.SessionFinder finder = session.getFinder();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
