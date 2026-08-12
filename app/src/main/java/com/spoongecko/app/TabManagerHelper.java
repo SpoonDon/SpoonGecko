@@ -41,9 +41,11 @@ public class TabManagerHelper {
         grid.setPadding(0, 0, 0, 8);
         grid.setVerticalSpacing(8);
         grid.setHorizontalSpacing(8);
-        grid.setAdapter(new TabAdapter(context, sessions, currentIndex, listener));
         grid.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+
+        final int[] lastClosedPosition = {-1};
+        grid.setAdapter(new TabAdapter(context, sessions, currentIndex, listener, lastClosedPosition));
 
         MaterialButton btnNewTab = new MaterialButton(context);
         btnNewTab.setText("+ New Tab");
@@ -57,8 +59,11 @@ public class TabManagerHelper {
 
         AlertDialog dialog = builder.create();
         grid.setOnItemClickListener((parent, view, position, id) -> {
-            listener.onTabSelected(position);
-            dialog.dismiss();
+            if (position != lastClosedPosition[0]) {
+                listener.onTabSelected(position);
+                dialog.dismiss();
+            }
+            lastClosedPosition[0] = -1;
         });
 
         btnNewTab.setOnClickListener(v -> {
@@ -74,12 +79,15 @@ public class TabManagerHelper {
         private final List<GeckoSession> sessions;
         private final int currentIndex;
         private final TabActionListener listener;
+        private final int[] lastClosedPosition;
 
-        TabAdapter(Context context, List<GeckoSession> sessions, int currentIndex, TabActionListener listener) {
+        TabAdapter(Context context, List<GeckoSession> sessions, int currentIndex,
+                   TabActionListener listener, int[] lastClosedPosition) {
             this.context = context;
             this.sessions = sessions;
             this.currentIndex = currentIndex;
             this.listener = listener;
+            this.lastClosedPosition = lastClosedPosition;
         }
 
         @Override public int getCount() { return sessions.size(); }
@@ -96,6 +104,7 @@ public class TabManagerHelper {
                 cell = new FrameLayout(context);
                 cell.setLayoutParams(new GridView.LayoutParams(
                         GridView.LayoutParams.MATCH_PARENT, 120));
+                cell.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
                 label = new TextView(context);
                 label.setGravity(Gravity.CENTER);
@@ -117,6 +126,8 @@ public class TabManagerHelper {
                 closeBtn.setMinHeight(0);
                 closeBtn.setInsetTop(0);
                 closeBtn.setInsetBottom(0);
+                closeBtn.setFocusable(false);
+                closeBtn.setFocusableInTouchMode(false);
                 FrameLayout.LayoutParams btnParams = new FrameLayout.LayoutParams(48, 48);
                 btnParams.gravity = Gravity.TOP | Gravity.END;
                 cell.addView(closeBtn, btnParams);
@@ -138,6 +149,7 @@ public class TabManagerHelper {
             final int position = pos;
             closeBtn.setOnClickListener(v -> {
                 if (sessions.size() > 1) {
+                    lastClosedPosition[0] = position;
                     listener.onTabClosed(position);
                     notifyDataSetChanged();
                 }
