@@ -19,6 +19,12 @@
         android:id="@+id/action_find_in_page"
         android:title="Find in page" />
     <item
+        android:id="@+id/action_extensions"
+        android:title="Extensions" />
+    <item
         android:id="@+id/action_settings"
         android:title="Settings" />
+    <item
+        android:id="@+id/action_exit"
+        android:title="Exit" />
 </menu>
