@@ -2,6 +2,7 @@ package com.spoongecko.app;
 
 import android.Manifest;
 import android.app.AlertDialog;
+import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -16,15 +17,19 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import org.mozilla.geckoview.AllowOrDeny;
+import org.mozilla.geckoview.GeckoDisplay;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.RuntimeTelemetry;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +42,8 @@ public class MainActivity extends AppCompatActivity {
 
     private GeckoView geckoView;
     private GeckoSession geckoSession;
+    private GeckoDisplay geckoDisplay;
+    private GeckoSession warmupSession;
 
     private EditText urlBar;
     private Button goButton;
@@ -71,8 +78,11 @@ public class MainActivity extends AppCompatActivity {
                     .lowMemoryDetection(true)
                     .crashHandler(CrashHandlerService.class)
                     .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
+                    .contentProcessLimit(1)
                     .build();
             sGeckoRuntime = GeckoRuntime.create(this, settings);
+
+            sGeckoRuntime.setTelemetryDelegate(new RuntimeTelemetry.Delegate() {});
         }
 
         geckoSession = new GeckoSession();
@@ -83,6 +93,11 @@ public class MainActivity extends AppCompatActivity {
         geckoSession.setPermissionDelegate(new PermissionDelegate(this));
 
         geckoView.setSession(geckoSession);
+        geckoDisplay = geckoSession.acquireDisplay();
+
+        warmupSession = new GeckoSession();
+        warmupSession.open(sGeckoRuntime);
+        warmupSession.loadUri("about:blank");
 
         if (savedInstanceState != null) {
             String stateStr = savedInstanceState.getString(KEY_SESSION_STATE);
@@ -148,16 +163,41 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         if (geckoSession != null) geckoSession.setActive(false);
+        if (geckoView != null) geckoView.pauseCompositor();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (geckoSession != null) geckoSession.setActive(true);
+        if (geckoView != null) geckoView.resumeCompositor();
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            if (geckoSession != null) {
+                geckoSession.releaseDisplay(geckoDisplay);
+                geckoDisplay = null;
+            }
+            if (warmupSession != null) {
+                warmupSession.close();
+                warmupSession = null;
+            }
+        }
     }
 
     @Override
     protected void onDestroy() {
+        if (geckoDisplay != null) {
+            geckoSession.releaseDisplay(geckoDisplay);
+            geckoDisplay = null;
+        }
+        if (warmupSession != null) {
+            warmupSession.close();
+            warmupSession = null;
+        }
         if (geckoSession != null) {
             geckoSession.close();
             geckoSession = null;
@@ -205,59 +245,59 @@ public class MainActivity extends AppCompatActivity {
             return GeckoResult.fromValue(null);
         }
 
-        public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {    
-            MainActivity activity = activityRef.get();    
-            if (activity == null) {        
-                return GeckoResult.fromValue(null);    
+        public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
+            MainActivity activity = activityRef.get();
+            if (activity == null) {
+                return GeckoResult.fromValue(null);
             }
-    
-            if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {        
-                String host = null;        
-                try {            
-                    URL url = new URL(uri);            
-                    host = url.getHost();        
+
+            if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
+                String host = null;
+                try {
+                    URL url = new URL(uri);
+                    host = url.getHost();
                 } catch (Exception ignored) {}
-        
-                final String finalHost = host != null ? host : uri;        
-                final String encodedUri = uri.replace("\\", "\\\\").replace("'", "\\'");
-        
-                String errorPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-                "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
-                "<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;" +
-                "min-height:100vh;margin:0;background:#fff;color:#0d0d0d}" +
-                ".card{max-width:420px;padding:32px;text-align:center}" +
-                "h2{font-size:20px;margin:0 0 8px 0;color:#c00}" +
-                "p{font-size:14px;color:#555;margin:0 0 24px 0;line-height:1.5}" +
-                ".host{font-family:monospace;word-break:break-all;color:#0d0d0d}" +
-                "button{background:#4d6bfe;color:#fff;border:none;padding:12px 24px;" +
-                "border-radius:8px;font-size:16px;cursor:pointer}" +
-                "button:hover{background:#3b54d0}" +
-                ".cancel{background:none;color:#4d6bfe;border:1px solid #4d6bfe;margin-top:12px}" +
-                ".cancel:hover{background:#f0f2ff}" +
-                "</style></head><body><div class='card'>" +
-                "<h2>Security Warning</h2>" +
-                "<p>The certificate for <span class='host'>" + finalHost + "</span> is not trusted.<br>" +
-                "Connecting to this site may expose your information.</p>" +
-                "<button onclick='proceed()'>Proceed (unsafe)</button><br>" +
-                "<button class='cancel' onclick='cancel()'>Go Back</button>" +
-                "<script>" +
-                "function proceed(){" +
-                "document.addCertException(true).then(function(){" +
-                "location.replace('" + encodedUri + "');" +
-                "});" +
-                "}" +
-                "function cancel(){history.back();}" +
-                "</script>" +
-                "</div></body></html>";
-        
-                return GeckoResult.fromValue("data:text/html;charset=utf-8," + java.net.URLEncoder.encode(errorPage, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
+
+                final String finalHost = host != null ? host : uri;
+
+                String errorPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                        + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                        + "<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;"
+                        + "min-height:100vh;margin:0;background:#fff;color:#0d0d0d}"
+                        + ".card{max-width:420px;padding:32px;text-align:center}"
+                        + "h2{font-size:20px;margin:0 0 8px 0;color:#c00}"
+                        + "p{font-size:14px;color:#555;margin:0 0 24px 0;line-height:1.5}"
+                        + ".host{font-family:monospace;word-break:break-all;color:#0d0d0d}"
+                        + "button{background:#4d6bfe;color:#fff;border:none;padding:12px 24px;"
+                        + "border-radius:8px;font-size:16px;cursor:pointer}"
+                        + "button:hover{background:#3b54d0}"
+                        + ".cancel{background:none;color:#4d6bfe;border:1px solid #4d6bfe;margin-top:12px}"
+                        + ".cancel:hover{background:#f0f2ff}"
+                        + "</style></head><body><div class='card'>"
+                        + "<h2>Security Warning</h2>"
+                        + "<p>The certificate for <span class='host'>" + finalHost + "</span> is not trusted.<br>"
+                        + "Connecting to this site may expose your information.</p>"
+                        + "<button onclick='proceed()'>Proceed (unsafe)</button><br>"
+                        + "<button class='cancel' onclick='cancel()'>Go Back</button>"
+                        + "<script>"
+                        + "function proceed(){"
+                        + "document.addCertException(true).then(function(){"
+                        + "location.replace('" + uri.replace("\\", "\\\\").replace("'", "\\'") + "');"
+                        + "});"
+                        + "}"
+                        + "function cancel(){history.back();}"
+                        + "</script>"
+                        + "</div></body></html>";
+
+                return GeckoResult.fromValue("data:text/html;charset=utf-8,"
+                        + URLEncoder.encode(errorPage, StandardCharsets.UTF_8).replace("+", "%20"));
             }
-    
-            activity.runOnUiThread(() ->            
-                                   Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()    
-                                  );    
-            return GeckoResult.fromValue(null);        
-        }    
+
+            activity.runOnUiThread(() ->
+                    Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
+            );
+            return GeckoResult.fromValue(null);
+        }
     }
 
     private static class ProgressDelegate implements GeckoSession.ProgressDelegate {
