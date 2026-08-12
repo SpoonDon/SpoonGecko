@@ -18,10 +18,17 @@ def getCommitCount = {
 def commitCount = getCommitCount()
 def offset = 531
 def counter = Math.max(1, commitCount - offset)
-def patch = counter % 10
-def minor = counter.intdiv(10)
-def versionNameValue = "0.${minor}.${patch}"
-def versionCodeValue = counter
+
+def envVersion = System.getenv("VERSION_NAME")
+def envCode = System.getenv("VERSION_CODE")
+
+def versionNameValue = (envVersion != null && !envVersion.isEmpty())
+        ? envVersion
+        : "0.${counter.intdiv(10)}.${counter % 10}"
+
+def versionCodeValue = (envCode != null && !envCode.isEmpty())
+        ? envCode.toInteger()
+        : counter
 
 android {
     namespace 'com.spoongecko.app'
