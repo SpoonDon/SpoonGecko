@@ -29,6 +29,7 @@ import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
+import org.mozilla.geckoview.SessionFinder;
 
 import java.lang.ref.WeakReference;
 import java.net.URL;
