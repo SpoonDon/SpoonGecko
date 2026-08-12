@@ -284,7 +284,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "History coming soon", Toast.LENGTH_SHORT).show();
             return true;
         } else if (id == R.id.action_downloads) {
-            Toast.makeText(this, "Downloads coming soon", Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(this, DownloadsActivity.class));
             return true;
         } else if (id == R.id.action_find_in_page) {
             Toast.makeText(this, "Find in page coming soon", Toast.LENGTH_SHORT).show();
@@ -296,6 +296,9 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, ExtensionsActivity.class));
             return true;
         } else if (id == R.id.action_exit) {
+            for (GeckoSession session : sessions) session.close();
+            sessions.clear();
+            stopService(new Intent(this, BrowserService.class));
             finishAffinity();
             return true;
         }
@@ -423,7 +426,7 @@ public class MainActivity extends AppCompatActivity {
                         + "<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;"
                         + "min-height:100vh;margin:0;background:#111319;color:#E1E2E8}"
                         + ".card{max-width:420px;padding:32px;text-align:center}"
-                        + "h2{font-size:20px;margin:0 0 8px 0;color:#c00}"
+                        + "h2{font-size:20px;margin:0 0 8px 0;color:#FFB4AB}"
                         + "p{font-size:14px;color:#C4C6D0;margin:0 0 24px 0;line-height:1.5}"
                         + ".host{font-family:monospace;word-break:break-all;color:#E1E2E8}"
                         + "button{background:#4d6bfe;color:#fff;border:none;padding:12px 24px;"
