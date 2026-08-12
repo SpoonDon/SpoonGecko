@@ -250,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
                 "</script>" +
                 "</div></body></html>";
         
-                return GeckoResult.fromValue("data:text/html;charset=utf-8," + java.net.URLEncoder.encode(errorPage, java.nio.charset.StandardCharsets.UTF_8.toString()).replace("+", "%20"));
+                return GeckoResult.fromValue("data:text/html;charset=utf-8," + java.net.URLEncoder.encode(errorPage, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20"));
             }
     
             activity.runOnUiThread(() ->            
