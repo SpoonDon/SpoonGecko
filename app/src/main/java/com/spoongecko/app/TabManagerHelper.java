@@ -18,6 +18,7 @@ import com.google.android.material.button.MaterialButton;
 import org.mozilla.geckoview.GeckoSession;
 
 import java.util.List;
+import java.util.Map;
 
 public class TabManagerHelper {
 
@@ -28,7 +29,8 @@ public class TabManagerHelper {
     }
 
     public static void show(Context context, List<GeckoSession> sessions,
-                            int currentIndex, TabActionListener listener) {
+                            Map<GeckoSession, String> titles, int currentIndex,
+                            TabActionListener listener) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle("Tabs");
 
@@ -37,7 +39,7 @@ public class TabManagerHelper {
         container.setPadding(8, 8, 8, 8);
 
         GridView grid = new GridView(context);
-        grid.setNumColumns(3);
+        grid.setNumColumns(2);
         grid.setPadding(0, 0, 0, 8);
         grid.setVerticalSpacing(8);
         grid.setHorizontalSpacing(8);
@@ -45,7 +47,7 @@ public class TabManagerHelper {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
         final int[] lastClosedPosition = {-1};
-        grid.setAdapter(new TabAdapter(context, sessions, currentIndex, listener, lastClosedPosition));
+        grid.setAdapter(new TabAdapter(context, sessions, titles, currentIndex, listener, lastClosedPosition));
 
         MaterialButton btnNewTab = new MaterialButton(context);
         btnNewTab.setText("+ New Tab");
@@ -77,14 +79,17 @@ public class TabManagerHelper {
     private static class TabAdapter extends BaseAdapter {
         private final Context context;
         private final List<GeckoSession> sessions;
+        private final Map<GeckoSession, String> titles;
         private final int currentIndex;
         private final TabActionListener listener;
         private final int[] lastClosedPosition;
 
-        TabAdapter(Context context, List<GeckoSession> sessions, int currentIndex,
+        TabAdapter(Context context, List<GeckoSession> sessions,
+                   Map<GeckoSession, String> titles, int currentIndex,
                    TabActionListener listener, int[] lastClosedPosition) {
             this.context = context;
             this.sessions = sessions;
+            this.titles = titles;
             this.currentIndex = currentIndex;
             this.listener = listener;
             this.lastClosedPosition = lastClosedPosition;
@@ -103,14 +108,16 @@ public class TabManagerHelper {
             if (convertView == null) {
                 cell = new FrameLayout(context);
                 cell.setLayoutParams(new GridView.LayoutParams(
-                        GridView.LayoutParams.MATCH_PARENT, 120));
+                        GridView.LayoutParams.MATCH_PARENT, 160));
                 cell.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
                 label = new TextView(context);
                 label.setGravity(Gravity.CENTER);
-                label.setTextSize(14);
-                label.setPadding(8, 8, 8, 8);
+                label.setTextSize(13);
+                label.setPadding(12, 12, 28, 12);
                 label.setBackgroundResource(android.R.drawable.editbox_background);
+                label.setMaxLines(2);
+                label.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT);
@@ -137,7 +144,13 @@ public class TabManagerHelper {
                 closeBtn = (MaterialButton) cell.getChildAt(1);
             }
 
-            label.setText("Tab " + (pos + 1));
+            GeckoSession session = sessions.get(pos);
+            String title = titles.get(session);
+            if (title == null || title.trim().isEmpty()) {
+                title = "Tab " + (pos + 1);
+            }
+            label.setText(title);
+
             if (pos == currentIndex) {
                 label.setTextColor(context.getResources().getColor(R.color.md_theme_primary, null));
                 label.setTypeface(null, Typeface.BOLD);
