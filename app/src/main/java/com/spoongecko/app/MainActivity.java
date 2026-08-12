@@ -1,7 +1,6 @@
 package com.spoongecko.app;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -17,13 +16,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import org.mozilla.geckoview.AllowOrDeny;
-import org.mozilla.geckoview.GeckoDisplay;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.RuntimeTelemetry;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
@@ -42,8 +39,6 @@ public class MainActivity extends AppCompatActivity {
 
     private GeckoView geckoView;
     private GeckoSession geckoSession;
-    private GeckoDisplay geckoDisplay;
-    private GeckoSession warmupSession;
 
     private EditText urlBar;
     private Button goButton;
@@ -78,11 +73,8 @@ public class MainActivity extends AppCompatActivity {
                     .lowMemoryDetection(true)
                     .crashHandler(CrashHandlerService.class)
                     .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
-                    .contentProcessLimit(1)
                     .build();
             sGeckoRuntime = GeckoRuntime.create(this, settings);
-
-            sGeckoRuntime.setTelemetryDelegate(new RuntimeTelemetry.Delegate() {});
         }
 
         geckoSession = new GeckoSession();
@@ -93,11 +85,6 @@ public class MainActivity extends AppCompatActivity {
         geckoSession.setPermissionDelegate(new PermissionDelegate(this));
 
         geckoView.setSession(geckoSession);
-        geckoDisplay = geckoSession.acquireDisplay();
-
-        warmupSession = new GeckoSession();
-        warmupSession.open(sGeckoRuntime);
-        warmupSession.loadUri("about:blank");
 
         if (savedInstanceState != null) {
             String stateStr = savedInstanceState.getString(KEY_SESSION_STATE);
@@ -163,14 +150,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         if (geckoSession != null) geckoSession.setActive(false);
-        if (geckoView != null) geckoView.pauseCompositor();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (geckoSession != null) geckoSession.setActive(true);
-        if (geckoView != null) geckoView.resumeCompositor();
     }
 
     @Override
@@ -178,26 +163,13 @@ public class MainActivity extends AppCompatActivity {
         super.onTrimMemory(level);
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
             if (geckoSession != null) {
-                geckoSession.releaseDisplay(geckoDisplay);
-                geckoDisplay = null;
-            }
-            if (warmupSession != null) {
-                warmupSession.close();
-                warmupSession = null;
+                geckoSession.setActive(false);
             }
         }
     }
 
     @Override
     protected void onDestroy() {
-        if (geckoDisplay != null) {
-            geckoSession.releaseDisplay(geckoDisplay);
-            geckoDisplay = null;
-        }
-        if (warmupSession != null) {
-            warmupSession.close();
-            warmupSession = null;
-        }
         if (geckoSession != null) {
             geckoSession.close();
             geckoSession = null;
