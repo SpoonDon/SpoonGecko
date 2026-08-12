@@ -111,6 +111,7 @@ public class TabManagerHelper {
                 cell.setLayoutParams(new GridView.LayoutParams(
                         GridView.LayoutParams.MATCH_PARENT, 160));
                 cell.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+                cell.setBackgroundColor(context.getResources().getColor(R.color.md_theme_surface_variant, null));
 
                 label = new TextView(context);
                 label.setGravity(Gravity.CENTER);
@@ -122,6 +123,7 @@ public class TabManagerHelper {
                 FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT);
+                labelParams.setMargins(4, 4, 4, 4);
                 cell.addView(label, labelParams);
 
                 closeBtn = new MaterialButton(context);
