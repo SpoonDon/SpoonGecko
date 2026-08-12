@@ -28,9 +28,6 @@ jobs:
           validate-wrappers: false
           dependency-graph: disabled
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x ./gradlew
-
       - name: Decode signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -44,7 +41,7 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "Build attempt $attempt"
-            if ./gradlew assembleRelease --no-daemon --stacktrace; then
+            if gradle assembleRelease --no-daemon --stacktrace; then
               exit 0
             fi
             echo "Attempt $attempt failed, retrying in 15s..."
