@@ -1,66 +1,61 @@
-name: Build SpoonGecko Release
+name: Build and Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: 17
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+          dependency-graph: disabled
 
-      - name: Ensure Gradle Wrapper Exists
-        run: |
-          if [ ! -f "./gradlew" ]; then gradle wrapper --gradle-version 8.11.1; fi
-          chmod +x gradlew
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
 
-      - name: Decode Keystore
-        run: echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > app/release.keystore
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
 
-      - name: Build Signed Release APK
+      - name: Build release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon --build-cache
-
-      - name: Get Version from APK
-        id: version
         run: |
-          APK_PATH=$(ls app/build/outputs/apk/release/SpoonGecko*.apk | head -1)
-          FILENAME=$(basename "$APK_PATH")
-          VERSION=$(echo "$FILENAME" | sed -E 's/SpoonGecko v(.*)\.apk/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          for attempt in 1 2 3; do
+            echo "Build attempt $attempt"
+            if ./gradlew assembleRelease --no-daemon --stacktrace; then
+              exit 0
+            fi
+            echo "Attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
+          exit 1
 
-      - name: Create GitHub Release & Upload APK
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push'
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          files: app/build/outputs/apk/release/SpoonGecko*.apk
-          name: "SpoonGecko v${{ env.VERSION }}"
-          tag_name: "v${{ env.VERSION }}"
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: spoongecko-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
