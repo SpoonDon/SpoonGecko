@@ -3,7 +3,6 @@ package com.spoongecko.app;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.view.MenuItem;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -58,6 +57,16 @@ public class SettingsActivity extends AppCompatActivity {
                     .setTitle("Clear Browsing Data")
                     .setMessage("This will close all tabs and clear browsing data.")
                     .setPositiveButton("Clear", (dialog, which) -> {
+                        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+                        if (runtime != null) {
+                            runtime.getWebExtensionController().list().accept(
+                                extensions -> {
+                                    for (org.mozilla.geckoview.WebExtension ext : extensions) {
+                                        runtime.getWebExtensionController().uninstall(ext);
+                                    }
+                                }
+                            );
+                        }
                         MainActivity.sGeckoRuntime = null;
                         Toast.makeText(this, "Data cleared. Restart the app.", Toast.LENGTH_LONG).show();
                         finishAffinity();
@@ -71,7 +80,7 @@ public class SettingsActivity extends AppCompatActivity {
                     .setTitle("Site Permissions")
                     .setMessage("Permissions handled:\n\nCamera\nMicrophone\nLocation\nMedia Autoplay\n\n"
                             + "Permissions are requested on-demand when websites need them. "
-                            + "Manage via Android Settings → Apps → SpoonGecko → Permissions.")
+                            + "Manage via Android Settings -> Apps -> SpoonGecko -> Permissions.")
                     .setPositiveButton("Open App Settings", (dialog, which) -> {
                         android.content.Intent intent = new android.content.Intent(
                                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

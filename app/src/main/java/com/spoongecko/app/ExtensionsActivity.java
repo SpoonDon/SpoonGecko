@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -18,7 +17,6 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
 
@@ -86,8 +84,9 @@ public class ExtensionsActivity extends AppCompatActivity {
     }
 
     private void refreshExtensionsList() {
-        if (MainActivity.sGeckoRuntime == null) return;
-        MainActivity.sGeckoRuntime.getWebExtensionController().list().accept(
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        if (runtime == null) return;
+        runtime.getWebExtensionController().list().accept(
                 extensions -> {
                     installedExtensions.clear();
                     installedExtensions.addAll(extensions);
@@ -148,13 +147,15 @@ public class ExtensionsActivity extends AppCompatActivity {
             btnRemove.setText("Remove");
             btnRemove.setTextSize(12);
             btnRemove.setOnClickListener(v -> {
-                ext.uninstall().accept(
+                GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+                if (runtime == null) return;
+                runtime.getWebExtensionController().uninstall(ext).accept(
                         result -> runOnUiThread(() -> {
                             Toast.makeText(this, "Extension removed", Toast.LENGTH_SHORT).show();
                             refreshExtensionsList();
                         }),
                         e -> runOnUiThread(() ->
-                                Toast.makeText(this, "Failed to remove extension", Toast.LENGTH_SHORT).show())
+                                Toast.makeText(this, "Failed to remove extension", Toast.LENGTH_LONG).show())
                 );
             });
 
@@ -166,7 +167,8 @@ public class ExtensionsActivity extends AppCompatActivity {
     }
 
     private void installExtension(Uri uri) {
-        if (MainActivity.sGeckoRuntime == null) {
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        if (runtime == null) {
             Toast.makeText(this, "Browser not initialized", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -176,7 +178,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (Exception ignored) {}
 
-        MainActivity.sGeckoRuntime.getWebExtensionController().install(uri.toString()).accept(
+        runtime.getWebExtensionController().install(uri.toString()).accept(
                 extension -> runOnUiThread(() -> {
                     Toast.makeText(this, "Extension installed", Toast.LENGTH_SHORT).show();
                     refreshExtensionsList();

@@ -34,10 +34,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -45,7 +43,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_TAB_INDEX = "tabIndex";
     private static final String PREFS_NAME = "spoon_prefs";
     private static final String PREF_SEARCH_ENGINE = "search_engine";
-    private static GeckoRuntime sGeckoRuntime;
+    static GeckoRuntime sGeckoRuntime;
+
+    static GeckoRuntime getGeckoRuntime() {
+        return sGeckoRuntime;
+    }
 
     private GeckoView geckoView;
     private List<GeckoSession> sessions = new ArrayList<>();
