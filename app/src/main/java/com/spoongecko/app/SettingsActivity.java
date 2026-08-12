@@ -98,11 +98,12 @@ public class SettingsActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             String gvVersion = "GeckoView 153.0.20260803132010";
             new AlertDialog.Builder(this)
-                    .setTitle("About SpoonGecko")
+                    .setTitle("SpoonGecko")
                     .setMessage("App Version: " + versionName + "\n"
                             + "GeckoView: " + gvVersion + "\n\n"
                             + "A minimal, privacy-first GeckoView browser.\n"
-                            + "No telemetry. No tracking.")
+                            + "No telemetry. No tracking.\n\n"
+                            + "- with love, Plaban.")    
                     .setPositiveButton("Close", null)
                     .show();
         }));
