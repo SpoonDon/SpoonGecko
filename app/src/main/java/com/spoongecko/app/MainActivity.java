@@ -1,13 +1,16 @@
 package com.spoongecko.app;
 
+import android.app.AlertDialog;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -20,6 +23,7 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.button.MaterialButton;
 
 import org.mozilla.geckoview.AllowOrDeny;
+import org.mozilla.geckoview.FinderResult;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
@@ -35,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -42,6 +47,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_TAB_INDEX = "tabIndex";
     private static final String PREFS_NAME = "spoon_prefs";
     private static final String PREF_SEARCH_ENGINE = "search_engine";
+    private static final String[] NEW_TAB_MESSAGES = {
+            "Hello there !",
+            "Happy browsing !",
+            "Explore away !",
+            "Stay curious."
+    };
     static GeckoRuntime sGeckoRuntime;
 
     static GeckoRuntime getGeckoRuntime() {
@@ -173,10 +184,11 @@ public class MainActivity extends AppCompatActivity {
         int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
         String bgHex = String.format("#%06X", (0xFFFFFF & bg));
         String fgHex = String.format("#%06X", (0xFFFFFF & fg));
+        String message = NEW_TAB_MESSAGES[new Random().nextInt(NEW_TAB_MESSAGES.length)];
         String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
                 + "<style>body{margin:0;background:" + bgHex + ";color:" + fgHex + ";font-family:sans-serif;"
                 + "display:flex;align-items:center;justify-content:center;height:100vh}"
-                + "p{font-size:18px;opacity:0.55}</style></head><body><p>New Tab</p></body></html>";
+                + "p{font-size:18px;opacity:0.55}</style></head><body><p>" + message + "</p></body></html>";
         return "data:text/html;charset=utf-8,"
                 + URLEncoder.encode(html, StandardCharsets.UTF_8).replace("+", "%20");
     }
@@ -194,6 +206,7 @@ public class MainActivity extends AppCompatActivity {
             currentTabIndex = sessions.size() - 1;
             geckoView.setSession(session);
             updateNavigationButtons();
+            urlBar.setText("");
         }
         updateTabManagerText();
         session.loadUri(buildNewTabPage());
@@ -253,6 +266,7 @@ public class MainActivity extends AppCompatActivity {
                             geckoView.setSession(sessions.get(index));
                             updateNavigationButtons();
                             updateTabManagerText();
+                            urlBar.setText("");
                         }
                     }
 
@@ -275,6 +289,86 @@ public class MainActivity extends AppCompatActivity {
                         createNewTab(true);
                     }
                 });
+    }
+
+    private void showFindDialog() {
+        if (currentTabIndex >= sessions.size()) return;
+        GeckoSession session = sessions.get(currentTabIndex);
+        GeckoSession.Finder finder = session.getFinder();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(24, 24, 24, 24);
+
+        EditText input = new EditText(this);
+        input.setHint("Find in page");
+        input.setSingleLine(true);
+        input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        box.addView(input);
+
+        TextView status = new TextView(this);
+        status.setText("0/0");
+        status.setTextSize(13);
+        status.setPadding(0, 8, 0, 8);
+        status.setGravity(Gravity.CENTER);
+        box.addView(status);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(0, 8, 0, 0);
+
+        MaterialButton prev = new MaterialButton(this);
+        prev.setText("Prev");
+        MaterialButton next = new MaterialButton(this);
+        next.setText("Next");
+
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        prev.setLayoutParams(btnParams);
+        next.setLayoutParams(btnParams);
+
+        row.addView(prev);
+        row.addView(next);
+        box.addView(row);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(box)
+                .setOnDismissListener(d -> finder.clear())
+                .create();
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setDimAmount(0.0f);
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
+        }
+
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                String q = input.getText().toString().trim();
+                if (!q.isEmpty()) {
+                    finder.find(q, 0).accept(result -> runOnUiThread(() ->
+                            status.setText((result.current + 1) + "/" + result.total)));
+                }
+                return true;
+            }
+            return false;
+        });
+
+        next.setOnClickListener(v -> {
+            String q = input.getText().toString().trim();
+            if (q.isEmpty()) return;
+            finder.findNext(0).accept(result -> runOnUiThread(() ->
+                    status.setText((result.current + 1) + "/" + result.total)));
+        });
+
+        prev.setOnClickListener(v -> {
+            String q = input.getText().toString().trim();
+            if (q.isEmpty()) return;
+            finder.findPrev(0).accept(result -> runOnUiThread(() ->
+                    status.setText((result.current + 1) + "/" + result.total)));
+        });
+
+        dialog.show();
     }
 
     private boolean handleMenuItem(MenuItem item) {
@@ -306,7 +400,7 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, DownloadsActivity.class));
             return true;
         } else if (id == R.id.action_find_in_page) {
-            Toast.makeText(this, "Find in page coming soon", Toast.LENGTH_SHORT).show();
+            showFindDialog();
             return true;
         } else if (id == R.id.action_settings) {
             startActivity(new Intent(this, SettingsActivity.class));
@@ -511,7 +605,11 @@ public class MainActivity extends AppCompatActivity {
             if (activity == null || session != activity.getCurrentSession()) return;
             activity.runOnUiThread(() -> {
                 activity.progressBar.setVisibility(ProgressBar.VISIBLE);
-                activity.urlBar.setText(url);
+                if (url != null && url.startsWith("data:")) {
+                    activity.urlBar.setText("");
+                } else {
+                    activity.urlBar.setText(url);
+                }
             });
         }
 
