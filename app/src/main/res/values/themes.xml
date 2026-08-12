@@ -19,6 +19,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/md_theme_background</item>
+        <item name="android:windowDisablePreview">true</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Small</item>
         <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Medium</item>
         <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Large</item>
