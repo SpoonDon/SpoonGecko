@@ -7,13 +7,15 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+
+import com.google.android.material.color.DynamicColors;
+import com.google.android.material.button.MaterialButton;
 
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
@@ -41,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private GeckoSession geckoSession;
 
     private EditText urlBar;
-    private Button goButton;
+    private MaterialButton goButton;
     private ProgressBar progressBar;
 
     private boolean canGoBack = false;
@@ -51,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        DynamicColors.applyToActivityIfAvailable(this);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
