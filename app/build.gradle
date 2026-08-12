@@ -10,23 +10,12 @@ android {
         applicationId "com.spoongecko.app"
         minSdk 34
         targetSdk 36
-        versionCode (project.findProperty('versionCode')?.toString()?.toInteger() ?: 1)
-        versionName (project.findProperty('versionName')?.toString() ?: "0.0.1-dev")
-        ndk { abiFilters 'arm64-v8a' }
-    }
-
-    signingConfigs {
-        release {
-            storeFile file(System.getenv("KEYSTORE_FILE") ?: "dummy.jks")
-            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "dummy"
-            keyAlias System.getenv("KEY_ALIAS") ?: "dummy"
-            keyPassword System.getenv("KEY_PASSWORD") ?: "dummy"
-        }
+        versionCode 1
+        versionName "1.0"
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
@@ -39,21 +28,17 @@ android {
     }
 }
 
-dependencies {
-    implementation 'androidx.core:core:1.15.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    
-    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:153.0.20260803132010'
-    
-    testImplementation 'junit:junit:4.13.2'
+repositories {
+    maven {
+        url "https://maven.mozilla.org/maven2/"
+    }
+    google()
+    mavenCentral()
 }
 
-configurations.all {
-    resolutionStrategy {
-        force 'org.jetbrains.kotlin:kotlin-stdlib:2.1.0'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.0'
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.0'
-    }
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:153.0.20260803132010'
 }
