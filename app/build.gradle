@@ -16,6 +16,12 @@ def getCommitCount = {
 }
 
 def commitCount = getCommitCount()
+def offset = 531
+def counter = Math.max(1, commitCount - offset)
+def patch = counter % 10
+def minor = counter / 10
+def versionNameValue = "0.${minor}.${patch}"
+def versionCodeValue = counter
 
 android {
     namespace 'com.spoongecko.app'
@@ -25,8 +31,8 @@ android {
         applicationId "com.spoongecko.app"
         minSdk 34
         targetSdk 36
-        versionCode commitCount
-        versionName "0.0.${commitCount}"
+        versionCode versionCodeValue
+        versionName versionNameValue
     }
 
     signingConfigs {
