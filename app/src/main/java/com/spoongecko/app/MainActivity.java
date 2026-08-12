@@ -12,10 +12,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Toast;
-
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
-
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
@@ -23,7 +21,6 @@ import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
-
 import java.lang.ref.WeakReference;
 import java.net.URL;
 import java.util.ArrayList;
@@ -72,6 +69,9 @@ public class MainActivity extends AppCompatActivity {
                 .lowMemoryDetection(true)
                 .crashHandler(CrashHandlerService.class)
                 .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
+                .setLnaEnabled(false)
+                .setLnaBlocking(false)
+                .setLnaBlockTrackers(false)
                 .build();
 
         geckoRuntime = GeckoRuntime.create(this, settings);
@@ -167,14 +167,6 @@ public class MainActivity extends AppCompatActivity {
             geckoRuntime = null;
         }
         super.onDestroy();
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 1) {
-            geckoSession.reload();
-        }
     }
 
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
@@ -318,8 +310,7 @@ public class MainActivity extends AppCompatActivity {
             activity.runOnUiThread(() -> activity.progressBar.setProgress(progress));
         }
 
-        public void onSecurityChange(GeckoSession session,
-                                     GeckoSession.ProgressDelegate.SecurityInformation securityInfo) {}
+        public void onSecurityChange(GeckoSession session, SecurityInformation securityInfo) {}
 
         public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {
             MainActivity activity = activityRef.get();
@@ -327,6 +318,10 @@ public class MainActivity extends AppCompatActivity {
                 activity.currentSessionState = sessionState;
             }
         }
+
+        public void onCanGoBack(GeckoSession session, boolean canGoBack) {}
+
+        public void onCanGoForward(GeckoSession session, boolean canGoForward) {}
     }
 
     private static class PermissionDelegate implements GeckoSession.PermissionDelegate {
@@ -337,20 +332,14 @@ public class MainActivity extends AppCompatActivity {
             this.activityRef = new WeakReference<>(activity);
         }
 
-        public GeckoResult<Integer> onContentPermissionRequest(
-                GeckoSession session, GeckoSession.PermissionDelegate.ContentPermission perm) {
-            return GeckoResult.fromValue(
-                    GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+        public GeckoResult<Integer> onContentPermissionRequest(GeckoSession session, ContentPermission perm) {
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
         }
 
-        public GeckoResult<Integer> onMediaPermissionRequest(
-                GeckoSession session, String uri,
-                GeckoSession.PermissionDelegate.MediaSource[] video,
-                GeckoSession.PermissionDelegate.MediaSource[] audio) {
+        public GeckoResult<Integer> onMediaPermissionRequest(GeckoSession session, String uri,
+                                                             MediaSource[] video, MediaSource[] audio) {
             MainActivity activity = activityRef.get();
-            if (activity == null)
-                return GeckoResult.fromValue(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
 
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
@@ -364,44 +353,34 @@ public class MainActivity extends AppCompatActivity {
                 needed.add(Manifest.permission.RECORD_AUDIO);
             }
             if (!needed.isEmpty()) {
-                activity.requestPermissions(needed.toArray(new String[0]),
-                        REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
             }
-            return GeckoResult.fromValue(
-                    GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
         }
 
-        public GeckoResult<Integer> onGeckoPermissionRequest(
-                GeckoSession session, String uri,
-                int type, GeckoSession.PermissionDelegate.Callback callback) {
+        public GeckoResult<Integer> onGeckoPermissionRequest(GeckoSession session, String uri,
+                                                             int type, Callback callback) {
             MainActivity activity = activityRef.get();
-            if (activity == null)
-                return GeckoResult.fromValue(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
 
             if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
-                if (ContextCompat.checkSelfPermission(activity,
-                        Manifest.permission.ACCESS_FINE_LOCATION)
+                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) {
-                    return GeckoResult.fromValue(
-                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
                 } else {
-                    activity.requestPermissions(
-                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                    activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                             REQUEST_CODE_PERMISSIONS);
-                    return GeckoResult.fromValue(
-                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
                 }
             }
             if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE ||
-                    type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE) {
-                return GeckoResult.fromValue(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+                type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE) {
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
             }
-            return GeckoResult.fromValue(
-                    GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
         }
+
+        public void onPermissionResult(int requestCode, String[] permissions, int[] grantResults) {}
     }
 }
