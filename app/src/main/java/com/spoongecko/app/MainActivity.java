@@ -4,7 +4,6 @@ import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
@@ -51,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
 
     private GeckoView geckoView;
     private List<GeckoSession> sessions = new ArrayList<>();
+    private Map<GeckoSession, String> tabTitles = new HashMap<>();
     private int currentTabIndex = 0;
     private Map<GeckoSession, Boolean> canGoBackMap = new HashMap<>();
     private Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
@@ -105,7 +105,9 @@ public class MainActivity extends AppCompatActivity {
                 session.setNavigationDelegate(new NavigationDelegate(this, session));
                 session.setProgressDelegate(new ProgressDelegate(this, session));
                 session.setPermissionDelegate(new PermissionDelegate(this));
+                session.setContentDelegate(new TabContentDelegate(this, session));
                 sessions.add(session);
+                tabTitles.put(session, "Tab " + (i + 1));
                 if (stateStrings[i] != null) {
                     GeckoSession.SessionState state = GeckoSession.SessionState.fromString(stateStrings[i]);
                     if (state != null) {
@@ -166,20 +168,35 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private String buildNewTabPage() {
+        int bg = ContextCompat.getColor(this, R.color.md_theme_background);
+        int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
+        String bgHex = String.format("#%06X", (0xFFFFFF & bg));
+        String fgHex = String.format("#%06X", (0xFFFFFF & fg));
+        String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                + "<style>body{margin:0;background:" + bgHex + ";color:" + fgHex + ";font-family:sans-serif;"
+                + "display:flex;align-items:center;justify-content:center;height:100vh}"
+                + "p{font-size:18px;opacity:0.55}</style></head><body><p>New Tab</p></body></html>";
+        return "data:text/html;charset=utf-8,"
+                + URLEncoder.encode(html, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     private void createNewTab(boolean select) {
         GeckoSession session = new GeckoSession();
         session.open(sGeckoRuntime);
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
+        session.setContentDelegate(new TabContentDelegate(this, session));
         sessions.add(session);
+        tabTitles.put(session, "New Tab");
         if (select) {
             currentTabIndex = sessions.size() - 1;
             geckoView.setSession(session);
             updateNavigationButtons();
         }
         updateTabManagerText();
-        session.loadUri("about:blank");
+        session.loadUri(buildNewTabPage());
     }
 
     private String getSearchUrl(String query) {
@@ -227,7 +244,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showTabManager() {
-        TabManagerHelper.show(this, sessions, currentTabIndex,
+        TabManagerHelper.show(this, sessions, tabTitles, currentTabIndex,
                 new TabManagerHelper.TabActionListener() {
                     @Override
                     public void onTabSelected(int index) {
@@ -244,6 +261,7 @@ public class MainActivity extends AppCompatActivity {
                         if (sessions.size() <= 1) return;
                         GeckoSession closing = sessions.get(index);
                         closing.close();
+                        tabTitles.remove(closing);
                         sessions.remove(index);
                         if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
                         if (index <= currentTabIndex) currentTabIndex = Math.max(0, currentTabIndex - 1);
@@ -271,6 +289,7 @@ public class MainActivity extends AppCompatActivity {
             }
             GeckoSession closing = sessions.get(currentTabIndex);
             closing.close();
+            tabTitles.remove(closing);
             sessions.remove(currentTabIndex);
             if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
             geckoView.setSession(sessions.get(currentTabIndex));
@@ -298,8 +317,9 @@ public class MainActivity extends AppCompatActivity {
         } else if (id == R.id.action_exit) {
             for (GeckoSession session : sessions) session.close();
             sessions.clear();
+            tabTitles.clear();
             stopService(new Intent(this, BrowserService.class));
-            finishAffinity();
+            finishAndRemoveTask();
             return true;
         }
         return false;
@@ -358,6 +378,23 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
+    private static class TabContentDelegate implements GeckoSession.ContentDelegate {
+        private final WeakReference<MainActivity> activityRef;
+        private final GeckoSession ownSession;
+
+        TabContentDelegate(MainActivity activity, GeckoSession session) {
+            this.activityRef = new WeakReference<>(activity);
+            this.ownSession = session;
+        }
+
+        public void onTitleChange(GeckoSession session, String title) {
+            MainActivity activity = activityRef.get();
+            if (activity != null && session == ownSession && title != null && !title.isEmpty()) {
+                activity.tabTitles.put(session, title);
+            }
+        }
+    }
+
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
         private final GeckoSession ownSession;
@@ -402,7 +439,9 @@ public class MainActivity extends AppCompatActivity {
                     newSession.setNavigationDelegate(new NavigationDelegate(activity, newSession));
                     newSession.setProgressDelegate(new ProgressDelegate(activity, newSession));
                     newSession.setPermissionDelegate(new PermissionDelegate(activity));
+                    newSession.setContentDelegate(new TabContentDelegate(activity, newSession));
                     activity.sessions.add(newSession);
+                    activity.tabTitles.put(newSession, "New Tab");
                     activity.currentTabIndex = activity.sessions.size() - 1;
                     activity.geckoView.setSession(newSession);
                     activity.updateNavigationButtons();
