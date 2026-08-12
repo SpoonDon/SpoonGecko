@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.Gravity;
+import android.webkit.MimeTypeMap;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -18,10 +19,13 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class DownloadsActivity extends AppCompatActivity {
 
@@ -31,11 +35,13 @@ public class DownloadsActivity extends AppCompatActivity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setFitsSystemWindows(true);
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle("Downloads");
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.setNavigationOnClickListener(v -> finish());
+        toolbar.setFitsSystemWindows(true);
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
@@ -48,7 +54,9 @@ public class DownloadsActivity extends AppCompatActivity {
 
         List<File> fileList = new ArrayList<>();
         if (files != null) {
-            fileList.addAll(Arrays.asList(files));
+            for (File f : files) {
+                if (f.isFile()) fileList.add(f);
+            }
             fileList.sort(Comparator.comparingLong(File::lastModified).reversed());
         }
 
@@ -103,6 +111,7 @@ public class DownloadsActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(16, 12, 8, 12);
+        row.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
@@ -113,18 +122,16 @@ public class DownloadsActivity extends AppCompatActivity {
         name.setText(file.getName());
         name.setTextSize(14);
         name.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
+        name.setMaxLines(1);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         info.addView(name);
 
-        TextView size = new TextView(this);
-        long bytes = file.length();
-        String sizeStr;
-        if (bytes < 1024) sizeStr = bytes + " B";
-        else if (bytes < 1024 * 1024) sizeStr = String.format("%.1f KB", bytes / 1024.0);
-        else sizeStr = String.format("%.1f MB", bytes / (1024.0 * 1024.0));
-        size.setText(sizeStr);
-        size.setTextSize(11);
-        size.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
-        info.addView(size);
+        TextView meta = new TextView(this);
+        meta.setText(formatSize(file.length()) + "  |  " + formatDate(file.lastModified()));
+        meta.setTextSize(11);
+        meta.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
+        meta.setPadding(0, 4, 0, 0);
+        info.addView(meta);
 
         MaterialButton btnDelete = new MaterialButton(this);
         btnDelete.setText("\u2715");
@@ -143,18 +150,7 @@ public class DownloadsActivity extends AppCompatActivity {
             }
         });
 
-        card.setOnClickListener(v -> {
-            try {
-                Uri uri = FileProvider.getUriForFile(this,
-                        getPackageName() + ".fileprovider", file);
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri, getMimeType(file.getName()));
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(intent);
-            } catch (Exception e) {
-                Toast.makeText(this, "Cannot open file", Toast.LENGTH_SHORT).show();
-            }
-        });
+        card.setOnClickListener(v -> openFile(file));
 
         row.addView(info);
         row.addView(btnDelete);
@@ -162,18 +158,37 @@ public class DownloadsActivity extends AppCompatActivity {
         return card;
     }
 
-    private String getMimeType(String filename) {
-        String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
-        switch (ext) {
-            case "pdf": return "application/pdf";
-            case "png": return "image/png";
-            case "jpg": case "jpeg": return "image/jpeg";
-            case "gif": return "image/gif";
-            case "mp4": return "video/mp4";
-            case "mp3": return "audio/mpeg";
-            case "apk": return "application/vnd.android.package-archive";
-            case "zip": return "application/zip";
-            default: return "*/*";
+    private void openFile(File file) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this,
+                    getPackageName() + ".fileprovider", file);
+            String mime = MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(extension(file.getName()));
+            if (mime == null) mime = "application/octet-stream";
+
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, mime);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(intent, "Open with"));
+        } catch (Exception e) {
+            Toast.makeText(this, "No app found to open this file", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String extension(String filename) {
+        int i = filename.lastIndexOf('.');
+        if (i == -1) return "";
+        return filename.substring(i + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
+        return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+
+    private String formatDate(long millis) {
+        return new SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+                .format(new Date(millis));
     }
 }
