@@ -19,6 +19,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          VERSION=$(python3 - <<'EOF'
+          import subprocess
+          count = int(subprocess.run(
+              ["git", "rev-list", "--count", "HEAD"],
+              capture_output=True, text=True
+          ).stdout.strip()) - 531
+          minor = count // 10
+          patch = count % 10
+          print(f"0.{minor}.{patch}")
+          EOF
+          )
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -44,12 +62,15 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_NAME: ${{ steps.version.outputs.VERSION }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APK artifact
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release and upload APK
+        uses: softprops/action-gh-release@v2
         with:
-          name: spoongecko-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: SpoonGecko ${{ steps.version.outputs.VERSION }}
+          files: app/build/outputs/apk/release/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
