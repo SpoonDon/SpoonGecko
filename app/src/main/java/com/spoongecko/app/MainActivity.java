@@ -291,10 +291,10 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    private void showFindDialog() {
+        private void showFindDialog() {
         if (currentTabIndex >= sessions.size()) return;
         GeckoSession session = sessions.get(currentTabIndex);
-        GeckoSession.SessionFinder finder = session.getFinder();
+        SessionFinder finder = session.getFinder();
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -346,8 +346,9 @@ public class MainActivity extends AppCompatActivity {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 String q = input.getText().toString().trim();
                 if (!q.isEmpty()) {
-                    finder.find(q, 0).accept(result -> runOnUiThread(() ->
-                            status.setText((result.current + 1) + "/" + result.total)));
+                    finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
+                            runOnUiThread(() ->
+                                    status.setText((result.current + 1) + "/" + result.total)));
                 }
                 return true;
             }
@@ -357,15 +358,17 @@ public class MainActivity extends AppCompatActivity {
         next.setOnClickListener(v -> {
             String q = input.getText().toString().trim();
             if (q.isEmpty()) return;
-            finder.findNext(0).accept(result -> runOnUiThread(() ->
-                    status.setText((result.current + 1) + "/" + result.total)));
+            finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
+                    runOnUiThread(() ->
+                            status.setText((result.current + 1) + "/" + result.total)));
         });
 
         prev.setOnClickListener(v -> {
             String q = input.getText().toString().trim();
             if (q.isEmpty()) return;
-            finder.findPrev(0).accept(result -> runOnUiThread(() ->
-                    status.setText((result.current + 1) + "/" + result.total)));
+            finder.find(q, GeckoSession.FINDER_FIND_BACKWARDS).accept(result ->
+                    runOnUiThread(() ->
+                            status.setText((result.current + 1) + "/" + result.total)));
         });
 
         dialog.show();
