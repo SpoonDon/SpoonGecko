@@ -45,13 +45,21 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --build-cache
 
+      - name: Get Version from APK
+        id: version
+        run: |
+          APK_PATH=$(ls app/build/outputs/apk/release/SpoonGecko*.apk | head -1)
+          FILENAME=$(basename "$APK_PATH")
+          VERSION=$(echo "$FILENAME" | sed -E 's/SpoonGecko v(.*)\.apk/\1/')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
       - name: Create GitHub Release & Upload APK
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push'
         with:
           files: app/build/outputs/apk/release/SpoonGecko*.apk
-          name: "SpoonGecko (auto)"
-          tag_name: "build-${{ github.run_number }}"
+          name: "SpoonGecko v${{ env.VERSION }}"
+          tag_name: "v${{ env.VERSION }}"
           draft: false
           prerelease: false
         env:
