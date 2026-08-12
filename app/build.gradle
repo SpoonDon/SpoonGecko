@@ -19,7 +19,7 @@ def commitCount = getCommitCount()
 def offset = 531
 def counter = Math.max(1, commitCount - offset)
 def patch = counter % 10
-def minor = counter / 10
+def minor = counter.intdiv(10)
 def versionNameValue = "0.${minor}.${patch}"
 def versionCodeValue = counter
 
