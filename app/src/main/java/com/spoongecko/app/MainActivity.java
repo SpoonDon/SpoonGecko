@@ -1,6 +1,7 @@
 package com.spoongecko.app;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -172,8 +174,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
-        // Track hosts for which we've already attempted an HTTP fallback to avoid infinite redirect loops
-        private final Set<String> retriedHosts = new HashSet<>();
+        private final Set<String> handledHosts = new HashSet<>();
 
         NavigationDelegate(MainActivity activity) {
             this.activityRef = new WeakReference<>(activity);
@@ -210,28 +211,72 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
-                if (uri != null && uri.startsWith("https://")) {
-                    String host = null;
-                    try {
-                        URL url = new URL(uri);
-                        host = url.getHost();
-                    } catch (Exception ignored) {}
+                String host = null;
+                try {
+                    URL url = new URL(uri);
+                    host = url.getHost();
+                } catch (Exception ignored) {}
 
-                    if (host != null && !retriedHosts.contains(host)) {
-                        // First time seeing this host – attempt HTTP fallback
-                        retriedHosts.add(host);
-                        String httpUri = uri.replace("https://", "http://");
+                final String finalHost = host != null ? host : uri;
+                final String finalUri = uri;
+
+                if (handledHosts.contains(finalHost)) {
+                    // Already handled this host – inform the user
+                    activity.runOnUiThread(() ->
+                            Toast.makeText(activity, "Certificate error. " + finalHost + " cannot be loaded securely.", Toast.LENGTH_LONG).show()
+                    );
+                    return GeckoResult.fromValue(null);
+                }
+
+                final CountDownLatch latch = new CountDownLatch(1);
+                final boolean[] proceed = {false};
+
+                activity.runOnUiThread(() -> {
+                    new AlertDialog.Builder(activity)
+                            .setTitle("Security Warning")
+                            .setMessage("The certificate for " + finalHost + " is not trusted.\n\n" +
+                                    "Connecting to this site may expose your information.\n\n" +
+                                    "Do you want to proceed anyway?")
+                            .setPositiveButton("Proceed (unsafe)", (dialog, which) -> {
+                                proceed[0] = true;
+                                handledHosts.add(finalHost);
+                                latch.countDown();
+                            })
+                            .setNegativeButton("Cancel", (dialog, which) -> {
+                                proceed[0] = false;
+                                handledHosts.add(finalHost);
+                                latch.countDown();
+                            })
+                            .setOnCancelListener(dialog -> {
+                                proceed[0] = false;
+                                handledHosts.add(finalHost);
+                                latch.countDown();
+                            })
+                            .show();
+                });
+
+                try {
+                    latch.await();
+                } catch (InterruptedException ignored) {
+                    return GeckoResult.fromValue(null);
+                }
+
+                if (proceed[0]) {
+                    if (finalUri != null && finalUri.startsWith("https://")) {
+                        String httpUri = finalUri.replace("https://", "http://");
+                        // Load over HTTP – GeckoView will show the crossed-out padlock automatically
                         session.loadUri(httpUri);
                         return GeckoResult.fromValue(null);
                     } else {
-                        // Already tried – show a message to avoid infinite loop
-                        final String finalHost = host != null ? host : uri;
-                        activity.runOnUiThread(() ->
-                                Toast.makeText(activity, "Unable to load " + finalHost +
-                                        " due to certificate error and redirect loop.", Toast.LENGTH_LONG).show()
-                        );
+                        // If already HTTP, just reload
+                        session.loadUri(finalUri);
                         return GeckoResult.fromValue(null);
                     }
+                } else {
+                    activity.runOnUiThread(() ->
+                            Toast.makeText(activity, "Load cancelled by user.", Toast.LENGTH_SHORT).show()
+                    );
+                    return GeckoResult.fromValue(null);
                 }
             }
 
@@ -343,5 +388,5 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public void onPermissionResult(int requestCode, String[] permissions, int[] grantResults) {}
-    }
+    }                
 }
