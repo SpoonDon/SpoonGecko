@@ -26,11 +26,13 @@ public class SettingsActivity extends AppCompatActivity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setFitsSystemWindows(true);
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle("Settings");
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.setNavigationOnClickListener(v -> finish());
+        toolbar.setFitsSystemWindows(true);
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
@@ -91,7 +93,7 @@ public class SettingsActivity extends AppCompatActivity {
                     .show();
         }));
 
-        content.addView(buildSimpleCard("About", v -> {
+        content.addView(buildSimpleCard("SpoonGecko", v -> {
             String versionName = "unknown";
             try {
                 versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
@@ -103,7 +105,7 @@ public class SettingsActivity extends AppCompatActivity {
                             + "GeckoView: " + gvVersion + "\n\n"
                             + "A minimal, privacy-first GeckoView browser.\n"
                             + "No telemetry. No tracking.\n\n"
-                            + "- with love, Plaban.")    
+                            + "- with love, Plaban.")
                     .setPositiveButton("Close", null)
                     .show();
         }));
