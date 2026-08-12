@@ -291,88 +291,95 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-        private void showFindDialog() {
-        if (currentTabIndex >= sessions.size()) return;
-        GeckoSession session = sessions.get(currentTabIndex);
-        SessionFinder finder = session.getFinder();
+    private void showFindDialog() {
+    if (currentTabIndex >= sessions.size()) return;
+    GeckoSession session = sessions.get(currentTabIndex);
+    SessionFinder finder = session.getFinder();
 
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(24, 24, 24, 24);
+    LinearLayout box = new LinearLayout(this);
+    box.setOrientation(LinearLayout.VERTICAL);
+    box.setPadding(24, 24, 24, 24);
 
-        EditText input = new EditText(this);
-        input.setHint("Find in page");
-        input.setSingleLine(true);
-        input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        box.addView(input);
+    EditText input = new EditText(this);
+    input.setHint("Find in page");
+    input.setSingleLine(true);
+    input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+    box.addView(input);
 
-        TextView status = new TextView(this);
-        status.setText("0/0");
-        status.setTextSize(13);
-        status.setPadding(0, 8, 0, 8);
-        status.setGravity(Gravity.CENTER);
-        box.addView(status);
+    TextView status = new TextView(this);
+    status.setText("0/0");
+    status.setTextSize(13);
+    status.setPadding(0, 8, 0, 8);
+    status.setGravity(Gravity.CENTER);
+    box.addView(status);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(0, 8, 0, 0);
+    LinearLayout row = new LinearLayout(this);
+    row.setOrientation(LinearLayout.HORIZONTAL);
+    row.setGravity(Gravity.CENTER);
+    row.setPadding(0, 8, 0, 0);
 
-        MaterialButton prev = new MaterialButton(this);
-        prev.setText("Prev");
-        MaterialButton next = new MaterialButton(this);
-        next.setText("Next");
+    MaterialButton prev = new MaterialButton(this);
+    prev.setText("Prev");
+    MaterialButton next = new MaterialButton(this);
+    next.setText("Next");
 
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        prev.setLayoutParams(btnParams);
-        next.setLayoutParams(btnParams);
+    LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+    prev.setLayoutParams(btnParams);
+    next.setLayoutParams(btnParams);
 
-        row.addView(prev);
-        row.addView(next);
-        box.addView(row);
+    row.addView(prev);
+    row.addView(next);
+    box.addView(row);
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(box)
-                .setOnDismissListener(d -> finder.clear())
-                .create();
+    AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(box)
+            .setOnDismissListener(d -> finder.clear())
+            .create();
 
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setDimAmount(0.0f);
-            dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
-        }
-
-        input.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                String q = input.getText().toString().trim();
-                if (!q.isEmpty()) {
-                    finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
-                            runOnUiThread(() ->
-                                    status.setText((result.current + 1) + "/" + result.total)));
-                }
-                return true;
-            }
-            return false;
-        });
-
-        next.setOnClickListener(v -> {
-            String q = input.getText().toString().trim();
-            if (q.isEmpty()) return;
-            finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
-                    runOnUiThread(() ->
-                            status.setText((result.current + 1) + "/" + result.total)));
-        });
-
-        prev.setOnClickListener(v -> {
-            String q = input.getText().toString().trim();
-            if (q.isEmpty()) return;
-            finder.find(q, GeckoSession.FINDER_FIND_BACKWARDS).accept(result ->
-                    runOnUiThread(() ->
-                            status.setText((result.current + 1) + "/" + result.total)));
-        });
-
-        dialog.show();
+    if (dialog.getWindow() != null) {
+        dialog.getWindow().setDimAmount(0.0f);
+        dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
+        // Move to top, below the URL bar
+        dialog.getWindow().setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        // Get the bottom coordinate of the URL bar
+        int[] location = new int[2];
+        urlBar.getLocationOnScreen(location);
+        int yOffset = location[1] + urlBar.getHeight() + 8; // add small margin
+        dialog.getWindow().getAttributes().y = yOffset;
     }
+
+    input.setOnEditorActionListener((v, actionId, event) -> {
+        if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+            String q = input.getText().toString().trim();
+            if (!q.isEmpty()) {
+                finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
+                        runOnUiThread(() ->
+                                status.setText((result.current + 1) + "/" + result.total)));
+            }
+            return true;
+        }
+        return false;
+    });
+
+    next.setOnClickListener(v -> {
+        String q = input.getText().toString().trim();
+        if (q.isEmpty()) return;
+        finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
+                runOnUiThread(() ->
+                        status.setText((result.current + 1) + "/" + result.total)));
+    });
+
+    prev.setOnClickListener(v -> {
+        String q = input.getText().toString().trim();
+        if (q.isEmpty()) return;
+        finder.find(q, GeckoSession.FINDER_FIND_BACKWARDS).accept(result ->
+                runOnUiThread(() ->
+                        status.setText((result.current + 1) + "/" + result.total)));
+    });
+
+    dialog.show();
+}
 
     private boolean handleMenuItem(MenuItem item) {
         int id = item.getItemId();
