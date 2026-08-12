@@ -205,62 +205,60 @@ public class MainActivity extends AppCompatActivity {
             return GeckoResult.fromValue(null);
         }
 
-        public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
-            MainActivity activity = activityRef.get();
-            if (activity == null) {
-                return GeckoResult.fromValue(null);
+        public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {    
+            MainActivity activity = activityRef.get();    
+            if (activity == null) {        
+                return GeckoResult.fromValue(null);    
             }
-
-            if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {
-                String host = null;
-                try {
-                    URL url = new URL(uri);
-                    host = url.getHost();
+    
+            if (error.code == WebRequestError.ERROR_SECURITY_BAD_CERT) {        
+                String host = null;        
+                try {            
+                    URL url = new URL(uri);            
+                    host = url.getHost();        
                 } catch (Exception ignored) {}
-
-                final String finalHost = host != null ? host : uri;
-                final String finalUri = uri;
-
-                if (handledHosts.contains(finalHost)) {
-                    activity.runOnUiThread(() ->
-                            Toast.makeText(activity, "Certificate error. " + finalHost + " cannot be loaded securely.", Toast.LENGTH_LONG).show()
-                    );
-                    return GeckoResult.fromValue(null);
-                }
-
-                activity.runOnUiThread(() -> {
-                    new AlertDialog.Builder(activity)
-                            .setTitle("Security Warning")
-                            .setMessage("The certificate for " + finalHost + " is not trusted.\n\n" +
-                                    "Connecting to this site may expose your information.\n\n" +
-                                    "Do you want to proceed anyway?")
-                            .setPositiveButton("Proceed (unsafe)", (dialog, which) -> {
-                                handledHosts.add(finalHost);
-                                if (finalUri != null && finalUri.startsWith("https://")) {
-                                    session.loadUri(finalUri.replace("https://", "http://"));
-                                } else {
-                                    session.loadUri(finalUri);
-                                }
-                            })
-                            .setNegativeButton("Cancel", (dialog, which) -> {
-                                handledHosts.add(finalHost);
-                                Toast.makeText(activity, "Load cancelled by user.", Toast.LENGTH_SHORT).show();
-                            })
-                            .setOnCancelListener(dialog -> {
-                                handledHosts.add(finalHost);
-                                Toast.makeText(activity, "Load cancelled by user.", Toast.LENGTH_SHORT).show();
-                            })
-                            .show();
-                });
-
-                return GeckoResult.fromValue(null);
+        
+                final String finalHost = host != null ? host : uri;        
+                final String encodedUri = uri.replace("\\", "\\\\").replace("'", "\\'");
+        
+                String errorPage = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                "<style>body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;" +
+                "min-height:100vh;margin:0;background:#fff;color:#0d0d0d}" +
+                ".card{max-width:420px;padding:32px;text-align:center}" +
+                "h2{font-size:20px;margin:0 0 8px 0;color:#c00}" +
+                "p{font-size:14px;color:#555;margin:0 0 24px 0;line-height:1.5}" +
+                ".host{font-family:monospace;word-break:break-all;color:#0d0d0d}" +
+                "button{background:#4d6bfe;color:#fff;border:none;padding:12px 24px;" +
+                "border-radius:8px;font-size:16px;cursor:pointer}" +
+                "button:hover{background:#3b54d0}" +
+                ".cancel{background:none;color:#4d6bfe;border:1px solid #4d6bfe;margin-top:12px}" +
+                ".cancel:hover{background:#f0f2ff}" +
+                "</style></head><body><div class='card'>" +
+                "<h2>Security Warning</h2>" +
+                "<p>The certificate for <span class='host'>" + finalHost + "</span> is not trusted.<br>" +
+                "Connecting to this site may expose your information.</p>" +
+                "<button onclick='proceed()'>Proceed (unsafe)</button><br>" +
+                "<button class='cancel' onclick='cancel()'>Go Back</button>" +
+                "<script>" +
+                "function proceed(){" +
+                "document.addCertException(true).then(function(){" +
+                "location.replace('" + encodedUri + "');" +
+                "});" +
+                "}" +
+                "function cancel(){history.back();}" +
+                "</script>" +
+                "</div></body></html>";
+        
+                return GeckoResult.fromValue("data:text/html;charset=utf-8," + java.net.URLEncoder.encode(errorPage, java.nio.charset.StandardCharsets.UTF_8.toString()).replace("+", "%20"));
             }
 
-            activity.runOnUiThread(() ->
-                    Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()
-            );
-            return GeckoResult.fromValue(null);
-        }
+    
+            activity.runOnUiThread(() ->            
+                                   Toast.makeText(activity, "Error loading page: " + error.getMessage(), Toast.LENGTH_LONG).show()    
+                                  );    
+            return GeckoResult.fromValue(null);        
+        }    
     }
 
     private static class ProgressDelegate implements GeckoSession.ProgressDelegate {
