@@ -37,6 +37,7 @@ public class TabManagerHelper {
         LinearLayout container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setPadding(8, 8, 8, 8);
+        container.setBackgroundColor(context.getResources().getColor(R.color.md_theme_surface, null));
 
         GridView grid = new GridView(context);
         grid.setNumColumns(2);
@@ -115,7 +116,7 @@ public class TabManagerHelper {
                 label.setGravity(Gravity.CENTER);
                 label.setTextSize(13);
                 label.setPadding(12, 12, 28, 12);
-                label.setBackgroundResource(android.R.drawable.editbox_background);
+                label.setBackgroundColor(context.getResources().getColor(R.color.md_theme_surface, null));
                 label.setMaxLines(2);
                 label.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
