@@ -1,9 +1,10 @@
 package com.spoongecko.app;
 
-import android.Manifest;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
@@ -13,11 +14,11 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.tabs.TabLayout;
 
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
@@ -42,6 +43,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String KEY_SESSION_STATES = "sessionStates";
     private static final String KEY_TAB_INDEX = "tabIndex";
+    private static final String PREFS_NAME = "spoon_prefs";
+    private static final String PREF_SEARCH_ENGINE = "search_engine";
     private static GeckoRuntime sGeckoRuntime;
 
     private GeckoView geckoView;
@@ -58,8 +61,6 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton btnReload;
     private TextView tabManagerText;
     private MaterialButton btnMenu;
-    private TabLayout tabLayout;
-    private MaterialButton btnNewTab;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,8 +75,6 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btn_reload);
         tabManagerText = findViewById(R.id.tab_manager);
         btnMenu = findViewById(R.id.btn_menu);
-        tabLayout = findViewById(R.id.tab_layout);
-        btnNewTab = findViewById(R.id.btn_new_tab);
 
         startService(new Intent(this, BrowserService.class));
 
@@ -111,10 +110,9 @@ public class MainActivity extends AppCompatActivity {
                         session.restoreState(state);
                     }
                 }
-                addTabToLayout("Tab " + (i + 1), i == currentTabIndex);
             }
         } else {
-            createNewTab("https://www.mozilla.org", true);
+            createNewTab(true);
         }
 
         if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
@@ -122,24 +120,6 @@ public class MainActivity extends AppCompatActivity {
             updateNavigationButtons();
             updateTabManagerText();
         }
-
-        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override
-            public void onTabSelected(TabLayout.Tab tab) {
-                int pos = tab.getPosition();
-                if (pos >= 0 && pos < sessions.size() && pos != currentTabIndex) {
-                    currentTabIndex = pos;
-                    geckoView.setSession(sessions.get(pos));
-                    updateNavigationButtons();
-                    updateTabManagerText();
-                    urlBar.setText("");
-                }
-            }
-            @Override public void onTabUnselected(TabLayout.Tab tab) {}
-            @Override public void onTabReselected(TabLayout.Tab tab) {}
-        });
-
-        btnNewTab.setOnClickListener(v -> createNewTab("https://www.mozilla.org", false));
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -169,28 +149,49 @@ public class MainActivity extends AppCompatActivity {
             popup.setOnMenuItemClickListener(item -> handleMenuItem(item));
             popup.show();
         });
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                GeckoSession session = sessions.get(currentTabIndex);
+                if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
+                    session.goBack();
+                } else {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
     }
 
-    private void createNewTab(String url, boolean select) {
+    private void createNewTab(boolean select) {
         GeckoSession session = new GeckoSession();
         session.open(sGeckoRuntime);
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
         sessions.add(session);
-        addTabToLayout("Tab " + sessions.size(), select);
         if (select) {
             currentTabIndex = sessions.size() - 1;
             geckoView.setSession(session);
             updateNavigationButtons();
         }
         updateTabManagerText();
-        if (url != null) session.loadUri(url);
+        session.loadUri("about:blank");
     }
 
-    private void addTabToLayout(String title, boolean select) {
-        TabLayout.Tab tab = tabLayout.newTab().setText(title);
-        tabLayout.addTab(tab, select);
+    private String getSearchUrl(String query) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String engine = prefs.getString(PREF_SEARCH_ENGINE, "brave");
+        switch (engine) {
+            case "google":
+                return "https://www.google.com/search?q=" + query.replace(" ", "+");
+            case "duckduckgo":
+                return "https://duckduckgo.com/?q=" + query.replace(" ", "+");
+            case "brave":
+            default:
+                return "https://search.brave.com/search?q=" + query.replace(" ", "+");
+        }
     }
 
     private void loadUrl() {
@@ -205,7 +206,7 @@ public class MainActivity extends AppCompatActivity {
             } else if (input.contains(".")) {
                 input = "https://" + input;
             } else {
-                input = "https://duckduckgo.com/?q=" + input.replace(" ", "+");
+                input = getSearchUrl(input);
             }
         }
         sessions.get(currentTabIndex).loadUri(input);
@@ -233,7 +234,6 @@ public class MainActivity extends AppCompatActivity {
                             geckoView.setSession(sessions.get(index));
                             updateNavigationButtons();
                             updateTabManagerText();
-                            tabLayout.selectTab(tabLayout.getTabAt(index));
                         }
                     }
 
@@ -243,13 +243,16 @@ public class MainActivity extends AppCompatActivity {
                         GeckoSession closing = sessions.get(index);
                         closing.close();
                         sessions.remove(index);
-                        tabLayout.removeTabAt(index);
                         if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
                         if (index <= currentTabIndex) currentTabIndex = Math.max(0, currentTabIndex - 1);
                         geckoView.setSession(sessions.get(currentTabIndex));
-                        tabLayout.selectTab(tabLayout.getTabAt(currentTabIndex));
                         updateNavigationButtons();
                         updateTabManagerText();
+                    }
+
+                    @Override
+                    public void onNewTab() {
+                        createNewTab(true);
                     }
                 });
     }
@@ -257,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean handleMenuItem(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_new_tab) {
-            createNewTab("https://www.mozilla.org", false);
+            createNewTab(true);
             return true;
         } else if (id == R.id.action_close_tab) {
             if (sessions.size() <= 1) {
@@ -267,7 +270,6 @@ public class MainActivity extends AppCompatActivity {
             GeckoSession closing = sessions.get(currentTabIndex);
             closing.close();
             sessions.remove(currentTabIndex);
-            tabLayout.removeTabAt(currentTabIndex);
             if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
             geckoView.setSession(sessions.get(currentTabIndex));
             updateNavigationButtons();
@@ -286,20 +288,16 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Find in page coming soon", Toast.LENGTH_SHORT).show();
             return true;
         } else if (id == R.id.action_settings) {
-            Toast.makeText(this, "Settings coming soon", Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
+        } else if (id == R.id.action_extensions) {
+            startActivity(new Intent(this, ExtensionsActivity.class));
+            return true;
+        } else if (id == R.id.action_exit) {
+            finishAffinity();
             return true;
         }
         return false;
-    }
-
-    @Override
-    public void onBackPressed() {
-        GeckoSession session = sessions.get(currentTabIndex);
-        if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
-            session.goBack();
-        } else {
-            super.onBackPressed();
-        }
     }
 
     @Override
@@ -350,10 +348,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private GeckoSession getCurrentSession() {
+        if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) return sessions.get(currentTabIndex);
+        return null;
+    }
+
     private static class NavigationDelegate implements GeckoSession.NavigationDelegate {
         private final WeakReference<MainActivity> activityRef;
         private final GeckoSession ownSession;
-        private final Set<String> handledHosts = new HashSet<>();
 
         NavigationDelegate(MainActivity activity, GeckoSession session) {
             this.activityRef = new WeakReference<>(activity);
@@ -389,7 +391,19 @@ public class MainActivity extends AppCompatActivity {
         public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
             MainActivity activity = activityRef.get();
             if (activity != null) {
-                activity.runOnUiThread(() -> activity.createNewTab(uri, true));
+                activity.runOnUiThread(() -> {
+                    GeckoSession newSession = new GeckoSession();
+                    newSession.open(sGeckoRuntime);
+                    newSession.setNavigationDelegate(new NavigationDelegate(activity, newSession));
+                    newSession.setProgressDelegate(new ProgressDelegate(activity, newSession));
+                    newSession.setPermissionDelegate(new PermissionDelegate(activity));
+                    activity.sessions.add(newSession);
+                    activity.currentTabIndex = activity.sessions.size() - 1;
+                    activity.geckoView.setSession(newSession);
+                    activity.updateNavigationButtons();
+                    activity.updateTabManagerText();
+                    newSession.loadUri(uri);
+                });
             }
             return GeckoResult.fromValue(null);
         }
@@ -501,12 +515,12 @@ public class MainActivity extends AppCompatActivity {
             if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
-                    ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(Manifest.permission.CAMERA);
+                    ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.CAMERA);
             }
             if (audio != null && audio.length > 0 &&
-                    ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(Manifest.permission.RECORD_AUDIO);
+                    ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(android.Manifest.permission.RECORD_AUDIO);
             }
             if (!needed.isEmpty()) {
                 activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
@@ -520,10 +534,10 @@ public class MainActivity extends AppCompatActivity {
             MainActivity activity = activityRef.get();
             if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
             if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
-                if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                     return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
                 } else {
-                    activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE_PERMISSIONS);
+                    activity.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE_PERMISSIONS);
                     return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
                 }
             }
@@ -533,10 +547,5 @@ public class MainActivity extends AppCompatActivity {
             }
             return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
         }
-    }
-
-    private GeckoSession getCurrentSession() {
-        if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) return sessions.get(currentTabIndex);
-        return null;
     }
 }
