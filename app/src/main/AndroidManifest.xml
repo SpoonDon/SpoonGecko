@@ -17,6 +17,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SpoonGecko"
         android:hardwareAccelerated="true"
+        android:enableOnBackInvokedCallback="true"
         tools:targetApi="36">
 
         <activity
@@ -29,6 +30,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".SettingsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
+            android:exported="false" />
+
+        <activity
+            android:name=".ExtensionsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
+            android:exported="false" />
 
         <service
             android:name=".BrowserService"
