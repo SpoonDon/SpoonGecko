@@ -2,6 +2,21 @@ plugins {
     id 'com.android.application'
 }
 
+def getCommitCount = {
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
+            standardOutput = stdout
+        }
+        return stdout.toString().trim().toInteger()
+    } catch (e) {
+        return 1
+    }
+}
+
+def commitCount = getCommitCount()
+
 android {
     namespace 'com.spoongecko.app'
     compileSdk 36
@@ -10,8 +25,17 @@ android {
         applicationId "com.spoongecko.app"
         minSdk 34
         targetSdk 36
-        versionCode 1
-        versionName "1.0"
+        versionCode commitCount
+        versionName "0.0.${commitCount}"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("release.keystore")
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("KEY_ALIAS") ?: ""
+            keyPassword System.getenv("KEY_PASSWORD") ?: ""
+        }
     }
 
     buildTypes {
@@ -19,6 +43,13 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "SpoonGecko v${variant.versionName}.apk"
         }
     }
 
