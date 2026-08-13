@@ -29,6 +29,8 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebExtension;
+import org.mozilla.geckoview.WebExtensionController;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.lang.ref.WeakReference;
@@ -49,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREF_SEARCH_ENGINE = "search_engine";
     private static final int MAX_TABS = 50;
     private static final int MAX_PERSISTED_TABS = 10;
+    static final String EXTRA_LOAD_URL = "load_url";
     private static final String[] NEW_TAB_MESSAGES = {
             "Hello there !",
             "Happy browsing !",
@@ -407,16 +410,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        for (GeckoSession session : sessions) session.setActive(false);
-    }
-
-    @Override
     protected void onResume() {
         super.onResume();
         GeckoSession current = getCurrentSession();
         if (current != null) current.setActive(true);
+        if (BuildConfig.EXTENSIONS_ENABLED && sGeckoRuntime != null) {
+            sGeckoRuntime.getWebExtensionController()
+                    .setPromptDelegate(new InstallPromptDelegate(this));
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        for (GeckoSession session : sessions) session.setActive(false);
+        if (BuildConfig.EXTENSIONS_ENABLED && sGeckoRuntime != null) {
+            sGeckoRuntime.getWebExtensionController().setPromptDelegate(null);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null) {
+            String url = intent.getStringExtra(EXTRA_LOAD_URL);
+            if (url != null && currentTabIndex < sessions.size()) {
+                sessions.get(currentTabIndex).loadUri(url);
+                urlBar.setText(url);
+            }
+        }
     }
 
     @Override
@@ -677,6 +700,37 @@ public class MainActivity extends AppCompatActivity {
                 return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
             }
             return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+        }
+    }
+
+    private static class InstallPromptDelegate implements WebExtensionController.PromptDelegate {
+        private final WeakReference<MainActivity> activityRef;
+
+        InstallPromptDelegate(MainActivity activity) {
+            this.activityRef = new WeakReference<>(activity);
+        }
+
+        @Override
+        public GeckoResult<AllowOrDeny> onInstallPrompt(WebExtension extension) {
+            GeckoResult<AllowOrDeny> result = new GeckoResult<>();
+            MainActivity activity = activityRef.get();
+            if (activity == null) {
+                result.complete(AllowOrDeny.DENY);
+                return result;
+            }
+            String name = (extension.metaData != null && extension.metaData.name != null
+                    && !extension.metaData.name.isEmpty())
+                    ? extension.metaData.name
+                    : (extension.id != null ? extension.id : "this extension");
+            activity.runOnUiThread(() ->
+                    new AlertDialog.Builder(activity)
+                           .setTitle("Install Extension?")
+                           .setMessage("Add \"" + name + "\" to SpoonGecko?")
+                           .setPositiveButton("Install", (d, w) -> result.complete(AllowOrDeny.ALLOW))
+                           .setNegativeButton("Cancel", (d, w) -> result.complete(AllowOrDeny.DENY))
+                           .setOnCancelListener(d -> result.complete(AllowOrDeny.DENY))
+                           .show());
+            return result;
         }
     }
 }

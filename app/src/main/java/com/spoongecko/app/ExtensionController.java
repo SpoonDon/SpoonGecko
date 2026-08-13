@@ -260,7 +260,10 @@ public final class ExtensionController {
 
     static boolean isAllowedSource(String uri) {
         if (uri == null) return false;
-        return uri.startsWith("content://") || uri.startsWith("https://");
+        // https:// – remote store; file:// – app-private cache temp (callers must
+        // ensure the path is inside getCacheDir()). content:// URIs must be
+        // converted to file:// by the caller before reaching this method.
+        return uri.startsWith("https://") || uri.startsWith("file://");
     }
 
     static String formatInstallError(String raw) {

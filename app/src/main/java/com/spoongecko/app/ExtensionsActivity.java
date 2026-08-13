@@ -22,6 +22,10 @@ import com.google.android.material.card.MaterialCardView;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -105,8 +109,12 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         MaterialButton btnBrowseAmo = new MaterialButton(this);
         btnBrowseAmo.setText("Browse AMO");
-        btnBrowseAmo.setOnClickListener(v ->
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(AMO_URL))));
+        btnBrowseAmo.setOnClickListener(v -> {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.putExtra(MainActivity.EXTRA_LOAD_URL, AMO_URL);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+        });
         btnBrowseAmo.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
@@ -271,31 +279,51 @@ public class ExtensionsActivity extends AppCompatActivity {
     // ---------------------------------------------------------------- actions
 
     private void installExtension(Uri uri) {
+        // GeckoView's install() does not understand content:// URIs, so we copy
+        // the selected .xpi into a fixed-name private cache file and pass a
+        // file:// URI instead.  Using a fixed name means any file left behind by
+        // a previously interrupted install is silently overwritten.
+        File tempXpi = new File(getCacheDir(), "xpi_install.xpi");
         try {
-            getContentResolver().takePersistableUriPermission(uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) {}
+            try (InputStream in = getContentResolver().openInputStream(uri);
+                 FileOutputStream out = new FileOutputStream(tempXpi)) {
+                if (in == null) throw new IOException("Cannot open input stream for URI");
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+        } catch (IOException e) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Install Failed")
+                    .setMessage("Could not read the selected file.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
 
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-        ExtensionController.install(uri.toString(), runtime, new ExtensionController.Callback() {
-            @Override
-            public void onSuccess(String message) {
-                runOnUiThread(() -> {
-                    Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show();
-                    refreshExtensionsList();
-                });
-            }
+        ExtensionController.install(Uri.fromFile(tempXpi).toString(), runtime,
+                new ExtensionController.Callback() {
+                    @Override
+                    public void onSuccess(String message) {
+                        tempXpi.delete();
+                        runOnUiThread(() -> {
+                            Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show();
+                            refreshExtensionsList();
+                        });
+                    }
 
-            @Override
-            public void onError(String message) {
-                runOnUiThread(() ->
-                        new AlertDialog.Builder(ExtensionsActivity.this)
-                                .setTitle("Install Failed")
-                                .setMessage(message)
-                                .setPositiveButton("OK", null)
-                                .show());
-            }
-        });
+                    @Override
+                    public void onError(String message) {
+                        tempXpi.delete();
+                        runOnUiThread(() ->
+                                new AlertDialog.Builder(ExtensionsActivity.this)
+                                        .setTitle("Install Failed")
+                                        .setMessage(message)
+                                        .setPositiveButton("OK", null)
+                                        .show());
+                    }
+                });
     }
 
     private void enableExtension(WebExtension ext) {
