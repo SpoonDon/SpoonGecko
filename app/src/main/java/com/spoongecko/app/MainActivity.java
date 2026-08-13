@@ -292,55 +292,51 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    private void showFindDialog() {
-    if (currentTabIndex >= sessions.size()) return;
-    GeckoSession session = sessions.get(currentTabIndex);
-    SessionFinder finder = session.getFinder();
-
-    finder.setDisplayFlags(GeckoSession.FINDER_DISPLAY_HIGHLIGHT_ALL);
-
-    LinearLayout box = new LinearLayout(this);
-    box.setOrientation(LinearLayout.VERTICAL);
-    box.setPadding(16, 16, 16, 16);
-
-    EditText input = new EditText(this);
-    input.setHint("Find in page");
-    input.setSingleLine(true);
-    input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-    box.addView(input);
-
-    TextView status = new TextView(this);
-    status.setText("0/0");
-    status.setTextSize(13);
-    status.setPadding(0, 8, 0, 8);
-    status.setGravity(Gravity.CENTER);
-    box.addView(status);
-
-    LinearLayout row = new LinearLayout(this);
-    row.setOrientation(LinearLayout.HORIZONTAL);
-    row.setGravity(Gravity.CENTER);
-    row.setPadding(0, 8, 0, 0);
-
-    MaterialButton prev = new MaterialButton(this);
-    prev.setText("Prev");
-    MaterialButton next = new MaterialButton(this);
-    next.setText("Next");
-
-    LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-    prev.setLayoutParams(btnParams);
-    next.setLayoutParams(btnParams);
-
-    row.addView(prev);
-    row.addView(next);
-    box.addView(row);
-
-    AlertDialog dialog = new AlertDialog.Builder(this)
+    private void showFindDialog() {    
+        if (currentTabIndex >= sessions.size()) return;    
+        GeckoSession session = sessions.get(currentTabIndex);    
+        SessionFinder finder = session.getFinder();    
+        finder.setDisplayFlags(GeckoSession.FINDER_DISPLAY_HIGHLIGHT_ALL);    
+        LinearLayout box = new LinearLayout(this);    
+        box.setOrientation(LinearLayout.VERTICAL);    
+        box.setPadding(16, 16, 16, 16);    
+        EditText input = new EditText(this);    
+        input.setHint("Find in page");    
+        input.setSingleLine(true);    
+        input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);    
+        box.addView(input);
+    
+        TextView status = new TextView(this);    
+        status.setText("0/0");    
+        status.setTextSize(13);    
+        status.setPadding(0, 8, 0, 8);    
+        status.setGravity(Gravity.CENTER);    
+        box.addView(status);
+    
+        LinearLayout row = new LinearLayout(this);    
+        row.setOrientation(LinearLayout.HORIZONTAL);    
+        row.setGravity(Gravity.CENTER);    
+        row.setPadding(0, 8, 0, 0);
+    
+        MaterialButton prev = new MaterialButton(this);    
+        prev.setText("Prev");    
+        MaterialButton next = new MaterialButton(this);    
+        next.setText("Next");
+    
+        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(            
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);    
+        prev.setLayoutParams(btnParams);    
+        next.setLayoutParams(btnParams);;    
+        row.addView(prev);    
+        row.addView(next);    
+        box.addView(row);
+    
+        AlertDialog dialog = new AlertDialog.Builder(this)
             .setView(box)
             .setOnDismissListener(d -> finder.clear())
             .create();
-
-    if (dialog.getWindow() != null) {
+    
+        if (dialog.getWindow() != null) {
         dialog.getWindow().setDimAmount(0.0f);
         dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
         dialog.getWindow().setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
@@ -437,10 +433,26 @@ public class MainActivity extends AppCompatActivity {
             return true;
         } else if (id == R.id.action_settings) {
             startActivity(new Intent(this, SettingsActivity.class));
-            return true;
+            return true;        
         } else if (id == R.id.action_extensions) {
             startActivity(new Intent(this, ExtensionsActivity.class));
             return true;
+        } else if (id == R.id.action_about) {        
+            String versionName = "unknown";        
+            try {            
+                versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;        
+            } catch (Exception ignored) {}        
+            String gvVersion = "GeckoView 153.0.20260803132010";            
+            new AlertDialog.Builder(this)                
+                .setTitle("Spoon Gecko")
+                .setMessage("App Version: " + versionName + "\n"
+                        + "GeckoView: " + gvVersion + "\n\n"
+                        + "A minimal, privacy-first GeckoView browser.\n"
+                        + "No telemetry. No tracking.\n\n"
+                        + "- with love, Plaban.")
+                .setPositiveButton("Close", null)
+                .show();        
+            return true;    
         } else if (id == R.id.action_exit) {
             for (GeckoSession session : sessions) session.close();
             sessions.clear();
