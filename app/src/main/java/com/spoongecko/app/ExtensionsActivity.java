@@ -125,8 +125,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         scroll.addView(content);
         root.addView(scroll);
         setContentView(root);
-
-        refreshExtensionsList();
+        // Initial load is handled by onResume, which always follows onCreate.
     }
 
     @Override
@@ -371,7 +370,8 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private void addSpacer(LinearLayout parent, int heightDp) {
         TextView spacer = new TextView(this);
-        spacer.setHeight(heightDp);
+        int heightPx = (int) (heightDp * getResources().getDisplayMetrics().density);
+        spacer.setHeight(heightPx);
         parent.addView(spacer);
     }
 }

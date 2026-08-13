@@ -271,7 +271,7 @@ public final class ExtensionController {
         if (raw.contains("ERROR_INCOMPATIBLE") || raw.contains("incompatible")) {
             return "Install failed: extension is not compatible with this browser version.";
         }
-        if (raw.contains("ERROR_SIGNEDSTATE") || raw.contains("sign")) {
+        if (raw.contains("ERROR_SIGNEDSTATE")) {
             return "Install failed: extension must be signed or the source is untrusted.";
         }
         if (raw.contains("ERROR_NETWORK") || raw.contains("network")) {

@@ -70,9 +70,16 @@ public class ExtensionControllerTest {
     }
 
     @Test
-    public void formatInstallError_signKeyword_returnsSignMessage() {
-        String result = ExtensionController.formatInstallError("ERROR_SIGNEDSTATE unsigned");
+    public void formatInstallError_signedStateKeyword_returnsSignMessage() {
+        String result = ExtensionController.formatInstallError("ERROR_SIGNEDSTATE policy violation");
         assertTrue(result.contains("signed"));
+    }
+
+    @Test
+    public void formatInstallError_wordDesign_doesNotReturnSignMessage() {
+        String result = ExtensionController.formatInstallError("design error occurred");
+        assertTrue(result.startsWith("Install failed:"));
+        assertFalse(result.contains("must be signed"));
     }
 
     @Test
