@@ -2,6 +2,11 @@ plugins {
     id 'com.android.application'
 }
 
+// Environment flag: set EXTENSIONS_ENABLED=false to ship a build without extension support.
+def extensionsEnabled = System.getenv("EXTENSIONS_ENABLED") != null
+        ? System.getenv("EXTENSIONS_ENABLED").toBoolean()
+        : true
+
 def getCommitCount = {
     try {
         def stdout = new ByteArrayOutputStream()
@@ -40,6 +45,11 @@ android {
         targetSdk 36
         versionCode versionCodeValue
         versionName versionNameValue
+        buildConfigField "boolean", "EXTENSIONS_ENABLED", "${extensionsEnabled}"
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     signingConfigs {
@@ -77,4 +87,5 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.core:core:1.13.1'
     implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:153.0.20260803132010'
+    testImplementation 'junit:junit:4.13.2'
 }
