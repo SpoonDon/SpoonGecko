@@ -26,8 +26,9 @@ import java.util.List;
  *
  * <p>Security notes:
  * <ul>
- *   <li>Extension sources are validated: only {@code content://} (file-picker) and
- *       {@code https://} URIs are accepted for install; plain {@code http://} is
+ *   <li>Extension sources are validated: only {@code file://} (app-private cache temp,
+ *       converted from a {@code content://} picker by the caller) and {@code https://}
+ *       URIs are accepted for install. {@code http://} and {@code content://} are
  *       rejected to prevent MITM injection of extension code.</li>
  *   <li>This class does not persist or log extension tokens or credentials.</li>
  * </ul>
@@ -46,13 +47,13 @@ public final class ExtensionController {
 
     private ExtensionController() {}
 
-    // ------------------------------------------------------------------ install
-
     /**
      * Installs a WebExtension from the given URI string.
      *
-     * <p>Accepted schemes: {@code content://} (device storage picker) and
-     * {@code https://} (remote URL). {@code http://} is rejected.
+     * <p>Accepted schemes: {@code file://} (app-private cache temp; callers must
+     * convert {@code content://} picker URIs to a {@code file://} path inside
+     * {@code getCacheDir()} before calling) and {@code https://} (remote URL).
+     * {@code http://} and {@code content://} are rejected.
      *
      * @param uriString  URI pointing to an .xpi file
      * @param runtime    current GeckoRuntime
@@ -68,7 +69,7 @@ public final class ExtensionController {
             return;
         }
         if (!isAllowedSource(uriString)) {
-            callback.onError("Install blocked: only content:// and https:// sources are permitted.");
+            callback.onError("Install blocked: only file:// and https:// sources are permitted.");
             return;
         }
         runtime.getWebExtensionController()
@@ -84,8 +85,6 @@ public final class ExtensionController {
                             callback.onError(formatInstallError(msg));
                         });
     }
-
-    // ----------------------------------------------------------------- uninstall
 
     /**
      * Uninstalls the given extension and removes its stored enabled preference.
@@ -115,8 +114,6 @@ public final class ExtensionController {
                         });
     }
 
-    // ------------------------------------------------------------------- enable
-
     /**
      * Enables a previously disabled extension and persists the state.
      */
@@ -144,8 +141,6 @@ public final class ExtensionController {
                             callback.onError("Failed to enable extension: " + msg);
                         });
     }
-
-    // ------------------------------------------------------------------ disable
 
     /**
      * Disables an extension (keeps it installed) and persists the state.
@@ -175,8 +170,6 @@ public final class ExtensionController {
                         });
     }
 
-    // -------------------------------------------------------------------- list
-
     /**
      * Lists installed extensions. The result list is passed to the provided {@link ListCallback}.
      */
@@ -205,8 +198,6 @@ public final class ExtensionController {
                         });
     }
 
-    // ------------------------------------------------------ enabled state helpers
-
     /**
      * Returns whether the extension with the given id was last persisted as enabled.
      * Defaults to {@code true} (extensions are enabled by default when first installed).
@@ -225,8 +216,6 @@ public final class ExtensionController {
         if (context == null || extensionId == null) return;
         getPrefs(context).edit().remove(PREF_PREFIX_ENABLED + extensionId).apply();
     }
-
-    // ------------------------------------------------------------------ helpers
 
     /**
      * Returns a human-readable label for an extension, falling back gracefully.
@@ -256,13 +245,8 @@ public final class ExtensionController {
         return ext.metaData.enabled;
     }
 
-    // ----------------------------------------------------------------- private
-
     static boolean isAllowedSource(String uri) {
         if (uri == null) return false;
-        // https:// – remote store; file:// – app-private cache temp (callers must
-        // ensure the path is inside getCacheDir()). content:// URIs must be
-        // converted to file:// by the caller before reaching this method.
         return uri.startsWith("https://") || uri.startsWith("file://");
     }
 
