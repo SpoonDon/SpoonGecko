@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
@@ -296,9 +297,11 @@ public class MainActivity extends AppCompatActivity {
     GeckoSession session = sessions.get(currentTabIndex);
     SessionFinder finder = session.getFinder();
 
+    finder.setDisplayFlags(GeckoSession.FINDER_DISPLAY_HIGHLIGHT_ALL);
+
     LinearLayout box = new LinearLayout(this);
     box.setOrientation(LinearLayout.VERTICAL);
-    box.setPadding(24, 24, 24, 24);
+    box.setPadding(16, 16, 16, 16);
 
     EditText input = new EditText(this);
     input.setHint("Find in page");
@@ -340,14 +343,34 @@ public class MainActivity extends AppCompatActivity {
     if (dialog.getWindow() != null) {
         dialog.getWindow().setDimAmount(0.0f);
         dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
-        // Move to top, below the URL bar
         dialog.getWindow().setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        // Get the bottom coordinate of the URL bar
         int[] location = new int[2];
         urlBar.getLocationOnScreen(location);
-        int yOffset = location[1] + urlBar.getHeight() + 8; // add small margin
+        int yOffset = location[1] + urlBar.getHeight();
         dialog.getWindow().getAttributes().y = yOffset;
+        dialog.getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
     }
+
+    android.text.TextWatcher watcher = new android.text.TextWatcher() {
+        @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+        @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+        @Override public void afterTextChanged(android.text.Editable s) {
+            String q = s.toString().trim();
+            if (!q.isEmpty()) {
+                finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
+                        runOnUiThread(() ->
+                                status.setText((result.current + 1) + "/" + result.total)));
+            } else {
+                finder.clear();
+                status.setText("0/0");
+            }
+        }
+    };
+    input.addTextChangedListener(watcher);
 
     input.setOnEditorActionListener((v, actionId, event) -> {
         if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -379,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
     });
 
     dialog.show();
-}
+    }
 
     private boolean handleMenuItem(MenuItem item) {
         int id = item.getItemId();
