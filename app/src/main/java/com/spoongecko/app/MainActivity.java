@@ -1,7 +1,6 @@
 package com.spoongecko.app;
 
 import android.app.AlertDialog;
-import android.app.DownloadManager;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
@@ -9,8 +8,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Bundle;
-import android.os.Environment;
-import android.view.Gravity;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
@@ -31,9 +28,6 @@ import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.GeckoSession.DownloadDelegate;
-import org.mozilla.geckoview.GeckoSession.DownloadRequest;
-import org.mozilla.geckoview.GeckoSession.SessionFinder;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
@@ -128,7 +122,6 @@ public class MainActivity extends AppCompatActivity {
                 session.setProgressDelegate(new ProgressDelegate(this, session));
                 session.setPermissionDelegate(new PermissionDelegate(this));
                 session.setContentDelegate(new TabContentDelegate(this, session));
-                session.setDownloadDelegate(new DownloadDelegate());
                 sessions.add(session);
                 tabTitles.put(session, "Tab " + (i + 1));
                 if (stateStrings[i] != null) {
@@ -209,7 +202,6 @@ public class MainActivity extends AppCompatActivity {
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
         session.setContentDelegate(new TabContentDelegate(this, session));
-        session.setDownloadDelegate(new DownloadDelegate());
         sessions.add(session);
         tabTitles.put(session, "New Tab");
         if (select) {
@@ -310,89 +302,6 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    private void showFindDialog() {
-        if (currentTabIndex >= sessions.size()) return;
-        GeckoSession session = sessions.get(currentTabIndex);
-        SessionFinder finder = session.getFinder();
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(24, 24, 24, 24);
-
-        EditText input = new EditText(this);
-        input.setHint("Find in page");
-        input.setSingleLine(true);
-        input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        box.addView(input);
-
-        TextView status = new TextView(this);
-        status.setText("0/0");
-        status.setTextSize(13);
-        status.setPadding(0, 8, 0, 8);
-        status.setGravity(Gravity.CENTER);
-        box.addView(status);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(0, 8, 0, 0);
-
-        MaterialButton prev = new MaterialButton(this);
-        prev.setText("Prev");
-        MaterialButton next = new MaterialButton(this);
-        next.setText("Next");
-
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        prev.setLayoutParams(btnParams);
-        next.setLayoutParams(btnParams);
-
-        row.addView(prev);
-        row.addView(next);
-        box.addView(row);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(box)
-                .setOnDismissListener(d -> finder.clear())
-                .create();
-
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setDimAmount(0.0f);
-            dialog.getWindow().setBackgroundDrawableResource(R.drawable.find_dialog_bg);
-        }
-
-        input.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                String q = input.getText().toString().trim();
-                if (!q.isEmpty()) {
-                    finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
-                            runOnUiThread(() ->
-                                    status.setText((result.current + 1) + "/" + result.total)));
-                }
-                return true;
-            }
-            return false;
-        });
-
-        next.setOnClickListener(v -> {
-            String q = input.getText().toString().trim();
-            if (q.isEmpty()) return;
-            finder.find(q, GeckoSession.FINDER_FIND_FORWARD).accept(result ->
-                    runOnUiThread(() ->
-                            status.setText((result.current + 1) + "/" + result.total)));
-        });
-
-        prev.setOnClickListener(v -> {
-            String q = input.getText().toString().trim();
-            if (q.isEmpty()) return;
-            finder.find(q, GeckoSession.FINDER_FIND_BACKWARDS).accept(result ->
-                    runOnUiThread(() ->
-                            status.setText((result.current + 1) + "/" + result.total)));
-        });
-
-        dialog.show();
-    }
-
     private boolean handleMenuItem(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_new_tab) {
@@ -423,9 +332,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         } else if (id == R.id.action_downloads) {
             startActivity(new Intent(this, DownloadsActivity.class));
-            return true;
-        } else if (id == R.id.action_find_in_page) {
-            showFindDialog();
             return true;
         } else if (id == R.id.action_settings) {
             startActivity(new Intent(this, SettingsActivity.class));
@@ -526,28 +432,6 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
-    private static class DownloadDelegate implements GeckoSession.DownloadDelegate {
-        @Override
-        public void onDownloadRequest(GeckoSession session, DownloadRequest request) {
-            DownloadManager dm = (DownloadManager) appContext.getSystemService(Context.DOWNLOAD_SERVICE);
-            DownloadManager.Request req = new DownloadManager.Request(request.getUri());
-
-            String filename = request.getFilename();
-            if (filename == null || filename.isEmpty()) {
-                filename = "download_" + System.currentTimeMillis();
-            } else {
-                String safe = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
-                if (safe.startsWith(".")) safe = "_" + safe;
-                filename = safe;
-            }
-
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            dm.enqueue(req);
-            Toast.makeText(appContext, "Download started: " + filename, Toast.LENGTH_SHORT).show();
-        }
-    }
-
     private static class TabContentDelegate implements GeckoSession.ContentDelegate {
         private final WeakReference<MainActivity> activityRef;
         private final GeckoSession ownSession;
@@ -610,7 +494,6 @@ public class MainActivity extends AppCompatActivity {
                     newSession.setProgressDelegate(new ProgressDelegate(activity, newSession));
                     newSession.setPermissionDelegate(new PermissionDelegate(activity));
                     newSession.setContentDelegate(new TabContentDelegate(activity, newSession));
-                    newSession.setDownloadDelegate(new DownloadDelegate());
                     activity.sessions.add(newSession);
                     activity.tabTitles.put(newSession, "New Tab");
                     activity.currentTabIndex = activity.sessions.size() - 1;
