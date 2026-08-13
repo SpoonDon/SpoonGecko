@@ -212,17 +212,17 @@ public final class ExtensionController {
      * Defaults to {@code true} (extensions are enabled by default when first installed).
      */
     public static boolean isEnabledInPrefs(Context context, String extensionId) {
-        if (extensionId == null) return true;
+        if (context == null || extensionId == null) return true;
         return getPrefs(context).getBoolean(PREF_PREFIX_ENABLED + extensionId, true);
     }
 
     static void setEnabledPref(Context context, String extensionId, boolean enabled) {
-        if (extensionId == null) return;
+        if (context == null || extensionId == null) return;
         getPrefs(context).edit().putBoolean(PREF_PREFIX_ENABLED + extensionId, enabled).apply();
     }
 
     static void clearEnabledPref(Context context, String extensionId) {
-        if (extensionId == null) return;
+        if (context == null || extensionId == null) return;
         getPrefs(context).edit().remove(PREF_PREFIX_ENABLED + extensionId).apply();
     }
 

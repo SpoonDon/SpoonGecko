@@ -225,7 +225,9 @@ public class ExtensionsActivity extends AppCompatActivity {
         info.addView(idView);
 
         // -- Enabled badge ---------------------------------------------------
-        boolean enabled = ExtensionController.isEnabled(ext);
+        boolean enabled = (ext.metaData != null)
+                ? ExtensionController.isEnabled(ext)
+                : ExtensionController.isEnabledInPrefs(this, ext.id);
         TextView badge = new TextView(this);
         badge.setText(enabled ? "● ON" : "○ OFF");
         badge.setTextSize(11);
@@ -242,6 +244,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         toggle.setChecked(enabled);
         toggle.setContentDescription(enabled ? "Disable extension" : "Enable extension");
         toggle.setOnCheckedChangeListener((btn, isChecked) -> {
+            btn.setContentDescription(isChecked ? "Disable extension" : "Enable extension");
             if (isChecked) {
                 enableExtension(ext);
             } else {
