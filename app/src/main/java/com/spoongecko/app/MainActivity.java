@@ -56,7 +56,7 @@ public class MainActivity extends AppCompatActivity {
             "Stay curious."
     };
     private static final Object sRuntimeLock = new Object();
-    static GeckoRuntime sGeckoRuntime;
+    static volatile GeckoRuntime sGeckoRuntime;
     private static Context appContext;
 
     // Cached new-tab page template colors (computed once per instance)
@@ -403,14 +403,13 @@ public class MainActivity extends AppCompatActivity {
             stateStrings[i] = state != null ? state.toString() : null;
         }
         outState.putStringArray(KEY_SESSION_STATES, stateStrings);
-        outState.putInt(KEY_TAB_INDEX, Math.min(currentTabIndex, count - 1));
+        outState.putInt(KEY_TAB_INDEX, count > 0 ? Math.min(currentTabIndex, count - 1) : 0);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        GeckoSession current = getCurrentSession();
-        if (current != null) current.setActive(false);
+        for (GeckoSession session : sessions) session.setActive(false);
     }
 
     @Override
