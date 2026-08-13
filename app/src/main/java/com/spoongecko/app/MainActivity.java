@@ -8,8 +8,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.Gravity;
@@ -33,9 +31,11 @@ import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
+import org.mozilla.geckoview.GeckoSession.DownloadDelegate;
+import org.mozilla.geckoview.GeckoSession.DownloadRequest;
+import org.mozilla.geckoview.GeckoSession.SessionFinder;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
-import org.mozilla.geckoview.SessionFinder;
 
 import java.lang.ref.WeakReference;
 import java.net.URL;
@@ -114,7 +114,6 @@ public class MainActivity extends AppCompatActivity {
                     .glMsaaLevel(0)
                     .lowMemoryDetection(true)
                     .crashHandler(CrashHandlerService.class)
-                    .allowInsecureConnections(GeckoRuntimeSettings.ALLOW_ALL)
                     .build();
             sGeckoRuntime = GeckoRuntime.create(this, settings);
         }
@@ -226,14 +225,15 @@ public class MainActivity extends AppCompatActivity {
     private String getSearchUrl(String query) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String engine = prefs.getString(PREF_SEARCH_ENGINE, "brave");
+        String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
         switch (engine) {
             case "google":
-                return "https://www.google.com/search?q=" + query.replace(" ", "+");
+                return "https://www.google.com/search?q=" + encoded;
             case "duckduckgo":
-                return "https://duckduckgo.com/?q=" + query.replace(" ", "+");
+                return "https://duckduckgo.com/?q=" + encoded;
             case "brave":
             default:
-                return "https://search.brave.com/search?q=" + query.replace(" ", "+");
+                return "https://search.brave.com/search?q=" + encoded;
         }
     }
 
@@ -287,9 +287,17 @@ public class MainActivity extends AppCompatActivity {
                         GeckoSession closing = sessions.get(index);
                         closing.close();
                         tabTitles.remove(closing);
+                        canGoBackMap.remove(closing);
+                        canGoForwardMap.remove(closing);
+                        sessionStates.remove(closing);
                         sessions.remove(index);
-                        if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
-                        if (index <= currentTabIndex) currentTabIndex = Math.max(0, currentTabIndex - 1);
+
+                        if (index < currentTabIndex) {
+                            currentTabIndex--;
+                        } else if (index == currentTabIndex) {
+                            currentTabIndex = Math.min(currentTabIndex, sessions.size() - 1);
+                        }
+
                         geckoView.setSession(sessions.get(currentTabIndex));
                         updateNavigationButtons();
                         updateTabManagerText();
@@ -398,6 +406,9 @@ public class MainActivity extends AppCompatActivity {
             GeckoSession closing = sessions.get(currentTabIndex);
             closing.close();
             tabTitles.remove(closing);
+            canGoBackMap.remove(closing);
+            canGoForwardMap.remove(closing);
+            sessionStates.remove(closing);
             sessions.remove(currentTabIndex);
             if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
             geckoView.setSession(sessions.get(currentTabIndex));
@@ -442,6 +453,9 @@ public class MainActivity extends AppCompatActivity {
             for (GeckoSession session : sessions) session.close();
             sessions.clear();
             tabTitles.clear();
+            canGoBackMap.clear();
+            canGoForwardMap.clear();
+            sessionStates.clear();
             stopService(new Intent(this, BrowserService.class));
             finishAndRemoveTask();
             return true;
@@ -486,6 +500,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         for (GeckoSession session : sessions) session.close();
         sessions.clear();
+        tabTitles.clear();
+        canGoBackMap.clear();
+        canGoForwardMap.clear();
+        sessionStates.clear();
         super.onDestroy();
     }
 
@@ -513,10 +531,16 @@ public class MainActivity extends AppCompatActivity {
         public void onDownloadRequest(GeckoSession session, DownloadRequest request) {
             DownloadManager dm = (DownloadManager) appContext.getSystemService(Context.DOWNLOAD_SERVICE);
             DownloadManager.Request req = new DownloadManager.Request(request.getUri());
+
             String filename = request.getFilename();
             if (filename == null || filename.isEmpty()) {
                 filename = "download_" + System.currentTimeMillis();
+            } else {
+                String safe = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
+                if (safe.startsWith(".")) safe = "_" + safe;
+                filename = safe;
             }
+
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             dm.enqueue(req);
