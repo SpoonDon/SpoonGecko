@@ -93,23 +93,6 @@ public class SettingsActivity extends AppCompatActivity {
                     .show();
         }));
 
-        content.addView(buildSimpleCard("SpoonGecko", v -> {
-            String versionName = "unknown";
-            try {
-                versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-            } catch (Exception ignored) {}
-            String gvVersion = "GeckoView 153.0.20260803132010";
-            new AlertDialog.Builder(this)
-                    .setTitle("SpoonGecko")
-                    .setMessage("App Version: " + versionName + "\n"
-                            + "GeckoView: " + gvVersion + "\n\n"
-                            + "A minimal, privacy-first GeckoView browser.\n"
-                            + "No telemetry. No tracking.\n\n"
-                            + "- with love, Plaban.")
-                    .setPositiveButton("Close", null)
-                    .show();
-        }));
-
         scroll.addView(content);
         root.addView(scroll);
         setContentView(root);
