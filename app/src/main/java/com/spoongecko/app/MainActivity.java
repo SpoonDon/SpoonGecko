@@ -47,21 +47,30 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_TAB_INDEX = "tabIndex";
     private static final String PREFS_NAME = "spoon_prefs";
     private static final String PREF_SEARCH_ENGINE = "search_engine";
+    private static final int MAX_TABS = 50;
+    private static final int MAX_PERSISTED_TABS = 10;
     private static final String[] NEW_TAB_MESSAGES = {
             "Hello there !",
             "Happy browsing !",
             "Explore away !",
             "Stay curious."
     };
+    private static final Object sRuntimeLock = new Object();
     static GeckoRuntime sGeckoRuntime;
     private static Context appContext;
+
+    // Cached new-tab page template colors (computed once per instance)
+    private String cachedNewTabBgHex;
+    private String cachedNewTabFgHex;
 
     public static Context getAppContext() {
         return appContext;
     }
 
     static GeckoRuntime getGeckoRuntime() {
-        return sGeckoRuntime;
+        synchronized (sRuntimeLock) {
+            return sGeckoRuntime;
+        }
     }
 
     private GeckoView geckoView;
@@ -98,18 +107,22 @@ public class MainActivity extends AppCompatActivity {
         startService(new Intent(this, BrowserService.class));
 
         if (sGeckoRuntime == null) {
-            GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    .aboutConfigEnabled(false)
-                    .consoleOutput(false)
-                    .remoteDebuggingEnabled(false)
-                    .fissionEnabled(true)
-                    .isolatedProcessEnabled(true)
-                    .appZygoteProcessEnabled(true)
-                    .glMsaaLevel(0)
-                    .lowMemoryDetection(true)
-                    .crashHandler(CrashHandlerService.class)
-                    .build();
-            sGeckoRuntime = GeckoRuntime.create(this, settings);
+            synchronized (sRuntimeLock) {
+                if (sGeckoRuntime == null) {
+                    GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
+                            .aboutConfigEnabled(false)
+                            .consoleOutput(false)
+                            .remoteDebuggingEnabled(false)
+                            .fissionEnabled(true)
+                            .isolatedProcessEnabled(true)
+                            .appZygoteProcessEnabled(true)
+                            .glMsaaLevel(0)
+                            .lowMemoryDetection(true)
+                            .crashHandler(CrashHandlerService.class)
+                            .build();
+                    sGeckoRuntime = GeckoRuntime.create(this, settings);
+                }
+            }
         }
 
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
@@ -181,21 +194,30 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private static String encodeForDataUri(String content) {
+        return URLEncoder.encode(content, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     private String buildNewTabPage() {
-        int bg = ContextCompat.getColor(this, R.color.md_theme_background);
-        int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
-        String bgHex = String.format("#%06X", (0xFFFFFF & bg));
-        String fgHex = String.format("#%06X", (0xFFFFFF & fg));
+        if (cachedNewTabBgHex == null) {
+            int bg = ContextCompat.getColor(this, R.color.md_theme_background);
+            int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
+            cachedNewTabBgHex = String.format("#%06X", (0xFFFFFF & bg));
+            cachedNewTabFgHex = String.format("#%06X", (0xFFFFFF & fg));
+        }
         String message = NEW_TAB_MESSAGES[new Random().nextInt(NEW_TAB_MESSAGES.length)];
         String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-                + "<style>body{margin:0;background:" + bgHex + ";color:" + fgHex + ";font-family:sans-serif;"
+                + "<style>body{margin:0;background:" + cachedNewTabBgHex + ";color:" + cachedNewTabFgHex + ";font-family:sans-serif;"
                 + "display:flex;align-items:center;justify-content:center;height:100vh}"
                 + "p{font-size:18px;opacity:0.55}</style></head><body><p>" + message + "</p></body></html>";
-        return "data:text/html;charset=utf-8,"
-                + URLEncoder.encode(html, StandardCharsets.UTF_8).replace("+", "%20");
+        return "data:text/html;charset=utf-8," + encodeForDataUri(html);
     }
 
     private void createNewTab(boolean select) {
+        if (sessions.size() >= MAX_TABS) {
+            Toast.makeText(this, "Maximum tab limit reached (" + MAX_TABS + ")", Toast.LENGTH_SHORT).show();
+            return;
+        }
         GeckoSession session = new GeckoSession();
         session.open(sGeckoRuntime);
         session.setNavigationDelegate(new NavigationDelegate(this, session));
@@ -250,8 +272,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateNavigationButtons() {
         GeckoSession session = sessions.get(currentTabIndex);
-        btnBack.setEnabled(Boolean.TRUE.equals(canGoBackMap.get(session)));
-        btnForward.setEnabled(Boolean.TRUE.equals(canGoForwardMap.get(session)));
+        boolean canBack = Boolean.TRUE.equals(canGoBackMap.get(session));
+        boolean canForward = Boolean.TRUE.equals(canGoForwardMap.get(session));
+        btnBack.setEnabled(canBack);
+        btnForward.setEnabled(canForward);
     }
 
     private void updateTabManagerText() {
@@ -372,26 +396,28 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        String[] stateStrings = new String[sessions.size()];
-        for (int i = 0; i < sessions.size(); i++) {
+        int count = Math.min(sessions.size(), MAX_PERSISTED_TABS);
+        String[] stateStrings = new String[count];
+        for (int i = 0; i < count; i++) {
             GeckoSession.SessionState state = sessionStates.get(sessions.get(i));
             stateStrings[i] = state != null ? state.toString() : null;
         }
         outState.putStringArray(KEY_SESSION_STATES, stateStrings);
-        outState.putInt(KEY_TAB_INDEX, currentTabIndex);
+        outState.putInt(KEY_TAB_INDEX, Math.min(currentTabIndex, count - 1));
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        for (GeckoSession session : sessions) session.setActive(false);
+        GeckoSession current = getCurrentSession();
+        if (current != null) current.setActive(false);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        for (GeckoSession session : sessions) session.setActive(false);
-        if (currentTabIndex < sessions.size()) sessions.get(currentTabIndex).setActive(true);
+        GeckoSession current = getCurrentSession();
+        if (current != null) current.setActive(true);
     }
 
     @Override
@@ -488,6 +514,10 @@ public class MainActivity extends AppCompatActivity {
             MainActivity activity = activityRef.get();
             if (activity != null) {
                 activity.runOnUiThread(() -> {
+                    if (activity.sessions.size() >= MAX_TABS) {
+                        Toast.makeText(activity, "Maximum tab limit reached (" + MAX_TABS + ")", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                     GeckoSession newSession = new GeckoSession();
                     newSession.open(sGeckoRuntime);
                     newSession.setNavigationDelegate(new NavigationDelegate(activity, newSession));
@@ -541,7 +571,7 @@ public class MainActivity extends AppCompatActivity {
                         + "function cancel(){history.back();}"
                         + "</script></div></body></html>";
                 return GeckoResult.fromValue("data:text/html;charset=utf-8,"
-                        + URLEncoder.encode(errorPage, StandardCharsets.UTF_8).replace("+", "%20"));
+                        + encodeForDataUri(errorPage));
             }
 
             activity.runOnUiThread(() ->
