@@ -710,7 +710,6 @@ public class MainActivity extends AppCompatActivity {
             this.activityRef = new WeakReference<>(activity);
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onInstallPrompt(WebExtension extension) {
             GeckoResult<AllowOrDeny> result = new GeckoResult<>();
             MainActivity activity = activityRef.get();
