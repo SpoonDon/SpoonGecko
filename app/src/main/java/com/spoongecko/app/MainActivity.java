@@ -60,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int MAX_PERSISTED_TABS = 10;
     static final String EXTRA_LOAD_URL = "load_url";
     static final String EXTRA_CLEAR_DATA = "clear_data";
+    private static final int REQUEST_CODE_NOTIFICATIONS = 2;
     private static final Set<String> ALLOWED_SCHEMES =
             new HashSet<>(Arrays.asList("http", "https", "data", "blob", "about"));
     private static final String[] NEW_TAB_MESSAGES = {
