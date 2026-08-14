@@ -32,6 +32,7 @@ import org.mozilla.geckoview.StorageController;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 import org.mozilla.geckoview.WebRequestError;
+import org.mozilla.geckoview.WebResponse;
 
 import java.lang.ref.WeakReference;
 import java.net.URL;
@@ -563,6 +564,14 @@ public class MainActivity extends AppCompatActivity {
             if (activity != null && session == ownSession && title != null && !title.isEmpty()) {
                 activity.tabTitles.put(session, title);
             }
+        }
+
+        public void onExternalResponse(GeckoSession session, WebResponse response) {
+            MainActivity activity = activityRef.get();
+            if (activity == null || response == null) return;
+            activity.runOnUiThread(() ->
+                    Toast.makeText(activity, "Download started", Toast.LENGTH_SHORT).show());
+            DownloadManager.handleDownload(activity, response);
         }
     }
 
