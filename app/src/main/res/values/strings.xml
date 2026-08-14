@@ -1,3 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SpoonGecko</string>
+
+    <!-- Common -->
+    <string name="allow">Allow</string>
+    <string name="deny">Deny</string>
+    <string name="cancel">Cancel</string>
+    <string name="close">Close</string>
+    <string name="install">Install</string>
+    <string name="clear">Clear</string>
+    <string name="remove">Remove</string>
+    <string name="ok">OK</string>
+    <string name="copied">Copied</string>
+
+    <!-- Toolbar -->
+    <string name="url_bar_hint">Search or enter address</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_forward">Forward</string>
+    <string name="cd_reload">Reload</string>
+    <string name="cd_tab_manager">Tab manager</string>
+    <string name="cd_menu">Menu</string>
+
+    <!-- Tabs -->
+    <string name="tab_new_title">New Tab</string>
+    <string name="tab_default_title">Tab %d</string>
+    <string name="tab_limit_reached">Maximum tab limit reached (%d)</string>
+    <string name="cannot_close_last_tab">Cannot close the last tab</string>
+    <string name="tabs_title">Tabs</string>
+    <string name="new_tab_button">+ New Tab</string>
+    <string name="tab_close">✕</string>
+    <string-array name="new_tab_messages">
+        <item>Hello there !</item>
+        <item>Happy browsing !</item>
+        <item>Explore away !</item>
+        <item>Stay curious.</item>
+    </string-array>
+
+    <!-- Menu -->
+    <string name="menu_new_tab">New tab</string>
+    <string name="menu_close_tab">Close tab</string>
+    <string name="menu_bookmarks">Bookmarks</string>
+    <string name="menu_history">History</string>
+    <string name="menu_downloads">Downloads</string>
+    <string name="menu_extensions">Extensions</string>
+    <string name="menu_settings">Settings</string>
+    <string name="menu_about">About</string>
+    <string name="menu_exit">Exit</string>
+
+    <!-- Actions -->
+    <string name="bookmarks_coming_soon">Bookmarks coming soon</string>
+    <string name="history_coming_soon">History coming soon</string>
+    <string name="browsing_data_cleared">Browsing data cleared</string>
+    <string name="browsing_data_clear_failed">Failed to clear browsing data</string>
+    <string name="download_started">Download started</string>
+    <string name="error_loading_page">Error loading page: %s</string>
+
+    <!-- About -->
+    <string name="about_title">SpoonGecko</string>
+    <string name="about_message">App Version: %1$s\nGeckoView: %2$s\n\nA minimal, privacy-first GeckoView browser.\nNo telemetry. No tracking.\n\n- with love, Plaban.</string>
+    <string name="about_gecko_fallback">GeckoView 153.0.20260803132010</string>
+
+    <!-- Permissions -->
+    <string name="this_site">This site</string>
+    <string name="perm_location">location</string>
+    <string name="perm_notifications">notifications</string>
+    <string name="perm_persistent_storage">persistent storage</string>
+    <string name="permission_allow_title">Allow %s?</string>
+    <string name="permission_message">%1$s wants to use %2$s.</string>
+
+    <!-- Extension install prompt -->
+    <string name="install_extension_title">Install Extension?</string>
+    <string name="install_extension_message">Add \"%s\" to SpoonGecko?</string>
+
+    <!-- Context menu -->
+    <string name="context_open_link_new_tab">Open Link in New Tab</string>
+    <string name="context_copy_link">Copy Link</string>
+    <string name="context_open_image_new_tab">Open Image in New Tab</string>
+
+    <!-- Selection -->
+    <string name="selection_cut">Cut</string>
+    <string name="selection_copy">Copy</string>
+    <string name="selection_paste">Paste</string>
+    <string name="selection_select_all">Select all</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="search_engine_title">Search Engine</string>
+    <string name="search_engine_brave">Brave</string>
+    <string name="search_engine_duckduckgo">DuckDuckGo</string>
+    <string name="search_engine_google">Google</string>
+    <string name="clear_browsing_data_title">Clear Browsing Data</string>
+    <string name="clear_browsing_data_message">This will close all tabs and clear browsing data.</string>
+    <string name="site_permissions_title">Site Permissions</string>
+    <string name="site_permissions_message">Permissions handled:\n\nCamera\nMicrophone\nLocation\nMedia Autoplay\n\nPermissions are requested on-demand when websites need them. Manage via Android Settings -> Apps -> SpoonGecko -> Permissions.</string>
+    <string name="open_app_settings">Open App Settings</string>
+
+    <!-- Downloads -->
+    <string name="downloads_title">Downloads</string>
+    <string name="no_downloads">No downloads yet</string>
+    <string name="clear_all_downloads">Clear All Downloads</string>
+    <string name="deleted_files">Deleted %d files</string>
+    <string name="deleted">Deleted</string>
+    <string name="open_with">Open with</string>
+    <string name="no_app_to_open">No app found to open this file</string>
+    <string name="downloads_load_failed">Failed to load downloads</string>
+    <string name="downloads_date_format">dd MMM yyyy</string>
+    <string name="size_b">%d B</string>
+    <string name="size_kb">%.1f KB</string>
+    <string name="size_mb">%.1f MB</string>
+
+    <!-- Extensions -->
+    <string name="extensions_title">Extensions</string>
+    <string name="extensions_unavailable">Extension support is not available in this build.</string>
+    <string name="install_xpi">Install .xpi</string>
+    <string name="browse_amo">Browse AMO</string>
+    <string name="no_extensions">No extensions installed.\nTap \"Install .xpi\" to add one, or browse AMO for Firefox-compatible add-ons.</string>
+    <string name="extension_on">● ON</string>
+    <string name="extension_off">○ OFF</string>
+    <string name="extension_version">v%s</string>
+    <string name="enable_extension">Enable extension</string>
+    <string name="disable_extension">Disable extension</string>
+    <string name="remove_extension_title">Remove Extension</string>
+    <string name="remove_extension_message">Remove \"%s\"? This cannot be undone.</string>
+    <string name="not_xpi">The selected file is not a .xpi extension package.</string>
+    <string name="xpi_too_large">The selected .xpi file is too large (max 20 MB).</string>
+    <string name="could_not_read_file">Could not read the selected file.</string>
+    <string name="install_failed">Install Failed</string>
+
+    <!-- Browser service -->
+    <string name="browser_service_channel">Browser Service</string>
+    <string name="browser_service_channel_desc">Keeps the browser alive in background.</string>
+    <string name="browser_notification_title">Spoon Gecko</string>
+    <string name="browser_notification_text">Browser running in background</string>
 </resources>
