@@ -1,19 +1,17 @@
 package com.spoongecko.app;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.card.MaterialCardView;
-
-import org.mozilla.geckoview.GeckoRuntime;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -59,19 +57,11 @@ public class SettingsActivity extends AppCompatActivity {
                     .setTitle("Clear Browsing Data")
                     .setMessage("This will close all tabs and clear browsing data.")
                     .setPositiveButton("Clear", (dialog, which) -> {
-                        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-                        if (runtime != null) {
-                            runtime.getWebExtensionController().list().accept(
-                                extensions -> {
-                                    for (org.mozilla.geckoview.WebExtension ext : extensions) {
-                                        runtime.getWebExtensionController().uninstall(ext);
-                                    }
-                                }
-                            );
-                        }
-                        MainActivity.sGeckoRuntime = null;
-                        Toast.makeText(this, "Data cleared. Restart the app.", Toast.LENGTH_LONG).show();
-                        finishAffinity();
+                        Intent intent = new Intent(this, MainActivity.class);
+                        intent.putExtra(MainActivity.EXTRA_CLEAR_DATA, true);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        startActivity(intent);
+                        finish();
                     })
                     .setNegativeButton("Cancel", null)
                     .show();
