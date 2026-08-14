@@ -543,11 +543,11 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-
+        
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             for (GeckoSession session : sessions) session.setActive(false);
         }
     }
