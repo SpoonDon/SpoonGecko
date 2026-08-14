@@ -8,12 +8,12 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.webkit.MimeTypeMap;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.WebResponse;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Map;
 
 public final class DownloadManager {
 
@@ -21,14 +21,11 @@ public final class DownloadManager {
 
     public static void handleDownload(Context context, WebResponse response) {
         if (context == null || response == null || response.uri == null) return;
-        GeckoResult<InputStream> bodyResult = response.body;
-        if (bodyResult == null) return;
+        InputStream stream = response.body;
+        if (stream == null) return;
         String filename = deriveFilename(response);
         String mime = deriveMimeType(response, filename);
-        bodyResult.accept(
-                stream -> saveToDownloads(context, stream, filename, mime),
-                error -> { }
-        );
+        saveToDownloads(context, stream, filename, mime);
     }
 
     private static void saveToDownloads(Context context, InputStream in, String filename, String mime) {
@@ -69,16 +66,22 @@ public final class DownloadManager {
 
     private static String deriveFilename(WebResponse response) {
         if (response.headers != null) {
-            for (WebResponse.Header header : response.headers) {
-                if ("content-disposition".equalsIgnoreCase(header.name)) {
-                    String filename = extractFilename(header.value);
-                    if (filename != null && !filename.isEmpty()) return sanitize(filename);
-                }
+            String contentDisposition = getHeaderIgnoreCase(response.headers, "content-disposition");
+            if (contentDisposition != null) {
+                String filename = extractFilename(contentDisposition);
+                if (filename != null && !filename.isEmpty()) return sanitize(filename);
             }
         }
         String path = Uri.parse(response.uri).getLastPathSegment();
         if (path != null && !path.isEmpty()) return sanitize(path);
         return "download";
+    }
+
+    private static String getHeaderIgnoreCase(Map<String, String> headers, String name) {
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (name.equalsIgnoreCase(entry.getKey())) return entry.getValue();
+        }
+        return null;
     }
 
     private static String extractFilename(String contentDisposition) {
@@ -107,15 +110,11 @@ public final class DownloadManager {
 
     private static String deriveMimeType(WebResponse response, String filename) {
         if (response.headers != null) {
-            for (WebResponse.Header header : response.headers) {
-                if ("content-type".equalsIgnoreCase(header.name)) {
-                    String value = header.value;
-                    if (value != null && !value.isEmpty()) {
-                        int semi = value.indexOf(';');
-                        if (semi != -1) value = value.substring(0, semi).trim();
-                        return value;
-                    }
-                }
+            String contentType = getHeaderIgnoreCase(response.headers, "content-type");
+            if (contentType != null && !contentType.isEmpty()) {
+                int semi = contentType.indexOf(';');
+                if (semi != -1) contentType = contentType.substring(0, semi).trim();
+                return contentType;
             }
         }
         int dot = filename.lastIndexOf('.');
