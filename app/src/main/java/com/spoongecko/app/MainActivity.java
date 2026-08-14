@@ -162,8 +162,16 @@ public class MainActivity extends AppCompatActivity {
             createNewTab(true);
         }
 
-        if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_CLEAR_DATA, false)) {
+        Intent launchIntent = getIntent();
+        if (launchIntent != null && launchIntent.getBooleanExtra(EXTRA_CLEAR_DATA, false)) {
             clearBrowsingData();
+        } else if (launchIntent != null && launchIntent.getStringExtra(EXTRA_LOAD_URL) != null) {
+            String url = launchIntent.getStringExtra(EXTRA_LOAD_URL);
+            if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
+                tabUrls.put(sessions.get(currentTabIndex), url);
+                sessions.get(currentTabIndex).loadUri(url);
+                urlBar.setText(url);
+            }
         }
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
@@ -198,10 +206,14 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                GeckoSession session = sessions.get(currentTabIndex);
-                if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
-                    session.goBack();
+                if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
+                    GeckoSession session = sessions.get(currentTabIndex);
+                    if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
+                        session.goBack();
+                        return;
+                    }
                 }
+                moveTaskToBack(true);
             }
         });
     }
@@ -612,26 +624,23 @@ public class MainActivity extends AppCompatActivity {
 
         public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
             MainActivity activity = activityRef.get();
-            if (activity != null) {
-                activity.runOnUiThread(() -> {
-                    if (activity.sessions.size() >= MAX_TABS) {
-                        Toast.makeText(activity, "Maximum tab limit reached (" + MAX_TABS + ")", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    GeckoSession newSession = new GeckoSession();
-                    newSession.open(sGeckoRuntime);
-                    newSession.setNavigationDelegate(new NavigationDelegate(activity, newSession));
-                    newSession.setProgressDelegate(new ProgressDelegate(activity, newSession));
-                    newSession.setPermissionDelegate(new PermissionDelegate(activity));
-                    newSession.setContentDelegate(new TabContentDelegate(activity, newSession));
-                    activity.sessions.add(newSession);
-                    activity.tabTitles.put(newSession, "New Tab");
-                    activity.tabUrls.put(newSession, uri);
-                    activity.selectTab(activity.sessions.size() - 1);
-                    newSession.loadUri(uri);
-                });
+            if (activity == null) return GeckoResult.fromValue(null);
+            if (activity.sessions.size() >= MAX_TABS) {
+                activity.runOnUiThread(() ->
+                        Toast.makeText(activity, "Maximum tab limit reached (" + MAX_TABS + ")", Toast.LENGTH_SHORT).show());
+                return GeckoResult.fromValue(null);
             }
-            return GeckoResult.fromValue(null);
+            GeckoSession newSession = new GeckoSession();
+            newSession.open(sGeckoRuntime);
+            newSession.setNavigationDelegate(new NavigationDelegate(activity, newSession));
+            newSession.setProgressDelegate(new ProgressDelegate(activity, newSession));
+            newSession.setPermissionDelegate(new PermissionDelegate(activity));
+            newSession.setContentDelegate(new TabContentDelegate(activity, newSession));
+            activity.sessions.add(newSession);
+            activity.tabTitles.put(newSession, "New Tab");
+            activity.tabUrls.put(newSession, uri);
+            activity.selectTab(activity.sessions.size() - 1);
+            return GeckoResult.fromValue(newSession);
         }
 
         public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
