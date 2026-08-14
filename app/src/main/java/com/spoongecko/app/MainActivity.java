@@ -62,7 +62,6 @@ public class MainActivity extends AppCompatActivity {
     static volatile GeckoRuntime sGeckoRuntime;
     private static Context appContext;
 
-    // Cached new-tab page template colors (computed once per instance)
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
 
@@ -79,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private GeckoView geckoView;
     private List<GeckoSession> sessions = new ArrayList<>();
     private Map<GeckoSession, String> tabTitles = new HashMap<>();
+    private Map<GeckoSession, String> tabUrls = new HashMap<>();
     private int currentTabIndex = 0;
     private Map<GeckoSession, Boolean> canGoBackMap = new HashMap<>();
     private Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
@@ -131,30 +131,33 @@ public class MainActivity extends AppCompatActivity {
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
             String[] stateStrings = savedInstanceState.getStringArray(KEY_SESSION_STATES);
             currentTabIndex = savedInstanceState.getInt(KEY_TAB_INDEX, 0);
-            for (int i = 0; i < stateStrings.length; i++) {
-                GeckoSession session = new GeckoSession();
-                session.open(sGeckoRuntime);
-                session.setNavigationDelegate(new NavigationDelegate(this, session));
-                session.setProgressDelegate(new ProgressDelegate(this, session));
-                session.setPermissionDelegate(new PermissionDelegate(this));
-                session.setContentDelegate(new TabContentDelegate(this, session));
-                sessions.add(session);
-                tabTitles.put(session, "Tab " + (i + 1));
-                if (stateStrings[i] != null) {
-                    GeckoSession.SessionState state = GeckoSession.SessionState.fromString(stateStrings[i]);
-                    if (state != null) {
-                        session.restoreState(state);
+            if (stateStrings != null) {
+                for (int i = 0; i < stateStrings.length; i++) {
+                    GeckoSession session = new GeckoSession();
+                    session.open(sGeckoRuntime);
+                    session.setNavigationDelegate(new NavigationDelegate(this, session));
+                    session.setProgressDelegate(new ProgressDelegate(this, session));
+                    session.setPermissionDelegate(new PermissionDelegate(this));
+                    session.setContentDelegate(new TabContentDelegate(this, session));
+                    sessions.add(session);
+                    tabTitles.put(session, "Tab " + (i + 1));
+                    tabUrls.put(session, null);
+                    if (stateStrings[i] != null) {
+                        GeckoSession.SessionState state = GeckoSession.SessionState.fromString(stateStrings[i]);
+                        if (state != null) {
+                            session.restoreState(state);
+                        }
                     }
                 }
             }
+            if (sessions.isEmpty()) {
+                createNewTab(true);
+            } else {
+                if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
+                selectTab(currentTabIndex);
+            }
         } else {
             createNewTab(true);
-        }
-
-        if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
-            geckoView.setSession(sessions.get(currentTabIndex));
-            updateNavigationButtons();
-            updateTabManagerText();
         }
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
@@ -229,14 +232,33 @@ public class MainActivity extends AppCompatActivity {
         session.setContentDelegate(new TabContentDelegate(this, session));
         sessions.add(session);
         tabTitles.put(session, "New Tab");
+        tabUrls.put(session, null);
         if (select) {
-            currentTabIndex = sessions.size() - 1;
-            geckoView.setSession(session);
-            updateNavigationButtons();
-            urlBar.setText("");
+            selectTab(sessions.size() - 1);
+        } else {
+            updateTabManagerText();
         }
-        updateTabManagerText();
         session.loadUri(buildNewTabPage());
+    }
+
+    private void selectTab(int index) {
+        if (index < 0 || index >= sessions.size()) return;
+        GeckoSession previous = getCurrentSession();
+        if (previous != null && previous != sessions.get(index)) {
+            previous.setActive(false);
+        }
+        currentTabIndex = index;
+        GeckoSession selected = sessions.get(index);
+        geckoView.setSession(selected);
+        selected.setActive(true);
+        updateNavigationButtons();
+        updateTabManagerText();
+        String url = tabUrls.get(selected);
+        if (url == null || url.startsWith("data:")) {
+            urlBar.setText("");
+        } else {
+            urlBar.setText(url);
+        }
     }
 
     private String getSearchUrl(String query) {
@@ -292,11 +314,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onTabSelected(int index) {
                         if (index != currentTabIndex) {
-                            currentTabIndex = index;
-                            geckoView.setSession(sessions.get(index));
-                            updateNavigationButtons();
-                            updateTabManagerText();
-                            urlBar.setText("");
+                            selectTab(index);
                         }
                     }
 
@@ -309,17 +327,15 @@ public class MainActivity extends AppCompatActivity {
                         canGoBackMap.remove(closing);
                         canGoForwardMap.remove(closing);
                         sessionStates.remove(closing);
+                        tabUrls.remove(closing);
                         sessions.remove(index);
 
                         if (index < currentTabIndex) {
                             currentTabIndex--;
-                        } else if (index == currentTabIndex) {
+                        } else if (index >= currentTabIndex) {
                             currentTabIndex = Math.min(currentTabIndex, sessions.size() - 1);
                         }
-
-                        geckoView.setSession(sessions.get(currentTabIndex));
-                        updateNavigationButtons();
-                        updateTabManagerText();
+                        selectTab(currentTabIndex);
                     }
 
                     @Override
@@ -345,11 +361,10 @@ public class MainActivity extends AppCompatActivity {
             canGoBackMap.remove(closing);
             canGoForwardMap.remove(closing);
             sessionStates.remove(closing);
+            tabUrls.remove(closing);
             sessions.remove(currentTabIndex);
             if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
-            geckoView.setSession(sessions.get(currentTabIndex));
-            updateNavigationButtons();
-            updateTabManagerText();
+            selectTab(currentTabIndex);
             return true;
         } else if (id == R.id.action_bookmarks) {
             Toast.makeText(this, "Bookmarks coming soon", Toast.LENGTH_SHORT).show();
@@ -389,6 +404,7 @@ public class MainActivity extends AppCompatActivity {
             canGoBackMap.clear();
             canGoForwardMap.clear();
             sessionStates.clear();
+            tabUrls.clear();
             stopService(new Intent(this, BrowserService.class));
             finishAndRemoveTask();
             return true;
@@ -436,6 +452,7 @@ public class MainActivity extends AppCompatActivity {
         if (intent != null) {
             String url = intent.getStringExtra(EXTRA_LOAD_URL);
             if (url != null && currentTabIndex < sessions.size()) {
+                tabUrls.put(sessions.get(currentTabIndex), url);
                 sessions.get(currentTabIndex).loadUri(url);
                 urlBar.setText(url);
             }
@@ -458,6 +475,7 @@ public class MainActivity extends AppCompatActivity {
         canGoBackMap.clear();
         canGoForwardMap.clear();
         sessionStates.clear();
+        tabUrls.clear();
         super.onDestroy();
     }
 
@@ -548,10 +566,8 @@ public class MainActivity extends AppCompatActivity {
                     newSession.setContentDelegate(new TabContentDelegate(activity, newSession));
                     activity.sessions.add(newSession);
                     activity.tabTitles.put(newSession, "New Tab");
-                    activity.currentTabIndex = activity.sessions.size() - 1;
-                    activity.geckoView.setSession(newSession);
-                    activity.updateNavigationButtons();
-                    activity.updateTabManagerText();
+                    activity.tabUrls.put(newSession, uri);
+                    activity.selectTab(activity.sessions.size() - 1);
                     newSession.loadUri(uri);
                 });
             }
@@ -614,7 +630,9 @@ public class MainActivity extends AppCompatActivity {
 
         public void onPageStart(GeckoSession session, String url) {
             MainActivity activity = activityRef.get();
-            if (activity == null || session != activity.getCurrentSession()) return;
+            if (activity == null) return;
+            activity.tabUrls.put(session, url);
+            if (session != activity.getCurrentSession()) return;
             activity.runOnUiThread(() -> {
                 activity.progressBar.setVisibility(ProgressBar.VISIBLE);
                 if (url != null && url.startsWith("data:")) {
