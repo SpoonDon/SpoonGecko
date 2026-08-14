@@ -1,7 +1,6 @@
 package com.spoongecko.app;
 
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -57,14 +56,14 @@ public class ExtensionsActivity extends AppCompatActivity {
         root.setFitsSystemWindows(true);
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle("Extensions");
+        toolbar.setTitle(R.string.extensions_title);
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.setNavigationOnClickListener(v -> finish());
         root.addView(toolbar);
 
         if (!BuildConfig.EXTENSIONS_ENABLED) {
             TextView disabled = new TextView(this);
-            disabled.setText("Extension support is not available in this build.");
+            disabled.setText(R.string.extensions_unavailable);
             disabled.setTextSize(15);
             disabled.setGravity(Gravity.CENTER);
             disabled.setPadding(32, 64, 32, 0);
@@ -85,7 +84,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         actions.setGravity(Gravity.CENTER_VERTICAL);
 
         MaterialButton btnInstall = new MaterialButton(this);
-        btnInstall.setText("Install .xpi");
+        btnInstall.setText(R.string.install_xpi);
         btnInstall.setOnClickListener(v ->
                 openXpiLauncher.launch(new String[]{"*/*"}));
         LinearLayout.LayoutParams installParams = new LinearLayout.LayoutParams(
@@ -94,13 +93,9 @@ public class ExtensionsActivity extends AppCompatActivity {
         btnInstall.setLayoutParams(installParams);
 
         MaterialButton btnBrowseAmo = new MaterialButton(this);
-        btnBrowseAmo.setText("Browse AMO");
-        btnBrowseAmo.setOnClickListener(v -> {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.putExtra(MainActivity.EXTRA_LOAD_URL, AMO_URL);
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(intent);
-        });
+        btnBrowseAmo.setText(R.string.browse_amo);
+        btnBrowseAmo.setOnClickListener(v ->
+                RuntimeController.openUrlInMain(this, AMO_URL));
         btnBrowseAmo.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
@@ -150,8 +145,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         if (installedExtensions.isEmpty()) {
             TextView emptyText = new TextView(this);
-            emptyText.setText("No extensions installed.\nTap \"Install .xpi\" to add one,"
-                    + " or browse AMO for Firefox-compatible add-ons.");
+            emptyText.setText(R.string.no_extensions);
             emptyText.setTextSize(14);
             emptyText.setGravity(Gravity.CENTER);
             emptyText.setPadding(0, 32, 0, 0);
@@ -196,7 +190,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         String version = ExtensionController.getVersion(ext);
         if (!version.isEmpty()) {
             TextView versionView = new TextView(this);
-            versionView.setText("v" + version);
+            versionView.setText(getString(R.string.extension_version, version));
             versionView.setTextSize(11);
             versionView.setTextColor(getResources().getColor(
                     R.color.md_theme_on_surface_variant, null));
@@ -214,7 +208,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                 ? ExtensionController.isEnabled(ext)
                 : ExtensionController.isEnabledInPrefs(this, ext.id);
         TextView badge = new TextView(this);
-        badge.setText(enabled ? "● ON" : "○ OFF");
+        badge.setText(enabled ? R.string.extension_on : R.string.extension_off);
         badge.setTextSize(11);
         badge.setTextColor(enabled
                 ? getResources().getColor(R.color.md_theme_primary, null)
@@ -226,9 +220,13 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         SwitchCompat toggle = new SwitchCompat(this);
         toggle.setChecked(enabled);
-        toggle.setContentDescription(enabled ? "Disable extension" : "Enable extension");
+        toggle.setContentDescription(enabled
+                ? getString(R.string.disable_extension)
+                : getString(R.string.enable_extension));
         toggle.setOnCheckedChangeListener((btn, isChecked) -> {
-            btn.setContentDescription(isChecked ? "Disable extension" : "Enable extension");
+            btn.setContentDescription(isChecked
+                    ? getString(R.string.disable_extension)
+                    : getString(R.string.enable_extension));
             if (isChecked) {
                 enableExtension(ext);
             } else {
@@ -242,7 +240,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         row.addView(toggle);
 
         MaterialButton btnRemove = new MaterialButton(this);
-        btnRemove.setText("Remove");
+        btnRemove.setText(R.string.remove);
         btnRemove.setTextSize(12);
         btnRemove.setOnClickListener(v -> confirmAndRemove(ext));
         row.addView(btnRemove);
@@ -253,12 +251,12 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private void installExtension(Uri uri) {
         if (!isXpiFile(uri)) {
-            showInstallError("The selected file is not a .xpi extension package.");
+            showInstallError(getString(R.string.not_xpi));
             return;
         }
         long size = getFileSize(uri);
         if (size > MAX_XPI_BYTES) {
-            showInstallError("The selected .xpi file is too large (max 20 MB).");
+            showInstallError(getString(R.string.xpi_too_large));
             return;
         }
 
@@ -272,7 +270,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                 while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
             }
         } catch (IOException e) {
-            showInstallError("Could not read the selected file.");
+            showInstallError(getString(R.string.could_not_read_file));
             return;
         }
 
@@ -322,9 +320,9 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private void showInstallError(String message) {
         new AlertDialog.Builder(this)
-                .setTitle("Install Failed")
+                .setTitle(R.string.install_failed)
                 .setMessage(message)
-                .setPositiveButton("OK", null)
+                .setPositiveButton(R.string.ok, null)
                 .show();
     }
 
@@ -373,10 +371,10 @@ public class ExtensionsActivity extends AppCompatActivity {
     private void confirmAndRemove(WebExtension ext) {
         String name = ExtensionController.getDisplayName(ext);
         new AlertDialog.Builder(this)
-                .setTitle("Remove Extension")
-                .setMessage("Remove \"" + name + "\"? This cannot be undone.")
-                .setPositiveButton("Remove", (dialog, which) -> removeExtension(ext))
-                .setNegativeButton("Cancel", null)
+                .setTitle(R.string.remove_extension_title)
+                .setMessage(getString(R.string.remove_extension_message, name))
+                .setPositiveButton(R.string.remove, (dialog, which) -> removeExtension(ext))
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 

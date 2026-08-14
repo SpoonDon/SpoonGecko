@@ -1,7 +1,6 @@
 package com.spoongecko.app;
 
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.widget.LinearLayout;
@@ -27,7 +26,7 @@ public class SettingsActivity extends AppCompatActivity {
         root.setFitsSystemWindows(true);
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle("Settings");
+        toolbar.setTitle(R.string.settings_title);
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.setNavigationOnClickListener(v -> finish());
         toolbar.setFitsSystemWindows(true);
@@ -38,10 +37,14 @@ public class SettingsActivity extends AppCompatActivity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(16, 16, 16, 16);
 
-        content.addView(buildCard("Search Engine", getSearchEngineLabel(), v -> {
-            String[] engines = {"Brave", "DuckDuckGo", "Google"};
+        content.addView(buildCard(R.string.search_engine_title, getSearchEngineLabel(), v -> {
+            String[] engines = {
+                    getString(R.string.search_engine_brave),
+                    getString(R.string.search_engine_duckduckgo),
+                    getString(R.string.search_engine_google)
+            };
             new AlertDialog.Builder(this)
-                    .setTitle("Search Engine")
+                    .setTitle(R.string.search_engine_title)
                     .setItems(engines, (dialog, which) -> {
                         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         String value = which == 0 ? "brave" : which == 1 ? "duckduckgo" : "google";
@@ -52,34 +55,29 @@ public class SettingsActivity extends AppCompatActivity {
                     .show();
         }));
 
-        content.addView(buildSimpleCard("Clear Browsing Data", v -> {
+        content.addView(buildSimpleCard(R.string.clear_browsing_data_title, v -> {
             new AlertDialog.Builder(this)
-                    .setTitle("Clear Browsing Data")
-                    .setMessage("This will close all tabs and clear browsing data.")
-                    .setPositiveButton("Clear", (dialog, which) -> {
-                        Intent intent = new Intent(this, MainActivity.class);
-                        intent.putExtra(MainActivity.EXTRA_CLEAR_DATA, true);
-                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                        startActivity(intent);
+                    .setTitle(R.string.clear_browsing_data_title)
+                    .setMessage(R.string.clear_browsing_data_message)
+                    .setPositiveButton(R.string.clear, (dialog, which) -> {
+                        RuntimeController.clearBrowsingData(this);
                         finish();
                     })
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton(R.string.cancel, null)
                     .show();
         }));
 
-        content.addView(buildSimpleCard("Site Permissions", v -> {
+        content.addView(buildSimpleCard(R.string.site_permissions_title, v -> {
             new AlertDialog.Builder(this)
-                    .setTitle("Site Permissions")
-                    .setMessage("Permissions handled:\n\nCamera\nMicrophone\nLocation\nMedia Autoplay\n\n"
-                            + "Permissions are requested on-demand when websites need them. "
-                            + "Manage via Android Settings -> Apps -> SpoonGecko -> Permissions.")
-                    .setPositiveButton("Open App Settings", (dialog, which) -> {
+                    .setTitle(R.string.site_permissions_title)
+                    .setMessage(R.string.site_permissions_message)
+                    .setPositiveButton(R.string.open_app_settings, (dialog, which) -> {
                         android.content.Intent intent = new android.content.Intent(
                                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                 android.net.Uri.fromParts("package", getPackageName(), null));
                         startActivity(intent);
                     })
-                    .setNegativeButton("Close", null)
+                    .setNegativeButton(R.string.close, null)
                     .show();
         }));
 
@@ -92,14 +90,18 @@ public class SettingsActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String engine = prefs.getString(PREF_SEARCH_ENGINE, "brave");
         switch (engine) {
-            case "google": return "Google";
-            case "duckduckgo": return "DuckDuckGo";
+            case "google":
+                return getString(R.string.search_engine_google);
+            case "duckduckgo":
+                return getString(R.string.search_engine_duckduckgo);
             case "brave":
-            default: return "Brave";
+            default:
+                return getString(R.string.search_engine_brave);
         }
     }
 
-    private MaterialCardView buildCard(String title, String subtitle, android.view.View.OnClickListener listener) {
+    private MaterialCardView buildCard(int titleRes, String subtitle,
+                                       android.view.View.OnClickListener listener) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(16);
         card.setCardElevation(2);
@@ -114,7 +116,7 @@ public class SettingsActivity extends AppCompatActivity {
         inner.setPadding(20, 16, 20, 16);
 
         TextView titleView = new TextView(this);
-        titleView.setText(title);
+        titleView.setText(titleRes);
         titleView.setTextSize(16);
         titleView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
 
@@ -133,7 +135,8 @@ public class SettingsActivity extends AppCompatActivity {
         return card;
     }
 
-    private MaterialCardView buildSimpleCard(String title, android.view.View.OnClickListener listener) {
+    private MaterialCardView buildSimpleCard(int titleRes,
+                                             android.view.View.OnClickListener listener) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(16);
         card.setCardElevation(2);
@@ -144,7 +147,7 @@ public class SettingsActivity extends AppCompatActivity {
         card.setLayoutParams(cardParams);
 
         TextView titleView = new TextView(this);
-        titleView.setText(title);
+        titleView.setText(titleRes);
         titleView.setTextSize(16);
         titleView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
         titleView.setPadding(20, 20, 20, 20);

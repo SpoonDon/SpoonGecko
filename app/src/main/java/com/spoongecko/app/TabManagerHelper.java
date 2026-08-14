@@ -32,7 +32,7 @@ public class TabManagerHelper {
                             Map<GeckoSession, String> titles, int currentIndex,
                             TabActionListener listener) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Tabs");
+        builder.setTitle(R.string.tabs_title);
 
         LinearLayout container = new LinearLayout(context);
         container.setOrientation(LinearLayout.VERTICAL);
@@ -51,7 +51,7 @@ public class TabManagerHelper {
         grid.setAdapter(new TabAdapter(context, sessions, titles, currentIndex, listener, lastClosedPosition));
 
         MaterialButton btnNewTab = new MaterialButton(context);
-        btnNewTab.setText("+ New Tab");
+        btnNewTab.setText(R.string.new_tab_button);
         btnNewTab.setTextSize(16);
         btnNewTab.setPadding(0, 16, 0, 16);
 
@@ -127,7 +127,7 @@ public class TabManagerHelper {
                 cell.addView(label, labelParams);
 
                 closeBtn = new MaterialButton(context);
-                closeBtn.setText("\u2715");
+                closeBtn.setText(R.string.tab_close);
                 closeBtn.setTextSize(12);
                 closeBtn.setTextColor(Color.RED);
                 closeBtn.setBackgroundColor(Color.TRANSPARENT);
@@ -150,7 +150,7 @@ public class TabManagerHelper {
             GeckoSession session = sessions.get(pos);
             String title = titles.get(session);
             if (title == null || title.trim().isEmpty()) {
-                title = "Tab " + (pos + 1);
+                title = context.getString(R.string.tab_default_title, pos + 1);
             }
             label.setText(title);
 

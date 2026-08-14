@@ -38,7 +38,7 @@ public class DownloadsActivity extends AppCompatActivity {
         root.setFitsSystemWindows(true);
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
-        toolbar.setTitle("Downloads");
+        toolbar.setTitle(R.string.downloads_title);
         toolbar.setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
         toolbar.setNavigationOnClickListener(v -> finish());
         toolbar.setFitsSystemWindows(true);
@@ -57,7 +57,7 @@ public class DownloadsActivity extends AppCompatActivity {
         content.addView(spacer);
 
         MaterialButton btnClearAll = new MaterialButton(this);
-        btnClearAll.setText("Clear All Downloads");
+        btnClearAll.setText(R.string.clear_all_downloads);
         btnClearAll.setTextSize(14);
         btnClearAll.setPadding(0, 14, 0, 14);
         btnClearAll.setOnClickListener(v -> clearAll());
@@ -101,7 +101,7 @@ public class DownloadsActivity extends AppCompatActivity {
                 }
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Failed to load downloads", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.downloads_load_failed, Toast.LENGTH_SHORT).show();
         }
         rebuildList();
     }
@@ -114,7 +114,7 @@ public class DownloadsActivity extends AppCompatActivity {
 
         if (items.isEmpty()) {
             TextView empty = new TextView(this);
-            empty.setText("No downloads yet");
+            empty.setText(R.string.no_downloads);
             empty.setTextSize(14);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(0, 32, 0, 0);
@@ -178,7 +178,7 @@ public class DownloadsActivity extends AppCompatActivity {
             if (deleteItem(item)) {
                 items.remove(item);
                 rebuildList();
-                Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.deleted, Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -195,9 +195,9 @@ public class DownloadsActivity extends AppCompatActivity {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(item.uri, getContentResolver().getType(item.uri));
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(intent, "Open with"));
+            startActivity(Intent.createChooser(intent, getString(R.string.open_with)));
         } catch (Exception e) {
-            Toast.makeText(this, "No app found to open this file", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.no_app_to_open, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -216,18 +216,18 @@ public class DownloadsActivity extends AppCompatActivity {
         }
         items.clear();
         rebuildList();
-        Toast.makeText(this, "Deleted " + count + " files", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.deleted_files, count), Toast.LENGTH_SHORT).show();
     }
 
     private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
-        return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+        if (bytes < 1024) return getString(R.string.size_b, bytes);
+        if (bytes < 1024 * 1024) return String.format(Locale.ROOT, getString(R.string.size_kb), bytes / 1024.0);
+        return String.format(Locale.ROOT, getString(R.string.size_mb), bytes / (1024.0 * 1024.0));
     }
 
     private String formatDate(long millis) {
         if (millis <= 0) return "";
-        return new SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+        return new SimpleDateFormat(getString(R.string.downloads_date_format), Locale.getDefault())
                 .format(new Date(millis));
     }
 

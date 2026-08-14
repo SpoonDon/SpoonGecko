@@ -36,10 +36,10 @@ public class BrowserService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Browser Service",
+                    getString(R.string.browser_service_channel),
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("Keeps the browser alive in background.");
+            channel.setDescription(getString(R.string.browser_service_channel_desc));
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
         }
@@ -53,8 +53,8 @@ public class BrowserService extends Service {
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Spoon Gecko")
-                .setContentText("Browser running in background")
+                .setContentTitle(getString(R.string.browser_notification_title))
+                .setContentText(getString(R.string.browser_notification_text))
                 .setSmallIcon(android.R.drawable.ic_menu_search)
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
