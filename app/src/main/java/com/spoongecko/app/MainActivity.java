@@ -11,7 +11,6 @@ import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -29,6 +28,7 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.StorageController;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 import org.mozilla.geckoview.WebRequestError;
@@ -52,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int MAX_TABS = 50;
     private static final int MAX_PERSISTED_TABS = 10;
     static final String EXTRA_LOAD_URL = "load_url";
+    static final String EXTRA_CLEAR_DATA = "clear_data";
     private static final String[] NEW_TAB_MESSAGES = {
             "Hello there !",
             "Happy browsing !",
@@ -158,6 +159,10 @@ public class MainActivity extends AppCompatActivity {
             }
         } else {
             createNewTab(true);
+        }
+
+        if (getIntent() != null && getIntent().getBooleanExtra(EXTRA_CLEAR_DATA, false)) {
+            clearBrowsingData();
         }
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
@@ -293,6 +298,48 @@ public class MainActivity extends AppCompatActivity {
         }
         sessions.get(currentTabIndex).loadUri(input);
         urlBar.clearFocus();
+    }
+
+    private void clearBrowsingData() {
+        GeckoRuntime runtime = sGeckoRuntime;
+        for (GeckoSession session : sessions) {
+            session.setActive(false);
+            session.close();
+        }
+        sessions.clear();
+        tabTitles.clear();
+        tabUrls.clear();
+        canGoBackMap.clear();
+        canGoForwardMap.clear();
+        sessionStates.clear();
+        currentTabIndex = 0;
+        urlBar.setText("");
+        tabManagerText.setText("0/0");
+        btnBack.setEnabled(false);
+        btnForward.setEnabled(false);
+        geckoView.setSession(null);
+        if (runtime == null) {
+            createNewTab(true);
+            return;
+        }
+        long flags = StorageController.ClearFlags.COOKIES
+                | StorageController.ClearFlags.NETWORK_CACHE
+                | StorageController.ClearFlags.IMAGE_CACHE
+                | StorageController.ClearFlags.DOM_STORAGES
+                | StorageController.ClearFlags.AUTH_SESSIONS
+                | StorageController.ClearFlags.PERMISSIONS
+                | StorageController.ClearFlags.SITE_SETTINGS
+                | StorageController.ClearFlags.SITE_DATA;
+        runtime.getStorageController().clearData(flags).accept(
+                result -> runOnUiThread(() -> {
+                    Toast.makeText(this, "Browsing data cleared", Toast.LENGTH_SHORT).show();
+                    createNewTab(true);
+                }),
+                error -> runOnUiThread(() -> {
+                    Toast.makeText(this, "Failed to clear browsing data", Toast.LENGTH_SHORT).show();
+                    createNewTab(true);
+                })
+        );
     }
 
     private void updateNavigationButtons() {
@@ -450,6 +497,10 @@ public class MainActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (intent != null) {
+            if (intent.getBooleanExtra(EXTRA_CLEAR_DATA, false)) {
+                clearBrowsingData();
+                return;
+            }
             String url = intent.getStringExtra(EXTRA_LOAD_URL);
             if (url != null && currentTabIndex < sessions.size()) {
                 tabUrls.put(sessions.get(currentTabIndex), url);
