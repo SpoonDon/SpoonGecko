@@ -120,6 +120,12 @@ public class MainActivity extends AppCompatActivity {
 
         startService(new Intent(this, BrowserService.class));
 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_CODE_NOTIFICATIONS);
+        }
+
         if (sGeckoRuntime == null) {
             synchronized (sRuntimeLock) {
                 if (sGeckoRuntime == null) {
