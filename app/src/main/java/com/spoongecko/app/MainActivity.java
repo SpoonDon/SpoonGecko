@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.inputmethod.EditorInfo;
@@ -39,10 +40,14 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -54,6 +59,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int MAX_PERSISTED_TABS = 10;
     static final String EXTRA_LOAD_URL = "load_url";
     static final String EXTRA_CLEAR_DATA = "clear_data";
+    private static final Set<String> ALLOWED_SCHEMES =
+            new HashSet<>(Arrays.asList("http", "https", "data", "blob", "about"));
     private static final String[] NEW_TAB_MESSAGES = {
             "Hello there !",
             "Happy browsing !",
@@ -220,6 +227,12 @@ public class MainActivity extends AppCompatActivity {
 
     private static String encodeForDataUri(String content) {
         return URLEncoder.encode(content, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static boolean isAllowedScheme(String uri) {
+        if (uri == null) return false;
+        String scheme = Uri.parse(uri).getScheme();
+        return scheme != null && ALLOWED_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT));
     }
 
     private String buildNewTabPage() {
@@ -614,12 +627,12 @@ public class MainActivity extends AppCompatActivity {
 
         public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
                                                       GeckoSession.NavigationDelegate.LoadRequest request) {
-            return GeckoResult.allow();
+            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
         public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session,
                                                               GeckoSession.NavigationDelegate.LoadRequest request) {
-            return GeckoResult.allow();
+            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
         public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
@@ -738,6 +751,8 @@ public class MainActivity extends AppCompatActivity {
     private static class PermissionDelegate implements GeckoSession.PermissionDelegate {
         private final WeakReference<MainActivity> activityRef;
         private static final int REQUEST_CODE_PERMISSIONS = 1;
+        private static final Set<Integer> AUTOPLAY_PERMISSIONS = new HashSet<>(Arrays.asList(
+                PERMISSION_AUTOPLAY_AUDIBLE, PERMISSION_AUTOPLAY_INAUDIBLE));
 
         PermissionDelegate(MainActivity activity) {
             this.activityRef = new WeakReference<>(activity);
@@ -745,7 +760,47 @@ public class MainActivity extends AppCompatActivity {
 
         public GeckoResult<Integer> onContentPermissionRequest(
                 GeckoSession session, GeckoSession.PermissionDelegate.ContentPermission perm) {
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+            MainActivity activity = activityRef.get();
+            if (activity == null) return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
+            if (AUTOPLAY_PERMISSIONS.contains(perm.permission)) {
+                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
+            }
+            if (perm.permission == PERMISSION_GEOLOCATION) {
+                if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    activity.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION},
+                            REQUEST_CODE_PERMISSIONS);
+                    return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
+                }
+                return promptPermission(activity, "location", perm.uri);
+            }
+            if (perm.permission == PERMISSION_DESKTOP_NOTIFICATION) {
+                return promptPermission(activity, "notifications", perm.uri);
+            }
+            if (perm.permission == PERMISSION_PERSISTENT_STORAGE) {
+                return promptPermission(activity, "persistent storage", perm.uri);
+            }
+            return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
+        }
+
+        private GeckoResult<Integer> promptPermission(MainActivity activity, String label, String uri) {
+            GeckoResult<Integer> result = new GeckoResult<>();
+            String host = extractHost(uri);
+            activity.runOnUiThread(() ->
+                    new AlertDialog.Builder(activity)
+                            .setTitle("Allow " + label + "?")
+                            .setMessage(host + " wants to use " + label + ".")
+                            .setPositiveButton("Allow", (d, w) -> result.complete(ContentPermission.VALUE_ALLOW))
+                            .setNegativeButton("Deny", (d, w) -> result.complete(ContentPermission.VALUE_DENY))
+                            .setOnCancelListener(d -> result.complete(ContentPermission.VALUE_DENY))
+                            .show());
+            return result;
+        }
+
+        private String extractHost(String uri) {
+            if (uri == null) return "This site";
+            String host = Uri.parse(uri).getHost();
+            return host != null ? host : "This site";
         }
 
         public GeckoResult<Integer> onMediaPermissionRequest(
@@ -753,7 +808,7 @@ public class MainActivity extends AppCompatActivity {
                 GeckoSession.PermissionDelegate.MediaSource[] video,
                 GeckoSession.PermissionDelegate.MediaSource[] audio) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            if (activity == null) return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
             List<String> needed = new ArrayList<>();
             if (video != null && video.length > 0 &&
                     ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -765,28 +820,28 @@ public class MainActivity extends AppCompatActivity {
             }
             if (!needed.isEmpty()) {
                 activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+            return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
         }
 
         public GeckoResult<Integer> onGeckoPermissionRequest(
                 GeckoSession session, String uri, int type, GeckoSession.PermissionDelegate.Callback callback) {
             MainActivity activity = activityRef.get();
-            if (activity == null) return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
-            if (type == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION) {
+            if (activity == null) return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
+            if (type == PERMISSION_GEOLOCATION) {
                 if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+                    return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
                 } else {
                     activity.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE_PERMISSIONS);
-                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                    return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
                 }
             }
-            if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE ||
-                    type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE) {
-                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+            if (type == PERMISSION_AUTOPLAY_AUDIBLE ||
+                    type == PERMISSION_AUTOPLAY_INAUDIBLE) {
+                return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
             }
-            return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
         }
     }
 
