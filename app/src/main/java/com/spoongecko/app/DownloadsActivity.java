@@ -1,33 +1,33 @@
 package com.spoongecko.app;
 
+import android.content.ContentUris;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
+import android.provider.MediaStore;
 import android.view.Gravity;
-import android.webkit.MimeTypeMap;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.FileProvider;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 
-import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 public class DownloadsActivity extends AppCompatActivity {
+
+    private LinearLayout content;
+    private final List<DownloadItem> items = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,34 +45,12 @@ public class DownloadsActivity extends AppCompatActivity {
         root.addView(toolbar);
 
         ScrollView scroll = new ScrollView(this);
-        LinearLayout content = new LinearLayout(this);
+        content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(16, 16, 16, 16);
-
-        File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        File[] files = downloadsDir.listFiles();
-
-        List<File> fileList = new ArrayList<>();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isFile()) fileList.add(f);
-            }
-            fileList.sort(Comparator.comparingLong(File::lastModified).reversed());
-        }
-
-        if (fileList.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText("No downloads yet");
-            empty.setTextSize(14);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(0, 32, 0, 0);
-            empty.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
-            content.addView(empty);
-        } else {
-            for (File file : fileList) {
-                content.addView(buildFileCard(file));
-            }
-        }
+        scroll.addView(content);
+        root.addView(scroll);
+        setContentView(root);
 
         TextView spacer = new TextView(this);
         spacer.setHeight(16);
@@ -82,22 +60,75 @@ public class DownloadsActivity extends AppCompatActivity {
         btnClearAll.setText("Clear All Downloads");
         btnClearAll.setTextSize(14);
         btnClearAll.setPadding(0, 14, 0, 14);
-        btnClearAll.setOnClickListener(v -> {
-            int count = 0;
-            for (File f : fileList) {
-                if (f.delete()) count++;
-            }
-            Toast.makeText(this, "Deleted " + count + " files", Toast.LENGTH_SHORT).show();
-            finish();
-        });
+        btnClearAll.setOnClickListener(v -> clearAll());
         content.addView(btnClearAll);
 
-        scroll.addView(content);
-        root.addView(scroll);
-        setContentView(root);
+        loadDownloads();
     }
 
-    private MaterialCardView buildFileCard(File file) {
+    @Override
+    protected void onResume() {
+        super.onResume();
+        loadDownloads();
+    }
+
+    private void loadDownloads() {
+        items.clear();
+        String[] projection = {
+                MediaStore.Downloads._ID,
+                MediaStore.Downloads.DISPLAY_NAME,
+                MediaStore.Downloads.SIZE,
+                MediaStore.Downloads.DATE_MODIFIED
+        };
+        try (Cursor cursor = getContentResolver().query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                MediaStore.Downloads.DATE_MODIFIED + " DESC")) {
+            if (cursor != null) {
+                int idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID);
+                int nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME);
+                int sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE);
+                int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_MODIFIED);
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(idCol);
+                    String name = cursor.getString(nameCol);
+                    long size = cursor.isNull(sizeCol) ? 0 : cursor.getLong(sizeCol);
+                    long date = cursor.isNull(dateCol) ? 0 : cursor.getLong(dateCol);
+                    Uri uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id);
+                    items.add(new DownloadItem(uri, name, size, date));
+                }
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Failed to load downloads", Toast.LENGTH_SHORT).show();
+        }
+        rebuildList();
+    }
+
+    private void rebuildList() {
+        int childCount = content.getChildCount();
+        if (childCount > 2) {
+            content.removeViews(2, childCount - 2);
+        }
+
+        if (items.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No downloads yet");
+            empty.setTextSize(14);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(0, 32, 0, 0);
+            empty.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
+            content.addView(empty, 2);
+            return;
+        }
+
+        for (int i = 0; i < items.size(); i++) {
+            content.addView(buildFileCard(items.get(i)), 2 + i);
+        }
+    }
+
+    private MaterialCardView buildFileCard(DownloadItem item) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(12);
         card.setCardElevation(1);
@@ -119,7 +150,7 @@ public class DownloadsActivity extends AppCompatActivity {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         TextView name = new TextView(this);
-        name.setText(file.getName());
+        name.setText(item.name);
         name.setTextSize(14);
         name.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
         name.setMaxLines(1);
@@ -127,7 +158,7 @@ public class DownloadsActivity extends AppCompatActivity {
         info.addView(name);
 
         TextView meta = new TextView(this);
-        meta.setText(formatSize(file.length()) + "  |  " + formatDate(file.lastModified()));
+        meta.setText(formatSize(item.size) + "  |  " + formatDate(item.date));
         meta.setTextSize(11);
         meta.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
         meta.setPadding(0, 4, 0, 0);
@@ -144,13 +175,14 @@ public class DownloadsActivity extends AppCompatActivity {
         btnDelete.setInsetTop(0);
         btnDelete.setInsetBottom(0);
         btnDelete.setOnClickListener(v -> {
-            if (file.delete()) {
-                ((LinearLayout) card.getParent()).removeView(card);
+            if (deleteItem(item)) {
+                items.remove(item);
+                rebuildList();
                 Toast.makeText(this, "Deleted", Toast.LENGTH_SHORT).show();
             }
         });
 
-        card.setOnClickListener(v -> openFile(file));
+        card.setOnClickListener(v -> openItem(item));
 
         row.addView(info);
         row.addView(btnDelete);
@@ -158,16 +190,10 @@ public class DownloadsActivity extends AppCompatActivity {
         return card;
     }
 
-    private void openFile(File file) {
+    private void openItem(DownloadItem item) {
         try {
-            Uri uri = FileProvider.getUriForFile(this,
-                    getPackageName() + ".fileprovider", file);
-            String mime = MimeTypeMap.getSingleton()
-                    .getMimeTypeFromExtension(extension(file.getName()));
-            if (mime == null) mime = "application/octet-stream";
-
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, mime);
+            intent.setDataAndType(item.uri, getContentResolver().getType(item.uri));
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(intent, "Open with"));
         } catch (Exception e) {
@@ -175,10 +201,22 @@ public class DownloadsActivity extends AppCompatActivity {
         }
     }
 
-    private String extension(String filename) {
-        int i = filename.lastIndexOf('.');
-        if (i == -1) return "";
-        return filename.substring(i + 1).toLowerCase(Locale.ROOT);
+    private boolean deleteItem(DownloadItem item) {
+        try {
+            return getContentResolver().delete(item.uri, null, null) > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void clearAll() {
+        int count = 0;
+        for (DownloadItem item : items) {
+            if (deleteItem(item)) count++;
+        }
+        items.clear();
+        rebuildList();
+        Toast.makeText(this, "Deleted " + count + " files", Toast.LENGTH_SHORT).show();
     }
 
     private String formatSize(long bytes) {
@@ -188,7 +226,22 @@ public class DownloadsActivity extends AppCompatActivity {
     }
 
     private String formatDate(long millis) {
+        if (millis <= 0) return "";
         return new SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
                 .format(new Date(millis));
+    }
+
+    private static class DownloadItem {
+        final Uri uri;
+        final String name;
+        final long size;
+        final long date;
+
+        DownloadItem(Uri uri, String name, long size, long date) {
+            this.uri = uri;
+            this.name = name;
+            this.size = size;
+            this.date = date;
+        }
     }
 }
