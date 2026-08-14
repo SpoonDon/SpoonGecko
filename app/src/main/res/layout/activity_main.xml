@@ -8,6 +8,7 @@
     android:background="@color/md_theme_background">
 
     <LinearLayout
+        android:id="@+id/toolbar_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -33,7 +34,7 @@
                 app:icon="@drawable/ic_back"
                 app:iconSize="18dp"
                 app:iconTint="@color/md_theme_on_surface_variant"
-                android:contentDescription="Back"
+                android:contentDescription="@string/cd_back"
                 android:enabled="false" />
 
             <com.google.android.material.button.MaterialButton
@@ -48,7 +49,7 @@
                 app:icon="@drawable/ic_forward"
                 app:iconSize="18dp"
                 app:iconTint="@color/md_theme_on_surface_variant"
-                android:contentDescription="Forward"
+                android:contentDescription="@string/cd_forward"
                 android:enabled="false" />
 
             <com.google.android.material.button.MaterialButton
@@ -63,7 +64,7 @@
                 app:icon="@drawable/ic_refresh"
                 app:iconSize="18dp"
                 app:iconTint="@color/md_theme_on_surface_variant"
-                android:contentDescription="Reload" />
+                android:contentDescription="@string/cd_reload" />
 
             <EditText
                 android:id="@+id/url_bar"
@@ -75,7 +76,7 @@
                 android:background="@drawable/url_bar_background"
                 android:inputType="textUri"
                 android:imeOptions="actionGo"
-                android:hint="Search or enter address"
+                android:hint="@string/url_bar_hint"
                 android:textColor="@color/md_theme_on_surface"
                 android:textColorHint="@color/md_theme_on_surface_variant"
                 android:paddingHorizontal="12dp"
@@ -97,7 +98,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:background="?attr/selectableItemBackground"
-                android:contentDescription="Tab manager" />
+                android:contentDescription="@string/cd_tab_manager" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_menu"
@@ -112,7 +113,8 @@
                 app:icon="@drawable/ic_more_vert"
                 app:iconSize="24dp"
                 app:iconTint="@color/md_theme_on_surface_variant"
-                android:contentDescription="Menu" />
+                android:contentDescription="@string/cd_menu" />
+
         </LinearLayout>
 
         <ProgressBar
