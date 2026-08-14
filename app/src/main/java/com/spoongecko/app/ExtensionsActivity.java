@@ -2,8 +2,10 @@ package com.spoongecko.app;
 
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -28,27 +30,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-/**
- * ExtensionsActivity manages installed GeckoView WebExtensions.
- *
- * <p>Features:
- * <ul>
- *   <li>List installed extensions with name, version, and enabled/disabled badge.</li>
- *   <li>Enable / disable individual extensions without uninstalling them.</li>
- *   <li>Install extensions from a local .xpi file via the file picker.</li>
- *   <li>Remove (uninstall) extensions with a confirmation dialog.</li>
- *   <li>Link to the Firefox Add-ons (AMO) catalogue for browsing compatible extensions.</li>
- *   <li>Graceful no-op / error UI when extension support is disabled via the build flag.</li>
- * </ul>
- *
- * <p>When {@link BuildConfig#EXTENSIONS_ENABLED} is {@code false}, all controls are
- * hidden and a prominent message is shown explaining that the feature is unavailable.
- */
 public class ExtensionsActivity extends AppCompatActivity {
 
     private static final String AMO_URL =
             "https://addons.mozilla.org/en-US/firefox/extensions/";
+    private static final long MAX_XPI_BYTES = 20L * 1024 * 1024;
 
     private LinearLayout extensionsList;
     private List<WebExtension> installedExtensions = new ArrayList<>();
@@ -75,7 +63,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         root.addView(toolbar);
 
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            // Feature disabled build – show informational message and exit early.
             TextView disabled = new TextView(this);
             disabled.setText("Extension support is not available in this build.");
             disabled.setTextSize(15);
@@ -93,7 +80,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(16, 16, 16, 16);
 
-        // ---- Action buttons row ----------------------------------------
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
@@ -122,10 +108,8 @@ public class ExtensionsActivity extends AppCompatActivity {
         actions.addView(btnBrowseAmo);
         content.addView(actions);
 
-        // ---- Spacer --------------------------------------------------------
         addSpacer(content, 16);
 
-        // ---- Extensions list -----------------------------------------------
         extensionsList = new LinearLayout(this);
         extensionsList.setOrientation(LinearLayout.VERTICAL);
         content.addView(extensionsList);
@@ -133,7 +117,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         scroll.addView(content);
         root.addView(scroll);
         setContentView(root);
-        // Initial load is handled by onResume, which always follows onCreate.
     }
 
     @Override
@@ -143,8 +126,6 @@ public class ExtensionsActivity extends AppCompatActivity {
             refreshExtensionsList();
         }
     }
-
-    // ---------------------------------------------------------------- refresh
 
     private void refreshExtensionsList() {
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
@@ -186,8 +167,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         }
     }
 
-    // ------------------------------------------------------------------ card
-
     private MaterialCardView buildExtensionCard(WebExtension ext) {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(12);
@@ -203,7 +182,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(16, 12, 16, 12);
 
-        // -- Info column -----------------------------------------------------
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setLayoutParams(new LinearLayout.LayoutParams(
@@ -232,7 +210,6 @@ public class ExtensionsActivity extends AppCompatActivity {
                 R.color.md_theme_on_surface_variant, null));
         info.addView(idView);
 
-        // -- Enabled badge ---------------------------------------------------
         boolean enabled = (ext.metaData != null)
                 ? ExtensionController.isEnabled(ext)
                 : ExtensionController.isEnabledInPrefs(this, ext.id);
@@ -247,7 +224,6 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         row.addView(info);
 
-        // -- Enable/Disable toggle -------------------------------------------
         SwitchCompat toggle = new SwitchCompat(this);
         toggle.setChecked(enabled);
         toggle.setContentDescription(enabled ? "Disable extension" : "Enable extension");
@@ -265,7 +241,6 @@ public class ExtensionsActivity extends AppCompatActivity {
         toggle.setLayoutParams(toggleParams);
         row.addView(toggle);
 
-        // -- Remove button ---------------------------------------------------
         MaterialButton btnRemove = new MaterialButton(this);
         btnRemove.setText("Remove");
         btnRemove.setTextSize(12);
@@ -276,13 +251,17 @@ public class ExtensionsActivity extends AppCompatActivity {
         return card;
     }
 
-    // ---------------------------------------------------------------- actions
-
     private void installExtension(Uri uri) {
-        // GeckoView's install() does not understand content:// URIs, so we copy
-        // the selected .xpi into a fixed-name private cache file and pass a
-        // file:// URI instead.  Using a fixed name means any file left behind by
-        // a previously interrupted install is silently overwritten.
+        if (!isXpiFile(uri)) {
+            showInstallError("The selected file is not a .xpi extension package.");
+            return;
+        }
+        long size = getFileSize(uri);
+        if (size > MAX_XPI_BYTES) {
+            showInstallError("The selected .xpi file is too large (max 20 MB).");
+            return;
+        }
+
         File tempXpi = new File(getCacheDir(), "xpi_install.xpi");
         try {
             try (InputStream in = getContentResolver().openInputStream(uri);
@@ -293,11 +272,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                 while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
             }
         } catch (IOException e) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Install Failed")
-                    .setMessage("Could not read the selected file.")
-                    .setPositiveButton("OK", null)
-                    .show();
+            showInstallError("Could not read the selected file.");
             return;
         }
 
@@ -316,14 +291,41 @@ public class ExtensionsActivity extends AppCompatActivity {
                     @Override
                     public void onError(String message) {
                         tempXpi.delete();
-                        runOnUiThread(() ->
-                                new AlertDialog.Builder(ExtensionsActivity.this)
-                                        .setTitle("Install Failed")
-                                        .setMessage(message)
-                                        .setPositiveButton("OK", null)
-                                        .show());
+                        runOnUiThread(() -> showInstallError(message));
                     }
                 });
+    }
+
+    private boolean isXpiFile(Uri uri) {
+        String name = queryColumn(uri, OpenableColumns.DISPLAY_NAME);
+        if (name == null) name = uri.getLastPathSegment();
+        return name != null && name.toLowerCase(Locale.ROOT).endsWith(".xpi");
+    }
+
+    private long getFileSize(Uri uri) {
+        String sizeStr = queryColumn(uri, OpenableColumns.SIZE);
+        if (sizeStr != null) {
+            try { return Long.parseLong(sizeStr); } catch (NumberFormatException ignored) {}
+        }
+        return -1;
+    }
+
+    private String queryColumn(Uri uri, String column) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{column}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(column);
+                if (idx >= 0 && !cursor.isNull(idx)) return cursor.getString(idx);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private void showInstallError(String message) {
+        new AlertDialog.Builder(this)
+                .setTitle("Install Failed")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private void enableExtension(WebExtension ext) {
@@ -341,7 +343,7 @@ public class ExtensionsActivity extends AppCompatActivity {
             public void onError(String message) {
                 runOnUiThread(() -> {
                     Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show();
-                    refreshExtensionsList(); // re-sync toggle state
+                    refreshExtensionsList();
                 });
             }
         });
@@ -362,7 +364,7 @@ public class ExtensionsActivity extends AppCompatActivity {
             public void onError(String message) {
                 runOnUiThread(() -> {
                     Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show();
-                    refreshExtensionsList(); // re-sync toggle state
+                    refreshExtensionsList();
                 });
             }
         });
@@ -396,8 +398,6 @@ public class ExtensionsActivity extends AppCompatActivity {
             }
         });
     }
-
-    // ---------------------------------------------------------------- helpers
 
     private void addSpacer(LinearLayout parent, int heightDp) {
         TextView spacer = new TextView(this);
