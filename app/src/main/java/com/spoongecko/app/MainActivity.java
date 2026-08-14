@@ -12,8 +12,6 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
-import android.view.ActionMode;
-import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -33,6 +31,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.google.android.material.button.MaterialButton;
 
 import org.mozilla.geckoview.AllowOrDeny;
+import org.mozilla.geckoview.BasicSelectionActionDelegate;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
@@ -67,10 +66,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int MAX_TABS = 50;
     private static final int MAX_PERSISTED_TABS = 10;
     private static final int REQUEST_CODE_NOTIFICATIONS = 2;
-    private static final int MENU_CUT = 1;
-    private static final int MENU_COPY = 2;
-    private static final int MENU_PASTE = 3;
-    private static final int MENU_SELECT_ALL = 4;
     static final String EXTRA_LOAD_URL = "load_url";
     static final String EXTRA_CLEAR_DATA = "clear_data";
     private static final Set<String> ALLOWED_SCHEMES =
@@ -91,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
     private Map<GeckoSession, Boolean> canGoBackMap = new HashMap<>();
     private Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
     private Map<GeckoSession, GeckoSession.SessionState> sessionStates = new HashMap<>();
-    private ActionMode selectionActionMode;
 
     private EditText urlBar;
     private ProgressBar progressBar;
@@ -240,9 +234,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void attachDelegates(GeckoSession session) {
-        TabContentDelegate contentDelegate = new TabContentDelegate(this, session);
-        session.setContentDelegate(contentDelegate);
-        session.setSelectionActionDelegate(contentDelegate);
+        session.setContentDelegate(new TabContentDelegate(this, session));
+        session.setSelectionActionDelegate(new BasicSelectionActionDelegate(this));
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
@@ -553,23 +546,9 @@ public class MainActivity extends AppCompatActivity {
 
     private String extractContextTitle(GeckoSession.ContentDelegate.ContextElement element) {
         if (element.title != null && !element.title.isEmpty()) return element.title;
-        if (element.textContent != null && !element.textContent.isEmpty()) {
-            String text = element.textContent.trim().replaceAll("\\s+", " ");
-            return text.length() > 60 ? text.substring(0, 60) + "..." : text;
-        }
+        if (element.linkUri != null && !element.linkUri.isEmpty()) return element.linkUri;
+        if (element.srcUri != null && !element.srcUri.isEmpty()) return element.srcUri;
         return getString(R.string.app_name);
-    }
-
-    private void showSelectionActionMode(GeckoSession.SelectionActionDelegate.Selection selection) {
-        if (selectionActionMode != null) selectionActionMode.finish();
-        selectionActionMode = startActionMode(new SelectionActionCallback(selection));
-    }
-
-    private void hideSelectionActionMode() {
-        if (selectionActionMode != null) {
-            selectionActionMode.finish();
-            selectionActionMode = null;
-        }
     }
 
     private void setFullscreen(boolean fullscreen) {
@@ -580,55 +559,6 @@ public class MainActivity extends AppCompatActivity {
             controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars());
-        }
-    }
-
-    private class SelectionActionCallback implements ActionMode.Callback {
-        private final GeckoSession.SelectionActionDelegate.Selection selection;
-
-        SelectionActionCallback(GeckoSession.SelectionActionDelegate.Selection selection) {
-            this.selection = selection;
-        }
-
-        @Override
-        public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-            int available = selection.availableActions();
-            int order = 0;
-            if ((available & GeckoSession.SelectionActionDelegate.ACTION_CUT) != 0) {
-                menu.add(0, MENU_CUT, order++, R.string.selection_cut);
-            }
-            if ((available & GeckoSession.SelectionActionDelegate.ACTION_COPY) != 0) {
-                menu.add(0, MENU_COPY, order++, R.string.selection_copy);
-            }
-            if ((available & GeckoSession.SelectionActionDelegate.ACTION_PASTE) != 0) {
-                menu.add(0, MENU_PASTE, order++, R.string.selection_paste);
-            }
-            if ((available & GeckoSession.SelectionActionDelegate.ACTION_SELECT_ALL) != 0) {
-                menu.add(0, MENU_SELECT_ALL, order++, R.string.selection_select_all);
-            }
-            return true;
-        }
-
-        @Override
-        public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-            return false;
-        }
-
-        @Override
-        public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-            int id = item.getItemId();
-            if (id == MENU_CUT) selection.cut();
-            else if (id == MENU_COPY) selection.copy();
-            else if (id == MENU_PASTE) selection.paste();
-            else if (id == MENU_SELECT_ALL) selection.selectAll();
-            else return false;
-            mode.finish();
-            return true;
-        }
-
-        @Override
-        public void onDestroyActionMode(ActionMode mode) {
-            selectionActionMode = null;
         }
     }
 
@@ -722,7 +652,7 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
 
-    private static class TabContentDelegate implements GeckoSession.ContentDelegate, GeckoSession.SelectionActionDelegate {
+    private static class TabContentDelegate implements GeckoSession.ContentDelegate {
         private final WeakReference<MainActivity> activityRef;
         private final GeckoSession ownSession;
 
@@ -731,7 +661,6 @@ public class MainActivity extends AppCompatActivity {
             this.ownSession = session;
         }
 
-        @Override
         public void onTitleChange(GeckoSession session, String title) {
             MainActivity activity = activityRef.get();
             if (activity != null && session == ownSession && title != null && !title.isEmpty()) {
@@ -739,7 +668,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @Override
         public void onExternalResponse(GeckoSession session, WebResponse response) {
             MainActivity activity = activityRef.get();
             if (activity == null || response == null) return;
@@ -748,40 +676,22 @@ public class MainActivity extends AppCompatActivity {
             DownloadManager.handleDownload(activity, response);
         }
 
-        @Override
         public void onCloseRequest(GeckoSession session) {
             MainActivity activity = activityRef.get();
             if (activity == null || session != ownSession) return;
             activity.runOnUiThread(activity::handleCloseRequest);
         }
 
-        @Override
         public void onFullScreen(GeckoSession session, boolean fullScreen) {
             MainActivity activity = activityRef.get();
             if (activity == null || session != ownSession) return;
             activity.runOnUiThread(() -> activity.setFullscreen(fullScreen));
         }
 
-        @Override
         public void onContextMenu(GeckoSession session, int screenX, int screenY, ContextElement element) {
             MainActivity activity = activityRef.get();
             if (activity == null || element == null) return;
             activity.runOnUiThread(() -> activity.showContextMenu(element));
-        }
-
-        @Override
-        public void onShowActionRequest(GeckoSession session, Selection selection) {
-            MainActivity activity = activityRef.get();
-            if (activity == null || selection == null) return;
-            if (session != activity.getCurrentSession()) return;
-            activity.runOnUiThread(() -> activity.showSelectionActionMode(selection));
-        }
-
-        @Override
-        public void onHideAction(GeckoSession session, int reason) {
-            MainActivity activity = activityRef.get();
-            if (activity == null) return;
-            activity.runOnUiThread(activity::hideSelectionActionMode);
         }
     }
 
@@ -794,7 +704,6 @@ public class MainActivity extends AppCompatActivity {
             this.ownSession = session;
         }
 
-        @Override
         public void onCanGoBack(GeckoSession session, boolean canGoBack) {
             MainActivity activity = activityRef.get();
             if (activity != null && session == ownSession) {
@@ -803,7 +712,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @Override
         public void onCanGoForward(GeckoSession session, boolean canGoForward) {
             MainActivity activity = activityRef.get();
             if (activity != null && session == ownSession) {
@@ -812,19 +720,16 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
                                                       GeckoSession.NavigationDelegate.LoadRequest request) {
             return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session,
                                                               GeckoSession.NavigationDelegate.LoadRequest request) {
             return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
-        @Override
         public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
             MainActivity activity = activityRef.get();
             if (activity == null) return GeckoResult.fromValue(null);
@@ -843,7 +748,6 @@ public class MainActivity extends AppCompatActivity {
             return GeckoResult.fromValue(newSession);
         }
 
-        @Override
         public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
             MainActivity activity = activityRef.get();
             if (activity == null) return GeckoResult.fromValue(null);
@@ -898,7 +802,6 @@ public class MainActivity extends AppCompatActivity {
             this.ownSession = session;
         }
 
-        @Override
         public void onPageStart(GeckoSession session, String url) {
             MainActivity activity = activityRef.get();
             if (activity == null) return;
@@ -914,25 +817,21 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        @Override
         public void onPageStop(GeckoSession session, boolean success) {
             MainActivity activity = activityRef.get();
             if (activity == null || session != activity.getCurrentSession()) return;
             activity.runOnUiThread(() -> activity.progressBar.setVisibility(ProgressBar.GONE));
         }
 
-        @Override
         public void onProgressChange(GeckoSession session, int progress) {
             MainActivity activity = activityRef.get();
             if (activity == null || session != activity.getCurrentSession()) return;
             activity.runOnUiThread(() -> activity.progressBar.setProgress(progress));
         }
 
-        @Override
         public void onSecurityChange(GeckoSession session,
                                      GeckoSession.ProgressDelegate.SecurityInformation securityInfo) {}
 
-        @Override
         public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {
             MainActivity activity = activityRef.get();
             if (activity != null) {
@@ -951,7 +850,6 @@ public class MainActivity extends AppCompatActivity {
             this.activityRef = new WeakReference<>(activity);
         }
 
-        @Override
         public GeckoResult<Integer> onContentPermissionRequest(
                 GeckoSession session, GeckoSession.PermissionDelegate.ContentPermission perm) {
             MainActivity activity = activityRef.get();
@@ -997,7 +895,6 @@ public class MainActivity extends AppCompatActivity {
             return host != null ? host : activity.getString(R.string.this_site);
         }
 
-        @Override
         public GeckoResult<Integer> onMediaPermissionRequest(
                 GeckoSession session, String uri,
                 GeckoSession.PermissionDelegate.MediaSource[] video,
@@ -1020,7 +917,6 @@ public class MainActivity extends AppCompatActivity {
             return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
         }
 
-        @Override
         public GeckoResult<Integer> onGeckoPermissionRequest(
                 GeckoSession session, String uri, int type, GeckoSession.PermissionDelegate.Callback callback) {
             MainActivity activity = activityRef.get();
@@ -1048,7 +944,6 @@ public class MainActivity extends AppCompatActivity {
             this.activityRef = new WeakReference<>(activity);
         }
 
-        @Override
         public GeckoResult<AllowOrDeny> onInstallPrompt(WebExtension extension) {
             GeckoResult<AllowOrDeny> result = new GeckoResult<>();
             MainActivity activity = activityRef.get();
