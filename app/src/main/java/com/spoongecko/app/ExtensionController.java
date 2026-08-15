@@ -42,7 +42,7 @@ public final class ExtensionController {
             return;
         }
         runtime.getWebExtensionController()
-                .install(uriString)
+                .install(uriString, WebExtensionController.INSTALLATION_METHOD_FROM_FILE)
                 .accept(
                         ext -> {
                             Log.i(TAG, "Installed: " + ext.id);
@@ -197,7 +197,7 @@ public final class ExtensionController {
         if (raw.contains("ERROR_INCOMPATIBLE") || raw.contains("incompatible")) {
             return context.getString(R.string.extension_failed_install_incompatible);
         }
-        if (raw.contains("ERROR_SIGNEDSTATE")) {
+        if (raw.contains("ERROR_SIGNEDSTATE") || raw.contains("signed")) {
             return context.getString(R.string.extension_failed_install_signed_state);
         }
         if (raw.contains("ERROR_NETWORK") || raw.contains("network")) {
