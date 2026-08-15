@@ -66,7 +66,7 @@
                 app:iconTint="@color/md_theme_on_surface_variant"
                 android:contentDescription="@string/cd_reload" />
 
-            <EditText
+            <AutoCompleteTextView
                 android:id="@+id/url_bar"
                 android:selectAllOnFocus="true"
                 android:layout_width="0dp"
@@ -83,7 +83,9 @@
                 android:singleLine="true"
                 android:fontFamily="sans-serif"
                 android:textSize="14sp"
-                android:importantForAutofill="no" />
+                android:importantForAutofill="no"
+                android:completionThreshold="1"
+                android:dropDownHeight="240dp" />
 
             <TextView
                 android:id="@+id/tab_manager"
