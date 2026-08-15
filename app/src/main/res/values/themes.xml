@@ -18,7 +18,6 @@
         <item name="colorOnBackground">@color/md_theme_on_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowBackground">@color/md_theme_background</item>
         <item name="android:windowDisablePreview">true</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Small</item>
