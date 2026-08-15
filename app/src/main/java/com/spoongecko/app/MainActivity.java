@@ -155,31 +155,37 @@ public class MainActivity extends AppCompatActivity {
             currentTabIndex = savedInstanceState.getInt(KEY_TAB_INDEX, 0);
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             int persistedCount = prefs.getInt(KEY_PERSISTED_TAB_COUNT, 0);
-            int totalTabs = stateStrings != null ? stateStrings.length : 0;
-            if (persistedCount > totalTabs) totalTabs = persistedCount;
+            int stateCount = stateStrings != null ? stateStrings.length : 0;
+            int totalTabs = Math.max(stateCount, persistedCount);
             if (totalTabs > MAX_TABS) totalTabs = MAX_TABS;
             if (totalTabs <= 0) totalTabs = 1;
+
             for (int i = 0; i < totalTabs; i++) {
                 GeckoSession session = new GeckoSession();
-                session.open(sGeckoRuntime);
                 attachDelegates(session);
                 sessions.add(session);
                 tabTitles.put(session, getString(R.string.tab_default_title, i + 1));
                 tabUrls.put(session, null);
+
                 String stateString = (stateStrings != null && i < stateStrings.length) ? stateStrings[i] : null;
-                if (stateString != null) {
-                    GeckoSession.SessionState state = GeckoSession.SessionState.fromString(stateString);
-                    if (state != null) {
-                        session.restoreState(state);
-                    }
+                GeckoSession.SessionState state = stateString != null
+                        ? GeckoSession.SessionState.fromString(stateString)
+                        : null;
+
+                if (state != null) {
+                    session.restoreState(state);
+                    session.open(sGeckoRuntime);
                 } else {
+                    session.open(sGeckoRuntime);
                     String savedUrl = prefs.getString(KEY_PERSISTED_TAB_URL_PREFIX + i, null);
-                    if (savedUrl != null && !savedUrl.isEmpty()) {
-                        tabUrls.put(session, savedUrl);
-                        session.loadUri(savedUrl);
-                    }
+                    String fallbackUrl = (savedUrl != null && !savedUrl.isEmpty())
+                            ? savedUrl
+                            : buildNewTabPage();
+                    tabUrls.put(session, fallbackUrl);
+                    session.loadUri(fallbackUrl);
                 }
             }
+
             if (sessions.isEmpty()) {
                 createNewTab(true);
             } else {
