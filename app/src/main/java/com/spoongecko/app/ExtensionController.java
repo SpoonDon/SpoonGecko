@@ -9,6 +9,7 @@ import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 
 import java.util.List;
+import java.util.Locale;
 
 public final class ExtensionController {
 
@@ -182,6 +183,20 @@ public final class ExtensionController {
         if (ext == null || ext.metaData == null) return true;
         Boolean enabled = ext.metaData.enabled;
         return enabled == null ? true : enabled;
+    }
+
+    public static String getOptionsPageUrl(WebExtension ext) {
+        if (ext == null || ext.metaData == null) return null;
+        String options = ext.metaData.optionsPageUrl;
+        if (options == null || options.isEmpty()) return null;
+        String lower = options.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("moz-extension://") || lower.startsWith("http://") || lower.startsWith("https://")) {
+            return options;
+        }
+        if (ext.metaData.baseUrl != null && !ext.metaData.baseUrl.isEmpty()) {
+            return ext.metaData.baseUrl + options;
+        }
+        return null;
     }
 
     static boolean isAllowedSource(String uri) {
