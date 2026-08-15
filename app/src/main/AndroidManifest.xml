@@ -47,6 +47,16 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
             android:exported="false" />
 
+        <activity
+            android:name=".HistoryActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
+            android:exported="false" />
+
+        <activity
+            android:name=".BookmarksActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
+            android:exported="false" />
+
         <service
             android:name=".BrowserService"
             android:enabled="true"
