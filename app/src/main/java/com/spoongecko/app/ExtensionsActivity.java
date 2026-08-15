@@ -124,7 +124,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private void refreshExtensionsList() {
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-        ExtensionController.list(runtime, new ExtensionController.ListCallback() {
+        ExtensionController.list(this, runtime, new ExtensionController.ListCallback() {
             @Override
             public void onResult(List<WebExtension> extensions) {
                 installedExtensions.clear();
@@ -275,7 +275,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         }
 
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-        ExtensionController.install(Uri.fromFile(tempXpi).toString(), runtime,
+        ExtensionController.install(this, Uri.fromFile(tempXpi).toString(), runtime,
                 new ExtensionController.Callback() {
                     @Override
                     public void onSuccess(String message) {

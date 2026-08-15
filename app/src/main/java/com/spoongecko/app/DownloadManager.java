@@ -5,6 +5,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.webkit.MimeTypeMap;
 
@@ -13,19 +15,30 @@ import org.mozilla.geckoview.WebResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class DownloadManager {
+
+    private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2);
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     private DownloadManager() {}
 
     public static void handleDownload(Context context, WebResponse response) {
-        if (context == null || response == null || response.uri == null) return;
-        InputStream stream = response.body;
-        if (stream == null) return;
+        if (context == null || response == null || response.uri == null || response.body == null) return;
+        Context appContext = context.getApplicationContext();
         String filename = deriveFilename(response);
         String mime = deriveMimeType(response, filename);
-        saveToDownloads(context, stream, filename, mime);
+        InputStream in = response.body;
+        EXECUTOR.execute(() -> {
+            saveToDownloads(appContext, in, filename, mime);
+            closeQuietly(in);
+        });
     }
 
     private static void saveToDownloads(Context context, InputStream in, String filename, String mime) {
@@ -53,8 +66,6 @@ public final class DownloadManager {
             if (uri != null) {
                 try { resolver.delete(uri, null, null); } catch (Exception ignored) {}
             }
-        } finally {
-            closeQuietly(in);
         }
     }
 
@@ -86,7 +97,27 @@ public final class DownloadManager {
 
     private static String extractFilename(String contentDisposition) {
         if (contentDisposition == null) return null;
-        String lower = contentDisposition.toLowerCase();
+        String lower = contentDisposition.toLowerCase(Locale.ROOT);
+        int starIdx = lower.indexOf("filename*=utf-8''");
+        if (starIdx != -1) {
+            String rest = contentDisposition.substring(starIdx + "filename*=utf-8''".length()).trim();
+            if (rest.startsWith("\"")) {
+                int end = rest.indexOf('"', 1);
+                if (end != -1) {
+                    rest = rest.substring(1, end);
+                } else {
+                    rest = rest.substring(1).replace("\"", "");
+                }
+            } else {
+                int semi = rest.indexOf(';');
+                if (semi != -1) rest = rest.substring(0, semi).trim();
+            }
+            if (!rest.isEmpty()) {
+                try {
+                    return URLDecoder.decode(rest, StandardCharsets.UTF_8.name());
+                } catch (Exception ignored) {}
+            }
+        }
         int idx = lower.indexOf("filename=");
         if (idx == -1) return null;
         String rest = contentDisposition.substring(idx + "filename=".length()).trim();
@@ -118,7 +149,7 @@ public final class DownloadManager {
             }
         }
         int dot = filename.lastIndexOf('.');
-        String ext = dot == -1 ? "" : filename.substring(dot + 1);
+        String ext = dot == -1 ? "" : filename.substring(dot + 1).toLowerCase(Locale.ROOT);
         String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
         return mime != null ? mime : "application/octet-stream";
     }

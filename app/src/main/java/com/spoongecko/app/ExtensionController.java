@@ -4,72 +4,41 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 
 import java.util.List;
 
-/**
- * ExtensionController centralises all WebExtension lifecycle operations for SpoonGecko.
- *
- * <p>Design goals:
- * <ul>
- *   <li>Single place for install / uninstall / enable / disable / update logic.</li>
- *   <li>Persists per-extension enabled state across restarts via SharedPreferences.</li>
- *   <li>Respects the {@code EXTENSIONS_ENABLED} build flag; all public methods are
- *       safe no-ops when the feature is disabled.</li>
- *   <li>All GeckoResult callbacks are dispatched to the provided callback so callers
- *       can update UI from the main thread.</li>
- * </ul>
- *
- * <p>Security notes:
- * <ul>
- *   <li>Extension sources are validated: only {@code file://} (app-private cache temp,
- *       converted from a {@code content://} picker by the caller) and {@code https://}
- *       URIs are accepted for install. {@code http://} and {@code content://} are
- *       rejected to prevent MITM injection of extension code.</li>
- *   <li>This class does not persist or log extension tokens or credentials.</li>
- * </ul>
- */
 public final class ExtensionController {
 
     private static final String TAG = "ExtensionController";
     private static final String PREFS_NAME = "extension_prefs";
     private static final String PREF_PREFIX_ENABLED = "ext_enabled_";
 
-    /** Callbacks used to report outcomes back to the UI layer. */
     public interface Callback {
         void onSuccess(String message);
         void onError(String message);
     }
 
+    public interface ListCallback {
+        void onResult(List<WebExtension> extensions);
+        void onError(String message);
+    }
+
     private ExtensionController() {}
 
-    /**
-     * Installs a WebExtension from the given URI string.
-     *
-     * <p>Accepted schemes: {@code file://} (app-private cache temp; callers must
-     * convert {@code content://} picker URIs to a {@code file://} path inside
-     * {@code getCacheDir()} before calling) and {@code https://} (remote URL).
-     * {@code http://} and {@code content://} are rejected.
-     *
-     * @param uriString  URI pointing to an .xpi file
-     * @param runtime    current GeckoRuntime
-     * @param callback   result callback (called on GeckoView worker thread; post to main if needed)
-     */
-    public static void install(String uriString, GeckoRuntime runtime, Callback callback) {
+    public static void install(Context context, String uriString, GeckoRuntime runtime, Callback callback) {
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            callback.onError("Extension support is disabled in this build.");
+            callback.onError(context.getString(R.string.extension_disabled_build));
             return;
         }
         if (runtime == null) {
-            callback.onError("Browser not initialised.");
+            callback.onError(context.getString(R.string.extension_browser_not_initialised));
             return;
         }
         if (!isAllowedSource(uriString)) {
-            callback.onError("Install blocked: only file:// and https:// sources are permitted.");
+            callback.onError(context.getString(R.string.extension_install_blocked));
             return;
         }
         runtime.getWebExtensionController()
@@ -77,26 +46,23 @@ public final class ExtensionController {
                 .accept(
                         ext -> {
                             Log.i(TAG, "Installed: " + ext.id);
-                            callback.onSuccess("Extension installed.");
+                            callback.onSuccess(context.getString(R.string.extension_installed));
                         },
                         e -> {
                             String msg = e != null ? e.getMessage() : "Unknown error";
                             Log.e(TAG, "Install failed: " + msg);
-                            callback.onError(formatInstallError(msg));
+                            callback.onError(formatInstallError(context, msg));
                         });
     }
 
-    /**
-     * Uninstalls the given extension and removes its stored enabled preference.
-     */
     public static void uninstall(WebExtension ext, GeckoRuntime runtime,
                                  Context context, Callback callback) {
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            callback.onError("Extension support is disabled in this build.");
+            callback.onError(context.getString(R.string.extension_disabled_build));
             return;
         }
         if (runtime == null || ext == null) {
-            callback.onError("Invalid state.");
+            callback.onError(context.getString(R.string.extension_invalid_state));
             return;
         }
         runtime.getWebExtensionController()
@@ -105,26 +71,23 @@ public final class ExtensionController {
                         result -> {
                             clearEnabledPref(context, ext.id);
                             Log.i(TAG, "Uninstalled: " + ext.id);
-                            callback.onSuccess("Extension removed.");
+                            callback.onSuccess(context.getString(R.string.extension_removed));
                         },
                         e -> {
                             String msg = e != null ? e.getMessage() : "Unknown error";
                             Log.e(TAG, "Uninstall failed: " + msg);
-                            callback.onError("Failed to remove extension: " + msg);
+                            callback.onError(context.getString(R.string.extension_failed_remove, msg));
                         });
     }
 
-    /**
-     * Enables a previously disabled extension and persists the state.
-     */
     public static void enable(WebExtension ext, GeckoRuntime runtime,
                               Context context, Callback callback) {
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            callback.onError("Extension support is disabled in this build.");
+            callback.onError(context.getString(R.string.extension_disabled_build));
             return;
         }
         if (runtime == null || ext == null) {
-            callback.onError("Invalid state.");
+            callback.onError(context.getString(R.string.extension_invalid_state));
             return;
         }
         runtime.getWebExtensionController()
@@ -133,26 +96,23 @@ public final class ExtensionController {
                         updated -> {
                             setEnabledPref(context, ext.id, true);
                             Log.i(TAG, "Enabled: " + ext.id);
-                            callback.onSuccess("Extension enabled.");
+                            callback.onSuccess(context.getString(R.string.extension_enabled));
                         },
                         e -> {
                             String msg = e != null ? e.getMessage() : "Unknown error";
                             Log.e(TAG, "Enable failed: " + msg);
-                            callback.onError("Failed to enable extension: " + msg);
+                            callback.onError(context.getString(R.string.extension_failed_enable, msg));
                         });
     }
 
-    /**
-     * Disables an extension (keeps it installed) and persists the state.
-     */
     public static void disable(WebExtension ext, GeckoRuntime runtime,
                                Context context, Callback callback) {
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            callback.onError("Extension support is disabled in this build.");
+            callback.onError(context.getString(R.string.extension_disabled_build));
             return;
         }
         if (runtime == null || ext == null) {
-            callback.onError("Invalid state.");
+            callback.onError(context.getString(R.string.extension_invalid_state));
             return;
         }
         runtime.getWebExtensionController()
@@ -161,30 +121,22 @@ public final class ExtensionController {
                         updated -> {
                             setEnabledPref(context, ext.id, false);
                             Log.i(TAG, "Disabled: " + ext.id);
-                            callback.onSuccess("Extension disabled.");
+                            callback.onSuccess(context.getString(R.string.extension_disabled));
                         },
                         e -> {
                             String msg = e != null ? e.getMessage() : "Unknown error";
                             Log.e(TAG, "Disable failed: " + msg);
-                            callback.onError("Failed to disable extension: " + msg);
+                            callback.onError(context.getString(R.string.extension_failed_disable, msg));
                         });
     }
 
-    /**
-     * Lists installed extensions. The result list is passed to the provided {@link ListCallback}.
-     */
-    public interface ListCallback {
-        void onResult(List<WebExtension> extensions);
-        void onError(String message);
-    }
-
-    public static void list(GeckoRuntime runtime, ListCallback callback) {
+    public static void list(Context context, GeckoRuntime runtime, ListCallback callback) {
         if (!BuildConfig.EXTENSIONS_ENABLED) {
-            callback.onError("Extension support is disabled in this build.");
+            callback.onError(context.getString(R.string.extension_disabled_build));
             return;
         }
         if (runtime == null) {
-            callback.onError("Browser not initialised.");
+            callback.onError(context.getString(R.string.extension_browser_not_initialised));
             return;
         }
         runtime.getWebExtensionController()
@@ -194,14 +146,10 @@ public final class ExtensionController {
                         e -> {
                             String msg = e != null ? e.getMessage() : "Unknown error";
                             Log.e(TAG, "List failed: " + msg);
-                            callback.onError("Failed to list extensions: " + msg);
+                            callback.onError(context.getString(R.string.extension_failed_list, msg));
                         });
     }
 
-    /**
-     * Returns whether the extension with the given id was last persisted as enabled.
-     * Defaults to {@code true} (extensions are enabled by default when first installed).
-     */
     public static boolean isEnabledInPrefs(Context context, String extensionId) {
         if (context == null || extensionId == null) return true;
         return getPrefs(context).getBoolean(PREF_PREFIX_ENABLED + extensionId, true);
@@ -217,9 +165,6 @@ public final class ExtensionController {
         getPrefs(context).edit().remove(PREF_PREFIX_ENABLED + extensionId).apply();
     }
 
-    /**
-     * Returns a human-readable label for an extension, falling back gracefully.
-     */
     public static String getDisplayName(WebExtension ext) {
         if (ext == null) return "Unknown";
         if (ext.metaData != null && ext.metaData.name != null && !ext.metaData.name.isEmpty()) {
@@ -228,21 +173,15 @@ public final class ExtensionController {
         return ext.id != null ? ext.id : "Unknown";
     }
 
-    /**
-     * Returns the version string for an extension, or an empty string if unavailable.
-     */
     public static String getVersion(WebExtension ext) {
         if (ext == null || ext.metaData == null || ext.metaData.version == null) return "";
         return ext.metaData.version;
     }
 
-    /**
-     * Returns whether the extension is currently enabled according to GeckoView metadata.
-     * Falls back to {@code true} when metadata is unavailable (e.g. right after install).
-     */
     public static boolean isEnabled(WebExtension ext) {
         if (ext == null || ext.metaData == null) return true;
-        return ext.metaData.enabled;
+        Boolean enabled = ext.metaData.enabled;
+        return enabled == null ? true : enabled;
     }
 
     static boolean isAllowedSource(String uri) {
@@ -250,21 +189,21 @@ public final class ExtensionController {
         return uri.startsWith("https://") || uri.startsWith("file://");
     }
 
-    static String formatInstallError(String raw) {
-        if (raw == null) return "Install failed.";
+    static String formatInstallError(Context context, String raw) {
+        if (raw == null) return context.getString(R.string.extension_failed_install_unknown);
         if (raw.contains("ERROR_CORRUPT_FILE") || raw.contains("corrupt")) {
-            return "Install failed: the .xpi file is corrupted.";
+            return context.getString(R.string.extension_failed_install_corrupt);
         }
         if (raw.contains("ERROR_INCOMPATIBLE") || raw.contains("incompatible")) {
-            return "Install failed: extension is not compatible with this browser version.";
+            return context.getString(R.string.extension_failed_install_incompatible);
         }
         if (raw.contains("ERROR_SIGNEDSTATE")) {
-            return "Install failed: extension must be signed or the source is untrusted.";
+            return context.getString(R.string.extension_failed_install_signed_state);
         }
         if (raw.contains("ERROR_NETWORK") || raw.contains("network")) {
-            return "Install failed: network error. Check your connection and try again.";
+            return context.getString(R.string.extension_failed_install_network);
         }
-        return "Install failed: " + raw;
+        return context.getString(R.string.extension_failed_install_generic, raw);
     }
 
     private static SharedPreferences getPrefs(Context context) {

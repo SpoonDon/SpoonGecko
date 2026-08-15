@@ -17,6 +17,8 @@ public class SettingsActivity extends AppCompatActivity {
     private static final String PREFS_NAME = "spoon_prefs";
     private static final String PREF_SEARCH_ENGINE = "search_engine";
 
+    private TextView searchEngineSubtitle;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -37,23 +39,7 @@ public class SettingsActivity extends AppCompatActivity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(16, 16, 16, 16);
 
-        content.addView(buildCard(R.string.search_engine_title, getSearchEngineLabel(), v -> {
-            String[] engines = {
-                    getString(R.string.search_engine_brave),
-                    getString(R.string.search_engine_duckduckgo),
-                    getString(R.string.search_engine_google)
-            };
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.search_engine_title)
-                    .setItems(engines, (dialog, which) -> {
-                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-                        String value = which == 0 ? "brave" : which == 1 ? "duckduckgo" : "google";
-                        prefs.edit().putString(PREF_SEARCH_ENGINE, value).apply();
-                        ((TextView) ((LinearLayout) v.getParent()).findViewWithTag("subtitle_search"))
-                                .setText(getSearchEngineLabel());
-                    })
-                    .show();
-        }));
+        content.addView(buildSearchEngineCard());
 
         content.addView(buildSimpleCard(R.string.clear_browsing_data_title, v -> {
             new AlertDialog.Builder(this)
@@ -100,8 +86,7 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
-    private MaterialCardView buildCard(int titleRes, String subtitle,
-                                       android.view.View.OnClickListener listener) {
+    private MaterialCardView buildSearchEngineCard() {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(16);
         card.setCardElevation(2);
@@ -116,21 +101,36 @@ public class SettingsActivity extends AppCompatActivity {
         inner.setPadding(20, 16, 20, 16);
 
         TextView titleView = new TextView(this);
-        titleView.setText(titleRes);
+        titleView.setText(R.string.search_engine_title);
         titleView.setTextSize(16);
         titleView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
 
-        TextView subtitleView = new TextView(this);
-        subtitleView.setText(subtitle);
-        subtitleView.setTextSize(13);
-        subtitleView.setTag("subtitle_search");
-        subtitleView.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
-        subtitleView.setPadding(0, 4, 0, 0);
+        searchEngineSubtitle = new TextView(this);
+        searchEngineSubtitle.setText(getSearchEngineLabel());
+        searchEngineSubtitle.setTextSize(13);
+        searchEngineSubtitle.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
+        searchEngineSubtitle.setPadding(0, 4, 0, 0);
 
         inner.addView(titleView);
-        inner.addView(subtitleView);
+        inner.addView(searchEngineSubtitle);
         card.addView(inner);
-        card.setOnClickListener(listener);
+
+        card.setOnClickListener(v -> {
+            String[] engines = {
+                    getString(R.string.search_engine_brave),
+                    getString(R.string.search_engine_duckduckgo),
+                    getString(R.string.search_engine_google)
+            };
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.search_engine_title)
+                    .setItems(engines, (dialog, which) -> {
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        String value = which == 0 ? "brave" : which == 1 ? "duckduckgo" : "google";
+                        prefs.edit().putString(PREF_SEARCH_ENGINE, value).apply();
+                        searchEngineSubtitle.setText(getSearchEngineLabel());
+                    })
+                    .show();
+        });
 
         return card;
     }
