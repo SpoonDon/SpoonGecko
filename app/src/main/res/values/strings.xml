@@ -107,41 +107,4 @@
     <string name="extensions_title">Extensions</string>
     <string name="extensions_unavailable">Extension support is not available in this build.</string>
     <string name="install_xpi">Install .xpi</string>
-    <string name="browse_amo">Browse AMO</string>
-    <string name="no_extensions">No extensions installed.\nTap \"Install .xpi\" to add one, or browse AMO for Firefox-compatible add-ons.</string>
-    <string name="extension_on">● ON</string>
-    <string name="extension_off">○ OFF</string>
-    <string name="extension_version">v%s</string>
-    <string name="enable_extension">Enable extension</string>
-    <string name="disable_extension">Disable extension</string>
-    <string name="remove_extension_title">Remove Extension</string>
-    <string name="remove_extension_message">Remove \"%s\"? This cannot be undone.</string>
-    <string name="not_xpi">The selected file is not a .xpi extension package.</string>
-    <string name="xpi_too_large">The selected .xpi file is too large (max 20 MB).</string>
-    <string name="could_not_read_file">Could not read the selected file.</string>
-    <string name="install_failed">Install Failed</string>
-    <string name="extension_disabled_build">Extension support is disabled in this build.</string>
-    <string name="extension_browser_not_initialised">Browser not initialised.</string>
-    <string name="extension_invalid_state">Invalid state.</string>
-    <string name="extension_install_blocked">Install blocked: only file:// and https:// sources are permitted.</string>
-    <string name="extension_installed">Extension installed.</string>
-    <string name="extension_removed">Extension removed.</string>
-    <string name="extension_enabled">Extension enabled.</string>
-    <string name="extension_disabled">Extension disabled.</string>
-    <string name="extension_failed_remove">Failed to remove extension: %1$s</string>
-    <string name="extension_failed_enable">Failed to enable extension: %1$s</string>
-    <string name="extension_failed_disable">Failed to disable extension: %1$s</string>
-    <string name="extension_failed_list">Failed to list extensions: %1$s</string>
-    <string name="extension_failed_install_corrupt">Install failed: the .xpi file is corrupted.</string>
-    <string name="extension_failed_install_incompatible">Install failed: extension is not compatible with this browser version.</string>
-    <string name="extension_failed_install_signed_state">Install failed: extension must be signed or the source is untrusted.</string>
-    <string name="extension_failed_install_network">Install failed: network error. Check your connection and try again.</string>
-    <string name="extension_failed_install_generic">Install failed: %1$s</string>
-    <string name="extension_failed_install_unknown">Install failed.</string>
-
-    <!-- Browser service -->
-    <string name="browser_service_channel">Browser Service</string>
-    <string name="browser_service_channel_desc">Keeps the browser alive in background.</string>
-    <string name="browser_notification_title">Spoon Gecko</string>
-    <string name="browser_notification_text">Browser running in background</string>
-</resources>
+    <string name="browse_amo">Browse AMO</string
