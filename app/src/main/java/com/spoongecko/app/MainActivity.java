@@ -12,10 +12,13 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
-import android.widget.EditText;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -71,7 +74,7 @@ public class MainActivity extends AppCompatActivity {
     static final String EXTRA_LOAD_URL = "load_url";
     static final String EXTRA_CLEAR_DATA = "clear_data";
     private static final Set<String> ALLOWED_SCHEMES =
-            new HashSet<>(Arrays.asList("http", "https", "data", "blob", "about"));
+            new HashSet<>(Arrays.asList("http", "https", "data", "blob", "about", "moz-extension"));
     private static final Object sRuntimeLock = new Object();
     static volatile GeckoRuntime sGeckoRuntime;
     private static Context appContext;
@@ -89,7 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
     private Map<GeckoSession, GeckoSession.SessionState> sessionStates = new HashMap<>();
 
-    private EditText urlBar;
+    private AutoCompleteTextView urlBar;
     private ProgressBar progressBar;
     private MaterialButton btnBack;
     private MaterialButton btnForward;
@@ -205,10 +208,7 @@ public class MainActivity extends AppCompatActivity {
         } else if (launchIntent != null && launchIntent.getStringExtra(EXTRA_LOAD_URL) != null) {
             String url = launchIntent.getStringExtra(EXTRA_LOAD_URL);
             if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
-                String normalized = normalizeInput(url);
-                tabUrls.put(sessions.get(currentTabIndex), normalized);
-                sessions.get(currentTabIndex).loadUri(normalized);
-                urlBar.setText(normalized);
+                loadUrlValue(url);
             }
         }
 
@@ -218,6 +218,21 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
             return false;
+        });
+
+        urlBar.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateSuggestions(s.toString());
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
+        urlBar.setOnItemClickListener((parent, view, position, id) -> {
+            String selected = (String) parent.getItemAtPosition(position);
+            if (selected != null) {
+                loadUrlValue(selected);
+            }
         });
 
         btnBack.setOnClickListener(v -> {
@@ -262,6 +277,20 @@ public class MainActivity extends AppCompatActivity {
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
+    }
+
+    private void updateSuggestions(String input) {
+        if (input == null || input.trim().isEmpty()) return;
+        List<HistoryStore.Entry> entries = HistoryStore.query(this, input.trim(), 10);
+        List<String> values = new ArrayList<>();
+        for (HistoryStore.Entry entry : entries) {
+            if (entry.url != null && !entry.url.isEmpty()) values.add(entry.url);
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_dropdown_item_1line,
+                values);
+        urlBar.setAdapter(adapter);
+        adapter.notifyDataSetChanged();
     }
 
     private static String encodeForDataUri(String content) {
@@ -402,11 +431,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadUrl() {
-        String input = urlBar.getText().toString().trim();
-        if (input.isEmpty()) return;
+        loadUrlValue(urlBar.getText().toString().trim());
+    }
+
+    private void loadUrlValue(String input) {
+        if (input == null || input.isEmpty()) return;
         if (sessions.isEmpty() || currentTabIndex < 0 || currentTabIndex >= sessions.size()) return;
-        input = normalizeInput(input);
-        sessions.get(currentTabIndex).loadUri(input);
+        String normalized = normalizeInput(input);
+        GeckoSession session = sessions.get(currentTabIndex);
+        tabUrls.put(session, normalized);
+        session.loadUri(normalized);
+        urlBar.setText(normalized);
         urlBar.clearFocus();
     }
 
@@ -527,10 +562,10 @@ public class MainActivity extends AppCompatActivity {
             handleCloseRequest();
             return true;
         } else if (id == R.id.action_bookmarks) {
-            Toast.makeText(this, R.string.bookmarks_coming_soon, Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(this, BookmarksActivity.class));
             return true;
         } else if (id == R.id.action_history) {
-            Toast.makeText(this, R.string.history_coming_soon, Toast.LENGTH_SHORT).show();
+            startActivity(new Intent(this, HistoryActivity.class));
             return true;
         } else if (id == R.id.action_downloads) {
             startActivity(new Intent(this, DownloadsActivity.class));
@@ -680,10 +715,7 @@ public class MainActivity extends AppCompatActivity {
             }
             String url = intent.getStringExtra(EXTRA_LOAD_URL);
             if (url != null && currentTabIndex < sessions.size()) {
-                String normalized = normalizeInput(url);
-                tabUrls.put(sessions.get(currentTabIndex), normalized);
-                sessions.get(currentTabIndex).loadUri(normalized);
-                urlBar.setText(normalized);
+                loadUrlValue(url);
             }
         }
     }
@@ -895,7 +927,13 @@ public class MainActivity extends AppCompatActivity {
 
         public void onPageStop(GeckoSession session, boolean success) {
             MainActivity activity = activityRef.get();
-            if (activity == null || session != activity.getCurrentSession()) return;
+            if (activity == null) return;
+            if (success) {
+                String url = activity.tabUrls.get(session);
+                String title = activity.tabTitles.get(session);
+                HistoryStore.record(activity, url, title);
+            }
+            if (session != activity.getCurrentSession()) return;
             activity.runOnUiThread(() -> activity.progressBar.setVisibility(ProgressBar.GONE));
         }
 
