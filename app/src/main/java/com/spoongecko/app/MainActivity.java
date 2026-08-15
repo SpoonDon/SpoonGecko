@@ -363,7 +363,11 @@ public class MainActivity extends AppCompatActivity {
         canGoForwardMap.remove(closing);
         sessionStates.remove(closing);
         sessions.remove(index);
-        if (currentTabIndex >= sessions.size()) currentTabIndex = sessions.size() - 1;
+        if (index < currentTabIndex) {
+            currentTabIndex--;
+        } else if (currentTabIndex >= sessions.size()) {
+            currentTabIndex = sessions.size() - 1;
+        }
         selectTab(currentTabIndex);
     }
 
@@ -446,10 +450,12 @@ public class MainActivity extends AppCompatActivity {
                 | StorageController.ClearFlags.SITE_DATA;
         runtime.getStorageController().clearData(flags).accept(
                 result -> runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     Toast.makeText(this, R.string.browsing_data_cleared, Toast.LENGTH_SHORT).show();
                     createNewTab(true);
                 }),
                 error -> runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     Toast.makeText(this, R.string.browsing_data_clear_failed, Toast.LENGTH_SHORT).show();
                     createNewTab(true);
                 })

@@ -5,8 +5,6 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.MediaStore;
 import android.webkit.MimeTypeMap;
 
@@ -25,7 +23,6 @@ import java.util.concurrent.Executors;
 public final class DownloadManager {
 
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2);
-    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     private DownloadManager() {}
 
