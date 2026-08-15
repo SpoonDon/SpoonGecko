@@ -22,41 +22,13 @@ public final class InstallPromptDelegate implements WebExtensionController.Promp
     }
 
     public GeckoResult<AllowOrDeny> onInstallPrompt(WebExtension extension) {
-        return prompt(extension, null, null, null);
-    }
-
-    public GeckoResult<AllowOrDeny> onInstallPromptRequest(
-            WebExtension extension,
-            String[] permissions,
-            String[] origins,
-            String[] dataCollectionPermissions) {
-        return prompt(extension, permissions, origins, dataCollectionPermissions);
-    }
-
-    private GeckoResult<AllowOrDeny> prompt(
-            WebExtension extension,
-            String[] permissions,
-            String[] origins,
-            String[] dataCollectionPermissions) {
         GeckoResult<AllowOrDeny> result = new GeckoResult<>();
         Activity activity = activityRef.get();
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
             result.complete(AllowOrDeny.DENY);
             return result;
         }
-
-        String name = (extension != null && extension.metaData != null
-                && extension.metaData.name != null && !extension.metaData.name.isEmpty())
-                ? extension.metaData.name
-                : (extension != null && extension.id != null ? extension.id : "this extension");
-
-        String details = buildDetails(permissions, origins, dataCollectionPermissions);
-        String message = activity.getString(R.string.install_extension_message, name);
-        if (!details.isEmpty()) {
-            message = message + "\n\n" + details;
-        }
-        String finalMessage = message;
-
+        String message = activity.getString(R.string.install_extension_message, displayName(extension));
         activity.runOnUiThread(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) {
                 result.complete(AllowOrDeny.DENY);
@@ -64,13 +36,64 @@ public final class InstallPromptDelegate implements WebExtensionController.Promp
             }
             new AlertDialog.Builder(activity)
                     .setTitle(R.string.install_extension_title)
-                    .setMessage(finalMessage)
+                    .setMessage(message)
                     .setPositiveButton(R.string.install, (d, w) -> result.complete(AllowOrDeny.ALLOW))
                     .setNegativeButton(R.string.cancel, (d, w) -> result.complete(AllowOrDeny.DENY))
                     .setOnCancelListener(d -> result.complete(AllowOrDeny.DENY))
                     .show();
         });
         return result;
+    }
+
+    public GeckoResult<WebExtension.PermissionPromptResponse> onInstallPromptRequest(
+            WebExtension extension,
+            String[] permissions,
+            String[] origins,
+            String[] dataCollectionPermissions) {
+        GeckoResult<WebExtension.PermissionPromptResponse> result = new GeckoResult<>();
+        Activity activity = activityRef.get();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            result.complete(deny());
+            return result;
+        }
+
+        String message = activity.getString(R.string.install_extension_message, displayName(extension));
+        String details = buildDetails(permissions, origins, dataCollectionPermissions);
+        if (!details.isEmpty()) {
+            message = message + "\n\n" + details;
+        }
+        String finalMessage = message;
+
+        activity.runOnUiThread(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) {
+                result.complete(deny());
+                return;
+            }
+            new AlertDialog.Builder(activity)
+                    .setTitle(R.string.install_extension_title)
+                    .setMessage(finalMessage)
+                    .setPositiveButton(R.string.install, (d, w) -> result.complete(allow()))
+                    .setNegativeButton(R.string.cancel, (d, w) -> result.complete(deny()))
+                    .setOnCancelListener(d -> result.complete(deny()))
+                    .show();
+        });
+        return result;
+    }
+
+    private static WebExtension.PermissionPromptResponse allow() {
+        return new WebExtension.PermissionPromptResponse(true, true, true);
+    }
+
+    private static WebExtension.PermissionPromptResponse deny() {
+        return new WebExtension.PermissionPromptResponse(false, false, false);
+    }
+
+    private String displayName(WebExtension extension) {
+        if (extension != null && extension.metaData != null
+                && extension.metaData.name != null && !extension.metaData.name.isEmpty()) {
+            return extension.metaData.name;
+        }
+        return extension != null && extension.id != null ? extension.id : "this extension";
     }
 
     private String buildDetails(String[] permissions, String[] origins,
