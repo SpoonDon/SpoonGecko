@@ -51,12 +51,16 @@ android {
         buildConfig true
     }
 
+    def keystoreExists = file("release.keystore").exists()
+
     signingConfigs {
         release {
-            storeFile file("release.keystore")
-            storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
-            keyAlias System.getenv("KEY_ALIAS") ?: ""
-            keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            if (keystoreExists) {
+                storeFile file("release.keystore")
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("KEY_ALIAS") ?: ""
+                keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            }
         }
     }
 
@@ -65,7 +69,9 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (keystoreExists) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
