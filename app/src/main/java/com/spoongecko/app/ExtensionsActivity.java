@@ -117,8 +117,22 @@ public class ExtensionsActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (BuildConfig.EXTENSIONS_ENABLED) {
-            refreshExtensionsList();
+        if (!BuildConfig.EXTENSIONS_ENABLED) return;
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        if (runtime != null) {
+            runtime.getWebExtensionController()
+                    .setPromptDelegate(new InstallPromptDelegate(this));
+        }
+        refreshExtensionsList();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (!BuildConfig.EXTENSIONS_ENABLED) return;
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        if (runtime != null) {
+            runtime.getWebExtensionController().setPromptDelegate(null);
         }
     }
 

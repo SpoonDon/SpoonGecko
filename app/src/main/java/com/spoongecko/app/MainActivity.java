@@ -143,6 +143,8 @@ public class MainActivity extends AppCompatActivity {
                             .appZygoteProcessEnabled(true)
                             .glMsaaLevel(0)
                             .lowMemoryDetection(true)
+                            .extensionsProcessEnabled(true)
+                            .extensionsWebAPIEnabled(true)
                             .crashHandler(CrashHandlerService.class)
                             .build();
                     sGeckoRuntime = GeckoRuntime.create(this, settings);
@@ -1013,36 +1015,6 @@ public class MainActivity extends AppCompatActivity {
                 return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
             }
             return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
-        }
-    }
-
-    private static class InstallPromptDelegate implements WebExtensionController.PromptDelegate {
-        private final WeakReference<MainActivity> activityRef;
-
-        InstallPromptDelegate(MainActivity activity) {
-            this.activityRef = new WeakReference<>(activity);
-        }
-
-        public GeckoResult<AllowOrDeny> onInstallPrompt(WebExtension extension) {
-            GeckoResult<AllowOrDeny> result = new GeckoResult<>();
-            MainActivity activity = activityRef.get();
-            if (activity == null) {
-                result.complete(AllowOrDeny.DENY);
-                return result;
-            }
-            String name = (extension.metaData != null && extension.metaData.name != null
-                    && !extension.metaData.name.isEmpty())
-                    ? extension.metaData.name
-                    : (extension.id != null ? extension.id : "this extension");
-            activity.runOnUiThread(() ->
-                    new AlertDialog.Builder(activity)
-                           .setTitle(R.string.install_extension_title)
-                           .setMessage(activity.getString(R.string.install_extension_message, name))
-                           .setPositiveButton(R.string.install, (d, w) -> result.complete(AllowOrDeny.ALLOW))
-                           .setNegativeButton(R.string.cancel, (d, w) -> result.complete(AllowOrDeny.DENY))
-                           .setOnCancelListener(d -> result.complete(AllowOrDeny.DENY))
-                           .show());
-            return result;
         }
     }
 }
