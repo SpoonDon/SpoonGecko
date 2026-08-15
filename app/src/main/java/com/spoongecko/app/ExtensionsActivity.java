@@ -2,6 +2,7 @@ package com.spoongecko.app;
 
 import android.app.AlertDialog;
 import android.database.Cursor;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
@@ -40,10 +41,19 @@ public class ExtensionsActivity extends AppCompatActivity {
     private LinearLayout extensionsList;
     private List<WebExtension> installedExtensions = new ArrayList<>();
     private ActivityResultLauncher<String[]> openXpiLauncher;
+    private ActivityResultLauncher<String> createBackupLauncher;
+    private ActivityResultLauncher<String[]> restoreBackupLauncher;
+
+    private int restoreIndex;
+    private int restoredCount;
+    private int failedCount;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        getWindow().setBackgroundDrawable(new ColorDrawable(
+                getResources().getColor(R.color.md_theme_background, null)));
 
         openXpiLauncher = registerForActivityResult(
                 new ActivityResultContracts.OpenDocument(),
@@ -51,9 +61,22 @@ public class ExtensionsActivity extends AppCompatActivity {
                     if (uri != null) installExtension(uri);
                 });
 
+        createBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.CreateDocument("application/json"),
+                uri -> {
+                    if (uri != null) exportBackupTo(uri);
+                });
+
+        restoreBackupLauncher = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(),
+                uri -> {
+                    if (uri != null) importBackupFrom(uri);
+                });
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFitsSystemWindows(true);
+        root.setBackgroundColor(getResources().getColor(R.color.md_theme_background, null));
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle(R.string.extensions_title);
@@ -80,8 +103,11 @@ public class ExtensionsActivity extends AppCompatActivity {
         content.setPadding(16, 16, 16, 16);
 
         LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout installRow = new LinearLayout(this);
+        installRow.setOrientation(LinearLayout.HORIZONTAL);
+        installRow.setGravity(Gravity.CENTER_VERTICAL);
 
         MaterialButton btnInstall = new MaterialButton(this);
         btnInstall.setText(R.string.install_xpi);
@@ -99,8 +125,33 @@ public class ExtensionsActivity extends AppCompatActivity {
         btnBrowseAmo.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        actions.addView(btnInstall);
-        actions.addView(btnBrowseAmo);
+        installRow.addView(btnInstall);
+        installRow.addView(btnBrowseAmo);
+        actions.addView(installRow);
+
+        LinearLayout backupRow = new LinearLayout(this);
+        backupRow.setOrientation(LinearLayout.HORIZONTAL);
+        backupRow.setGravity(Gravity.CENTER_VERTICAL);
+        backupRow.setPadding(0, 8, 0, 0);
+
+        MaterialButton btnBackup = new MaterialButton(this);
+        btnBackup.setText(R.string.backup_extensions);
+        btnBackup.setOnClickListener(v -> requestBackup());
+        LinearLayout.LayoutParams backupParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        backupParams.setMargins(0, 0, 8, 0);
+        btnBackup.setLayoutParams(backupParams);
+
+        MaterialButton btnRestore = new MaterialButton(this);
+        btnRestore.setText(R.string.restore_extensions);
+        btnRestore.setOnClickListener(v -> requestRestore());
+        btnRestore.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        backupRow.addView(btnBackup);
+        backupRow.addView(btnRestore);
+        actions.addView(backupRow);
+
         content.addView(actions);
 
         addSpacer(content, 16);
@@ -188,7 +239,8 @@ public class ExtensionsActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(16, 12, 16, 12);
+        row.setPadding(16, 12, 8, 12);
+        row.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
@@ -232,6 +284,16 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         row.addView(info);
 
+        MaterialButton btnOptions = new MaterialButton(this);
+        btnOptions.setText(R.string.settings_title);
+        btnOptions.setTextSize(12);
+        btnOptions.setOnClickListener(v -> openExtensionSettings(ext));
+        LinearLayout.LayoutParams optionsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        optionsParams.setMargins(8, 0, 8, 0);
+        btnOptions.setLayoutParams(optionsParams);
+        row.addView(btnOptions);
+
         SwitchCompat toggle = new SwitchCompat(this);
         toggle.setChecked(enabled);
         toggle.setContentDescription(enabled
@@ -259,8 +321,102 @@ public class ExtensionsActivity extends AppCompatActivity {
         btnRemove.setOnClickListener(v -> confirmAndRemove(ext));
         row.addView(btnRemove);
 
+        card.setOnClickListener(v -> openExtensionSettings(ext));
+
         card.addView(row);
         return card;
+    }
+
+    private void openExtensionSettings(WebExtension ext) {
+        String optionsUrl = ExtensionController.getOptionsPageUrl(ext);
+        if (optionsUrl != null && !optionsUrl.isEmpty()) {
+            RuntimeController.openUrlInMain(this, optionsUrl);
+            return;
+        }
+        showDetailsDialog(ext);
+    }
+
+    private void showDetailsDialog(WebExtension ext) {
+        String name = ExtensionController.getDisplayName(ext);
+        String version = ExtensionController.getVersion(ext);
+        String id = ext.id != null ? ext.id : "";
+        boolean enabled = ExtensionController.isEnabled(ext);
+        String state = enabled ? getString(R.string.extension_on)
+                : getString(R.string.extension_off);
+        String message = getString(R.string.extension_version, version)
+                + "\n" + id + "\n" + state
+                + "\n\n" + getString(R.string.extension_no_options);
+        new AlertDialog.Builder(this)
+                .setTitle(name)
+                .setMessage(message)
+                .setPositiveButton(R.string.close, null)
+                .show();
+    }
+
+    private void requestBackup() {
+        if (installedExtensions.isEmpty()) {
+            Toast.makeText(this, R.string.backup_no_extensions, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        createBackupLauncher.launch("spoongecko-extensions.json");
+    }
+
+    private void exportBackupTo(Uri uri) {
+        boolean ok = ExtensionBackupManager.exportBackup(this, installedExtensions, uri);
+        Toast.makeText(this,
+                ok ? R.string.backup_exported : R.string.backup_export_failed,
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void requestRestore() {
+        restoreBackupLauncher.launch(new String[]{"application/json", "text/*", "*/*"});
+    }
+
+    private void importBackupFrom(Uri uri) {
+        List<ExtensionBackupManager.BackupEntry> entries =
+                ExtensionBackupManager.parseBackup(this, uri);
+        if (entries == null) {
+            Toast.makeText(this, R.string.backup_restore_failed_parse, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (entries.isEmpty()) {
+            Toast.makeText(this, R.string.backup_restore_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        restoreIndex = 0;
+        restoredCount = 0;
+        failedCount = 0;
+        restoreNext(entries);
+    }
+
+    private void restoreNext(List<ExtensionBackupManager.BackupEntry> entries) {
+        if (restoreIndex >= entries.size()) {
+            Toast.makeText(this,
+                    getString(R.string.backup_restore_done, restoredCount, failedCount),
+                    Toast.LENGTH_LONG).show();
+            refreshExtensionsList();
+            return;
+        }
+        ExtensionBackupManager.BackupEntry entry = entries.get(restoreIndex);
+        restoreIndex++;
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        ExtensionController.install(
+                this,
+                ExtensionBackupManager.amoLatestUrl(entry.id),
+                runtime,
+                new ExtensionController.Callback() {
+                    @Override
+                    public void onSuccess(String message) {
+                        restoredCount++;
+                        runOnUiThread(() -> restoreNext(entries));
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        failedCount++;
+                        runOnUiThread(() -> restoreNext(entries));
+                    }
+                });
     }
 
     private void installExtension(Uri uri) {

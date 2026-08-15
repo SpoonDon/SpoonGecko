@@ -10,15 +10,15 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
+import android.widget.Filter;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -113,6 +113,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        getWindow().setBackgroundDrawable(new ColorDrawable(
+                ContextCompat.getColor(this, R.color.md_theme_background)));
+
         setContentView(R.layout.activity_main);
         appContext = getApplicationContext();
 
@@ -125,6 +129,9 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btn_reload);
         tabManagerText = findViewById(R.id.tab_manager);
         btnMenu = findViewById(R.id.btn_menu);
+
+        urlBar.setThreshold(1);
+        urlBar.setAdapter(new SuggestionAdapter());
 
         startService(new Intent(this, BrowserService.class));
 
@@ -220,14 +227,6 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
 
-        urlBar.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                updateSuggestions(s.toString());
-            }
-            @Override public void afterTextChanged(Editable s) {}
-        });
-
         urlBar.setOnItemClickListener((parent, view, position, id) -> {
             String selected = (String) parent.getItemAtPosition(position);
             if (selected != null) {
@@ -279,18 +278,58 @@ public class MainActivity extends AppCompatActivity {
         session.setPermissionDelegate(new PermissionDelegate(this));
     }
 
-    private void updateSuggestions(String input) {
-        if (input == null || input.trim().isEmpty()) return;
-        List<HistoryStore.Entry> entries = HistoryStore.query(this, input.trim(), 10);
-        List<String> values = new ArrayList<>();
-        for (HistoryStore.Entry entry : entries) {
-            if (entry.url != null && !entry.url.isEmpty()) values.add(entry.url);
+    private class SuggestionAdapter extends ArrayAdapter<String> {
+        private final List<String> values = new ArrayList<>();
+
+        SuggestionAdapter() {
+            super(MainActivity.this, android.R.layout.simple_dropdown_item_1line);
         }
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_dropdown_item_1line,
-                values);
-        urlBar.setAdapter(adapter);
-        adapter.notifyDataSetChanged();
+
+        @Override
+        public int getCount() {
+            return values.size();
+        }
+
+        @Override
+        public String getItem(int position) {
+            return values.get(position);
+        }
+
+        @Override
+        public Filter getFilter() {
+            return new Filter() {
+                @Override
+                protected FilterResults performFiltering(CharSequence constraint) {
+                    FilterResults results = new FilterResults();
+                    if (constraint == null || constraint.length() == 0) {
+                        results.values = new ArrayList<String>();
+                        results.count = 0;
+                    } else {
+                        List<HistoryStore.Entry> entries = HistoryStore.query(
+                                MainActivity.this, constraint.toString().trim(), 10);
+                        List<String> urls = new ArrayList<>();
+                        for (HistoryStore.Entry entry : entries) {
+                            if (entry.url != null && !entry.url.isEmpty()) {
+                                urls.add(entry.url);
+                            }
+                        }
+                        results.values = urls;
+                        results.count = urls.size();
+                    }
+                    return results;
+                }
+
+                @Override
+                @SuppressWarnings("unchecked")
+                protected void publishResults(CharSequence constraint, FilterResults results) {
+                    values.clear();
+                    if (results.values != null) {
+                        values.addAll((List<String>) results.values);
+                    }
+                    notifyDataSetChanged();
+                }
+            };
+        }
     }
 
     private static String encodeForDataUri(String content) {

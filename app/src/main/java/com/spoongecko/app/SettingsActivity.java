@@ -2,6 +2,7 @@ package com.spoongecko.app;
 
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -23,9 +24,13 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        getWindow().setBackgroundDrawable(new ColorDrawable(
+                getResources().getColor(R.color.md_theme_background, null)));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFitsSystemWindows(true);
+        root.setBackgroundColor(getResources().getColor(R.color.md_theme_background, null));
 
         MaterialToolbar toolbar = new MaterialToolbar(this);
         toolbar.setTitle(R.string.settings_title);
