@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 
 public final class DownloadManager {
 
-    private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2);
+    private static final ExecutorService FALLBACK_EXECUTOR = Executors.newFixedThreadPool(2);
 
     private DownloadManager() {}
 
@@ -31,11 +31,27 @@ public final class DownloadManager {
         Context appContext = context.getApplicationContext();
         String filename = deriveFilename(response);
         String mime = deriveMimeType(response, filename);
+        long totalBytes = parseContentLength(response);
         InputStream in = response.body;
-        EXECUTOR.execute(() -> {
-            saveToDownloads(appContext, in, filename, mime);
-            closeQuietly(in);
-        });
+        try {
+            DownloadService.enqueue(appContext, filename, mime, totalBytes, in);
+        } catch (Exception e) {
+            FALLBACK_EXECUTOR.execute(() -> {
+                saveToDownloads(appContext, in, filename, mime);
+                closeQuietly(in);
+            });
+        }
+    }
+
+    private static long parseContentLength(WebResponse response) {
+        if (response.headers == null) return -1;
+        String value = getHeaderIgnoreCase(response.headers, "content-length");
+        if (value == null) return -1;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private static void saveToDownloads(Context context, InputStream in, String filename, String mime) {
