@@ -144,19 +144,14 @@ public class MainActivity extends AppCompatActivity {
         if (sGeckoRuntime == null) {
             synchronized (sRuntimeLock) {
                 if (sGeckoRuntime == null) {
-                    GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                            .aboutConfigEnabled(false)
-                            .consoleOutput(false)
-                            .remoteDebuggingEnabled(false)
-                            .fissionEnabled(true)
-                            .isolatedProcessEnabled(true)
-                            .appZygoteProcessEnabled(false)
-                            .glMsaaLevel(0)
-                            .lowMemoryDetection(true)
-                            .extensionsProcessEnabled(true)
-                            .extensionsWebAPIEnabled(true)
-                            .crashHandler(CrashHandlerService.class)
-                            .build();
+                    GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()        
+                        .aboutConfigEnabled(false)        
+                        .consoleOutput(false)        
+                        .remoteDebuggingEnabled(false)        
+                        .extensionsProcessEnabled(true)        
+                        .extensionsWebAPIEnabled(true)        
+                        .crashHandler(CrashHandlerService.class)        
+                        .build();
                     sGeckoRuntime = GeckoRuntime.create(this, settings);
                 }
             }
