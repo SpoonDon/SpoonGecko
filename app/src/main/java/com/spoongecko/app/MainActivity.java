@@ -124,7 +124,8 @@ public class MainActivity extends AppCompatActivity {
         appContext = getApplicationContext();
 
         extensionSessionManager.init(this, () -> sessions);
-        extensionSessionManager.setTabOpener(() -> createNewTab(true));
+        extensionSessionManager.setTabFactory(this::createExtensionTab);
+        extensionSessionManager.setSessionCloseHandler(this::handleExtensionClose);
 
         geckoView = findViewById(R.id.gecko_view);
         toolbarContainer = findViewById(R.id.toolbar_container);
@@ -280,6 +281,31 @@ public class MainActivity extends AppCompatActivity {
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
         extensionSessionManager.sync(session);
+    }
+
+    private GeckoSession createExtensionTab(WebExtension.CreateTabDetails details) {
+        if (sessions.size() >= MAX_TABS) {
+            Toast.makeText(this, getString(R.string.tab_limit_reached, MAX_TABS), Toast.LENGTH_SHORT).show();
+            return null;
+        }
+        GeckoSession session = new GeckoSession();
+        session.open(sGeckoRuntime);
+        attachDelegates(session);
+        sessions.add(session);
+        tabTitles.put(session, getString(R.string.tab_new_title));
+        tabUrls.put(session, null);
+        if (details != null && Boolean.TRUE.equals(details.active)) {
+            selectTab(sessions.size() - 1);
+        } else {
+            updateTabManagerText();
+        }
+        return session;
+    }
+
+    private boolean handleExtensionClose(GeckoSession session) {
+        if (session == null || sessions.size() <= 1) return false;
+        handleCloseRequest(session);
+        return true;
     }
 
     private class SuggestionAdapter extends ArrayAdapter<String> {

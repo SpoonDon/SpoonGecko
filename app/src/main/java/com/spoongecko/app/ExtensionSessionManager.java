@@ -26,7 +26,8 @@ public final class ExtensionSessionManager {
     private final ExtensionActionManager actionManager = ExtensionActionManager.getInstance();
     private Context appContext;
     private SessionProvider sessionProvider;
-    private ExtensionSessionTabDelegate tabDelegate;
+    private ExtensionTabDelegate globalTabDelegate;
+    private ExtensionSessionTabDelegate sessionTabDelegate;
 
     public static ExtensionSessionManager getInstance() {
         return INSTANCE;
@@ -39,8 +40,12 @@ public final class ExtensionSessionManager {
         sessionProvider = provider;
     }
 
-    public void setTabOpener(Runnable opener) {
-        tabDelegate = new ExtensionSessionTabDelegate(opener);
+    public void setTabFactory(ExtensionTabDelegate.SessionFactory factory) {
+        globalTabDelegate = new ExtensionTabDelegate(factory);
+    }
+
+    public void setSessionCloseHandler(ExtensionSessionTabDelegate.SessionCloseHandler handler) {
+        sessionTabDelegate = new ExtensionSessionTabDelegate(handler);
     }
 
     public void refresh(GeckoRuntime runtime) {
@@ -68,6 +73,9 @@ public final class ExtensionSessionManager {
                     if (extension == null) continue;
                     extensions.add(extension);
                     actionManager.register(extension);
+                    if (globalTabDelegate != null) {
+                        extension.setTabDelegate(globalTabDelegate);
+                    }
                 }
             }
         }
@@ -81,8 +89,10 @@ public final class ExtensionSessionManager {
                 try {
                     session.getWebExtensionController()
                             .setActionDelegate(extension, actionManager);
-                    session.getWebExtensionController()
-                            .setTabDelegate(extension, tabDelegate);
+                    if (sessionTabDelegate != null) {
+                        session.getWebExtensionController()
+                                .setTabDelegate(extension, sessionTabDelegate);
+                    }
                 } catch (Exception e) {
                     Log.e(TAG, "sync failed for " + extension.id, e);
                 }

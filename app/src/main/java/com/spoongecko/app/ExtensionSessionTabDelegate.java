@@ -1,28 +1,35 @@
 package com.spoongecko.app;
 
+import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebExtension;
 
 public final class ExtensionSessionTabDelegate implements WebExtension.SessionTabDelegate {
 
-    private final Runnable newTabOpener;
+    public interface SessionCloseHandler {
+        boolean close(GeckoSession session);
+    }
 
-    public ExtensionSessionTabDelegate(Runnable newTabOpener) {
-        this.newTabOpener = newTabOpener;
+    private final SessionCloseHandler closeHandler;
+
+    public ExtensionSessionTabDelegate(SessionCloseHandler closeHandler) {
+        this.closeHandler = closeHandler;
     }
 
     @Override
-    public GeckoResult<GeckoSession> onNewTab(WebExtension source,
-                                              WebExtension.CreateTabDetails details) {
-        if (newTabOpener != null) {
-            newTabOpener.run();
+    public GeckoResult<AllowOrDeny> onCloseTab(WebExtension source, GeckoSession session) {
+        if (closeHandler != null && closeHandler.close(session)) {
+            return GeckoResult.allow();
         }
-        return GeckoResult.fromValue(null);
+        return GeckoResult.deny();
     }
 
     @Override
-    public GeckoResult<GeckoSession> onOpenOptionsPage(WebExtension source) {
-        return GeckoResult.fromValue(null);
+    public GeckoResult<AllowOrDeny> onUpdateTab(
+            WebExtension extension,
+            GeckoSession session,
+            WebExtension.UpdateTabDetails details) {
+        return GeckoResult.allow();
     }
 }
