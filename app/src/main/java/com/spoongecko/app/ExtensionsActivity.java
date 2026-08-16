@@ -221,25 +221,27 @@ public class ExtensionsActivity extends AppCompatActivity {
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density);
     }
-
-    private void refreshExtensionsList() {
-        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-        ExtensionController.list(this, runtime, new ExtensionController.ListCallback() {
-            @Override
-            public void onResult(List<WebExtension> extensions) {
-                installedExtensions.clear();
-                installedExtensions.addAll(extensions);
-                for (WebExtension extension : extensions) {
-                    ExtensionActionManager.getInstance().register(extension);
-                }
-                runOnUiThread(() -> rebuildExtensionsList());
+    
+    private void refreshExtensionsList() {    
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();    
+        ExtensionController.list(this, runtime, new ExtensionController.ListCallback() {        
+            @Override        
+            public void onResult(List<WebExtension> extensions) {            
+                runOnUiThread(() -> {                
+                    installedExtensions.clear();                
+                    installedExtensions.addAll(extensions);                
+                    for (WebExtension extension : extensions) {                    
+                        ExtensionActionManager.getInstance().register(extension);                
+                    }                
+                    rebuildExtensionsList();            
+                });        
             }
-
-            @Override
-            public void onError(String message) {
-                runOnUiThread(() ->
-                        Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show());
-            }
+        
+            @Override        
+            public void onError(String message) {            
+                runOnUiThread(() ->                    
+                              Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show());        
+            }    
         });
     }
 
