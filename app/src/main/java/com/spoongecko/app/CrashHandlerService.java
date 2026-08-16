@@ -13,11 +13,14 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 import org.mozilla.geckoview.GeckoRuntime;
-import org.mozilla.geckoview.CrashReporter;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.URISyntaxException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class CrashHandlerService extends Service {
 
@@ -45,15 +48,7 @@ public class CrashHandlerService extends Service {
         final String extrasPath = intent.getStringExtra(GeckoRuntime.EXTRA_EXTRAS_PATH);
 
         new Thread(() -> {
-            if (minidumpPath != null && extrasPath != null) {
-                File minidump = new File(minidumpPath);
-                File extras = new File(extrasPath);
-                try {
-                    CrashReporter.sendCrashReport(this, minidump, extras, "SpoonGecko");
-                } catch (IOException | URISyntaxException e) {
-                    Log.e(LOGTAG, "Failed to send crash report", e);
-                }
-            }
+            archiveCrashLocally(minidumpPath, extrasPath);
             stopSelf();
         }).start();
 
@@ -63,6 +58,33 @@ public class CrashHandlerService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private void archiveCrashLocally(String minidumpPath, String extrasPath) {
+        File crashDir = new File(getFilesDir(), "crashes");
+        if (!crashDir.exists() && !crashDir.mkdirs()) {
+            Log.e(LOGTAG, "Failed to create crash directory");
+            return;
+        }
+        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(new Date());
+        copyTo(crashDir, minidumpPath, "minidump_" + stamp + ".dmp");
+        copyTo(crashDir, extrasPath, "extras_" + stamp + ".txt");
+        Log.i(LOGTAG, "Crash dump archived locally: " + crashDir.getAbsolutePath());
+    }
+
+    private void copyTo(File dir, String sourcePath, String targetName) {
+        if (sourcePath == null) return;
+        File source = new File(sourcePath);
+        if (!source.exists() || !source.isFile()) return;
+        File target = new File(dir, targetName);
+        try (FileInputStream in = new FileInputStream(source);
+             FileOutputStream out = new FileOutputStream(target)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+        } catch (IOException e) {
+            Log.e(LOGTAG, "Failed to archive crash file: " + sourcePath, e);
+        }
     }
 
     private void createNotificationChannel() {

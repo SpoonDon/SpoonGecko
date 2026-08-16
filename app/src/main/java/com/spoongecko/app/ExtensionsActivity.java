@@ -7,15 +7,18 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import androidx.appcompat.widget.SwitchCompat;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
@@ -38,7 +41,9 @@ public class ExtensionsActivity extends AppCompatActivity {
             "https://addons.mozilla.org/en-US/firefox/extensions/";
     private static final long MAX_XPI_BYTES = 20L * 1024 * 1024;
 
-    private LinearLayout extensionsList;
+    private RecyclerView recyclerView;
+    private TextView emptyView;
+    private ExtensionAdapter adapter;
     private List<WebExtension> installedExtensions = new ArrayList<>();
     private ActivityResultLauncher<String[]> openXpiLauncher;
     private ActivityResultLauncher<String> createBackupLauncher;
@@ -89,7 +94,7 @@ public class ExtensionsActivity extends AppCompatActivity {
             disabled.setText(R.string.extensions_unavailable);
             disabled.setTextSize(15);
             disabled.setGravity(Gravity.CENTER);
-            disabled.setPadding(32, 64, 32, 0);
+            disabled.setPadding(dp(32), dp(64), dp(32), 0);
             disabled.setTextColor(getResources().getColor(
                     R.color.md_theme_on_surface_variant, null));
             root.addView(disabled);
@@ -97,10 +102,9 @@ public class ExtensionsActivity extends AppCompatActivity {
             return;
         }
 
-        ScrollView scroll = new ScrollView(this);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(16, 16, 16, 16);
+        content.setPadding(dp(16), dp(16), dp(16), dp(16));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
@@ -115,7 +119,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                 openXpiLauncher.launch(new String[]{"*/*"}));
         LinearLayout.LayoutParams installParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        installParams.setMargins(0, 0, 8, 0);
+        installParams.setMargins(0, 0, dp(8), 0);
         btnInstall.setLayoutParams(installParams);
 
         MaterialButton btnBrowseAmo = new MaterialButton(this);
@@ -132,14 +136,14 @@ public class ExtensionsActivity extends AppCompatActivity {
         LinearLayout backupRow = new LinearLayout(this);
         backupRow.setOrientation(LinearLayout.HORIZONTAL);
         backupRow.setGravity(Gravity.CENTER_VERTICAL);
-        backupRow.setPadding(0, 8, 0, 0);
+        backupRow.setPadding(0, dp(8), 0, 0);
 
         MaterialButton btnBackup = new MaterialButton(this);
         btnBackup.setText(R.string.backup_extensions);
         btnBackup.setOnClickListener(v -> requestBackup());
         LinearLayout.LayoutParams backupParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        backupParams.setMargins(0, 0, 8, 0);
+        backupParams.setMargins(0, 0, dp(8), 0);
         btnBackup.setLayoutParams(backupParams);
 
         MaterialButton btnRestore = new MaterialButton(this);
@@ -154,14 +158,29 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         content.addView(actions);
 
-        addSpacer(content, 16);
+        emptyView = new TextView(this);
+        emptyView.setText(R.string.no_extensions);
+        emptyView.setTextSize(14);
+        emptyView.setGravity(Gravity.CENTER);
+        emptyView.setPadding(0, dp(32), 0, 0);
+        emptyView.setLineSpacing(dp(4), 1);
+        emptyView.setTextColor(getResources().getColor(
+                R.color.md_theme_on_surface_variant, null));
+        emptyView.setVisibility(View.GONE);
+        content.addView(emptyView);
 
-        extensionsList = new LinearLayout(this);
-        extensionsList.setOrientation(LinearLayout.VERTICAL);
-        content.addView(extensionsList);
+        recyclerView = new RecyclerView(this);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
+        listParams.topMargin = dp(12);
+        recyclerView.setLayoutParams(listParams);
+        adapter = new ExtensionAdapter();
+        recyclerView.setAdapter(adapter);
+        content.addView(recyclerView);
 
-        scroll.addView(content);
-        root.addView(scroll);
+        root.addView(content, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
     }
 
@@ -187,6 +206,10 @@ public class ExtensionsActivity extends AppCompatActivity {
         }
     }
 
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density);
+    }
+
     private void refreshExtensionsList() {
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
         ExtensionController.list(this, runtime, new ExtensionController.ListCallback() {
@@ -206,125 +229,156 @@ public class ExtensionsActivity extends AppCompatActivity {
     }
 
     private void rebuildExtensionsList() {
-        extensionsList.removeAllViews();
-
-        if (installedExtensions.isEmpty()) {
-            TextView emptyText = new TextView(this);
-            emptyText.setText(R.string.no_extensions);
-            emptyText.setTextSize(14);
-            emptyText.setGravity(Gravity.CENTER);
-            emptyText.setPadding(0, 32, 0, 0);
-            emptyText.setLineSpacing(4, 1);
-            emptyText.setTextColor(getResources().getColor(
-                    R.color.md_theme_on_surface_variant, null));
-            extensionsList.addView(emptyText);
-            return;
-        }
-
-        for (WebExtension ext : installedExtensions) {
-            extensionsList.addView(buildExtensionCard(ext));
-        }
+        boolean empty = installedExtensions.isEmpty();
+        emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
+        recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
+        adapter.notifyDataSetChanged();
     }
 
-    private MaterialCardView buildExtensionCard(WebExtension ext) {
-        MaterialCardView card = new MaterialCardView(this);
-        card.setRadius(12);
-        card.setCardElevation(1);
-        card.setUseCompatPadding(true);
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(0, 0, 0, 8);
-        card.setLayoutParams(cardParams);
+    private class ExtensionAdapter extends RecyclerView.Adapter<ExtensionAdapter.Holder> {
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(16, 12, 8, 12);
-        row.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        @Override
+        public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
+            MaterialCardView card = new MaterialCardView(parent.getContext());
+            card.setRadius(dp(12));
+            card.setCardElevation(dp(1));
+            RecyclerView.LayoutParams cardParams = new RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
+            cardParams.bottomMargin = dp(8);
+            card.setLayoutParams(cardParams);
 
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            LinearLayout row = new LinearLayout(parent.getContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), dp(12), dp(8), dp(12));
+            row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
-        TextView nameView = new TextView(this);
-        nameView.setText(ExtensionController.getDisplayName(ext));
-        nameView.setTextSize(15);
-        nameView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
-        info.addView(nameView);
+            LinearLayout info = new LinearLayout(parent.getContext());
+            info.setOrientation(LinearLayout.VERTICAL);
+            info.setLayoutParams(new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        String version = ExtensionController.getVersion(ext);
-        if (!version.isEmpty()) {
-            TextView versionView = new TextView(this);
-            versionView.setText(getString(R.string.extension_version, version));
+            TextView nameView = new TextView(parent.getContext());
+            nameView.setTextSize(15);
+            nameView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
+            info.addView(nameView);
+
+            TextView versionView = new TextView(parent.getContext());
             versionView.setTextSize(11);
             versionView.setTextColor(getResources().getColor(
                     R.color.md_theme_on_surface_variant, null));
             info.addView(versionView);
+
+            TextView idView = new TextView(parent.getContext());
+            idView.setTextSize(10);
+            idView.setTextColor(getResources().getColor(
+                    R.color.md_theme_on_surface_variant, null));
+            info.addView(idView);
+
+            TextView badge = new TextView(parent.getContext());
+            badge.setTextSize(11);
+            badge.setPadding(0, dp(2), 0, 0);
+            info.addView(badge);
+
+            row.addView(info);
+
+            MaterialButton btnOptions = new MaterialButton(parent.getContext());
+            btnOptions.setText(R.string.settings_title);
+            btnOptions.setTextSize(12);
+            LinearLayout.LayoutParams optionsParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            optionsParams.setMargins(dp(8), 0, dp(8), 0);
+            btnOptions.setLayoutParams(optionsParams);
+            row.addView(btnOptions);
+
+            SwitchCompat toggle = new SwitchCompat(parent.getContext());
+            LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            toggleParams.setMargins(dp(8), 0, dp(8), 0);
+            toggle.setLayoutParams(toggleParams);
+            row.addView(toggle);
+
+            MaterialButton btnRemove = new MaterialButton(parent.getContext());
+            btnRemove.setText(R.string.remove);
+            btnRemove.setTextSize(12);
+            row.addView(btnRemove);
+
+            card.addView(row);
+            return new Holder(card, nameView, versionView, idView, badge, btnOptions, toggle, btnRemove);
         }
 
-        TextView idView = new TextView(this);
-        idView.setText(ext.id != null ? ext.id : "");
-        idView.setTextSize(10);
-        idView.setTextColor(getResources().getColor(
-                R.color.md_theme_on_surface_variant, null));
-        info.addView(idView);
+        @Override
+        public void onBindViewHolder(Holder holder, int position) {
+            WebExtension ext = installedExtensions.get(position);
+            holder.ext = ext;
+            holder.nameView.setText(ExtensionController.getDisplayName(ext));
 
-        boolean enabled = (ext.metaData != null)
-                ? ExtensionController.isEnabled(ext)
-                : ExtensionController.isEnabledInPrefs(this, ext.id);
-        TextView badge = new TextView(this);
-        badge.setText(enabled ? R.string.extension_on : R.string.extension_off);
-        badge.setTextSize(11);
-        badge.setTextColor(enabled
-                ? getResources().getColor(R.color.md_theme_primary, null)
-                : getResources().getColor(R.color.md_theme_on_surface_variant, null));
-        badge.setPadding(0, 2, 0, 0);
-        info.addView(badge);
+            String version = ExtensionController.getVersion(ext);
+            holder.versionView.setText(version.isEmpty()
+                    ? ""
+                    : getString(R.string.extension_version, version));
+            holder.versionView.setVisibility(version.isEmpty() ? View.GONE : View.VISIBLE);
 
-        row.addView(info);
+            holder.idView.setText(ext.id != null ? ext.id : "");
 
-        MaterialButton btnOptions = new MaterialButton(this);
-        btnOptions.setText(R.string.settings_title);
-        btnOptions.setTextSize(12);
-        btnOptions.setOnClickListener(v -> openExtensionSettings(ext));
-        LinearLayout.LayoutParams optionsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        optionsParams.setMargins(8, 0, 8, 0);
-        btnOptions.setLayoutParams(optionsParams);
-        row.addView(btnOptions);
+            boolean enabled = (ext.metaData != null)
+                    ? ExtensionController.isEnabled(ext)
+                    : ExtensionController.isEnabledInPrefs(this, ext.id);
+            holder.badge.setText(enabled ? R.string.extension_on : R.string.extension_off);
+            holder.badge.setTextColor(enabled
+                    ? getResources().getColor(R.color.md_theme_primary, null)
+                    : getResources().getColor(R.color.md_theme_on_surface_variant, null));
 
-        SwitchCompat toggle = new SwitchCompat(this);
-        toggle.setChecked(enabled);
-        toggle.setContentDescription(enabled
-                ? getString(R.string.disable_extension)
-                : getString(R.string.enable_extension));
-        toggle.setOnCheckedChangeListener((btn, isChecked) -> {
-            btn.setContentDescription(isChecked
+            holder.toggle.setOnCheckedChangeListener(null);
+            holder.toggle.setChecked(enabled);
+            holder.toggle.setContentDescription(enabled
                     ? getString(R.string.disable_extension)
                     : getString(R.string.enable_extension));
-            if (isChecked) {
-                enableExtension(ext);
-            } else {
-                disableExtension(ext);
+            holder.toggle.setOnCheckedChangeListener((btn, isChecked) -> {
+                btn.setContentDescription(isChecked
+                        ? getString(R.string.disable_extension)
+                        : getString(R.string.enable_extension));
+                if (isChecked) {
+                    enableExtension(ext);
+                } else {
+                    disableExtension(ext);
+                }
+            });
+
+            holder.btnOptions.setOnClickListener(v -> openExtensionSettings(ext));
+            holder.btnRemove.setOnClickListener(v -> confirmAndRemove(ext));
+            holder.card.setOnClickListener(v -> openExtensionSettings(ext));
+        }
+
+        @Override
+        public int getItemCount() {
+            return installedExtensions.size();
+        }
+
+        class Holder extends RecyclerView.ViewHolder {
+            final MaterialCardView card;
+            final TextView nameView;
+            final TextView versionView;
+            final TextView idView;
+            final TextView badge;
+            final MaterialButton btnOptions;
+            final SwitchCompat toggle;
+            final MaterialButton btnRemove;
+            WebExtension ext;
+
+            Holder(MaterialCardView card, TextView nameView, TextView versionView, TextView idView,
+                   TextView badge, MaterialButton btnOptions, SwitchCompat toggle, MaterialButton btnRemove) {
+                super(card);
+                this.card = card;
+                this.nameView = nameView;
+                this.versionView = versionView;
+                this.idView = idView;
+                this.badge = badge;
+                this.btnOptions = btnOptions;
+                this.toggle = toggle;
+                this.btnRemove = btnRemove;
             }
-        });
-        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        toggleParams.setMargins(8, 0, 8, 0);
-        toggle.setLayoutParams(toggleParams);
-        row.addView(toggle);
-
-        MaterialButton btnRemove = new MaterialButton(this);
-        btnRemove.setText(R.string.remove);
-        btnRemove.setTextSize(12);
-        btnRemove.setOnClickListener(v -> confirmAndRemove(ext));
-        row.addView(btnRemove);
-
-        card.setOnClickListener(v -> openExtensionSettings(ext));
-
-        card.addView(row);
-        return card;
+        }
     }
 
     private void openExtensionSettings(WebExtension ext) {
@@ -565,12 +619,5 @@ public class ExtensionsActivity extends AppCompatActivity {
                         Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_LONG).show());
             }
         });
-    }
-
-    private void addSpacer(LinearLayout parent, int heightDp) {
-        TextView spacer = new TextView(this);
-        int heightPx = (int) (heightDp * getResources().getDisplayMetrics().density);
-        spacer.setHeight(heightPx);
-        parent.addView(spacer);
     }
 }

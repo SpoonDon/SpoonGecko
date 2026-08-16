@@ -15,9 +15,6 @@ import com.google.android.material.card.MaterialCardView;
 
 public class SettingsActivity extends AppCompatActivity {
 
-    private static final String PREFS_NAME = "spoon_prefs";
-    private static final String PREF_SEARCH_ENGINE = "search_engine";
-
     private TextView searchEngineSubtitle;
 
     @Override
@@ -78,8 +75,8 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private String getSearchEngineLabel() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String engine = prefs.getString(PREF_SEARCH_ENGINE, "brave");
+        SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
+        String engine = prefs.getString(Prefs.KEY_SEARCH_ENGINE, "brave");
         switch (engine) {
             case "google":
                 return getString(R.string.search_engine_google);
@@ -129,9 +126,9 @@ public class SettingsActivity extends AppCompatActivity {
             new AlertDialog.Builder(this)
                     .setTitle(R.string.search_engine_title)
                     .setItems(engines, (dialog, which) -> {
-                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
                         String value = which == 0 ? "brave" : which == 1 ? "duckduckgo" : "google";
-                        prefs.edit().putString(PREF_SEARCH_ENGINE, value).apply();
+                        prefs.edit().putString(Prefs.KEY_SEARCH_ENGINE, value).apply();
                         searchEngineSubtitle.setText(getSearchEngineLabel());
                     })
                     .show();

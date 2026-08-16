@@ -64,8 +64,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String KEY_SESSION_STATES = "sessionStates";
     private static final String KEY_TAB_INDEX = "tabIndex";
-    private static final String PREFS_NAME = "spoon_prefs";
-    private static final String PREF_SEARCH_ENGINE = "search_engine";
     private static final String KEY_PERSISTED_TAB_COUNT = "persistedTabCount";
     private static final String KEY_PERSISTED_TAB_URL_PREFIX = "persistedTabUrl_";
     private static final int MAX_TABS = 50;
@@ -81,6 +79,8 @@ public class MainActivity extends AppCompatActivity {
 
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
+    private String cachedNewTabHtmlStart;
+    private String cachedNewTabHtmlEnd;
 
     private GeckoView geckoView;
     private View toolbarContainer;
@@ -144,13 +144,13 @@ public class MainActivity extends AppCompatActivity {
         if (sGeckoRuntime == null) {
             synchronized (sRuntimeLock) {
                 if (sGeckoRuntime == null) {
-                    GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()        
-                        .aboutConfigEnabled(false)        
-                        .consoleOutput(false)        
-                        .remoteDebuggingEnabled(false)        
-                        .extensionsProcessEnabled(true)        
-                        .extensionsWebAPIEnabled(true)        
-                        .crashHandler(CrashHandlerService.class)        
+                    GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
+                        .aboutConfigEnabled(false)
+                        .consoleOutput(false)
+                        .remoteDebuggingEnabled(false)
+                        .extensionsProcessEnabled(true)
+                        .extensionsWebAPIEnabled(true)
+                        .crashHandler(CrashHandlerService.class)
                         .build();
                     sGeckoRuntime = GeckoRuntime.create(this, settings);
                 }
@@ -160,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
             String[] stateStrings = savedInstanceState.getStringArray(KEY_SESSION_STATES);
             currentTabIndex = savedInstanceState.getInt(KEY_TAB_INDEX, 0);
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
             int persistedCount = prefs.getInt(KEY_PERSISTED_TAB_COUNT, 0);
             int stateCount = stateStrings != null ? stateStrings.length : 0;
             int totalTabs = Math.max(stateCount, persistedCount);
@@ -350,20 +350,25 @@ public class MainActivity extends AppCompatActivity {
                 .replace("</", "<\\/");
     }
 
-    private String buildNewTabPage() {
-        if (cachedNewTabBgHex == null) {
-            int bg = ContextCompat.getColor(this, R.color.md_theme_background);
-            int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
-            cachedNewTabBgHex = String.format("#%06X", (0xFFFFFF & bg));
-            cachedNewTabFgHex = String.format("#%06X", (0xFFFFFF & fg));
-        }
-        String[] messages = getResources().getStringArray(R.array.new_tab_messages);
-        String message = messages[new Random().nextInt(messages.length)];
-        String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    private void ensureNewTabCache() {
+        if (cachedNewTabBgHex != null) return;
+        int bg = ContextCompat.getColor(this, R.color.md_theme_background);
+        int fg = ContextCompat.getColor(this, R.color.md_theme_on_background);
+        cachedNewTabBgHex = String.format("#%06X", (0xFFFFFF & bg));
+        cachedNewTabFgHex = String.format("#%06X", (0xFFFFFF & fg));
+        cachedNewTabHtmlStart = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
                 + "<style>body{margin:0;background:" + cachedNewTabBgHex + ";color:" + cachedNewTabFgHex + ";font-family:sans-serif;"
                 + "display:flex;align-items:center;justify-content:center;height:100vh}"
-                + "p{font-size:18px;opacity:0.55}</style></head><body><p>" + message + "</p></body></html>";
-        return "data:text/html;charset=utf-8," + encodeForDataUri(html);
+                + "p{font-size:18px;opacity:0.55}</style></head><body><p>";
+        cachedNewTabHtmlEnd = "</p></body></html>";
+    }
+
+    private String buildNewTabPage() {
+        ensureNewTabCache();
+        String[] messages = getResources().getStringArray(R.array.new_tab_messages);
+        String message = messages[new Random().nextInt(messages.length)];
+        return "data:text/html;charset=utf-8,"
+                + encodeForDataUri(cachedNewTabHtmlStart + message + cachedNewTabHtmlEnd);
     }
 
     private void createNewTab(boolean select) {
@@ -437,8 +442,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String getSearchUrl(String query) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String engine = prefs.getString(PREF_SEARCH_ENGINE, "brave");
+        SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
+        String engine = prefs.getString(Prefs.KEY_SEARCH_ENGINE, "brave");
         String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
         switch (engine) {
             case "google":
@@ -480,7 +485,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void clearPersistedTabs() {
-        SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+        SharedPreferences.Editor editor = getSharedPreferences(Prefs.NAME, MODE_PRIVATE).edit();
         editor.remove(KEY_PERSISTED_TAB_COUNT);
         for (int i = 0; i < MAX_TABS; i++) {
             editor.remove(KEY_PERSISTED_TAB_URL_PREFIX + i);
@@ -706,7 +711,7 @@ public class MainActivity extends AppCompatActivity {
         outState.putStringArray(KEY_SESSION_STATES, stateStrings);
         outState.putInt(KEY_TAB_INDEX, total > 0 ? Math.min(currentTabIndex, total - 1) : 0);
 
-        SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+        SharedPreferences.Editor editor = getSharedPreferences(Prefs.NAME, MODE_PRIVATE).edit();
         editor.putInt(KEY_PERSISTED_TAB_COUNT, total);
         for (int i = 0; i < total; i++) {
             String url = tabUrls.get(sessions.get(i));

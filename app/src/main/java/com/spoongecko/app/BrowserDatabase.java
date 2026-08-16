@@ -8,9 +8,21 @@ public final class BrowserDatabase extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "browser_data.db";
     private static final int DB_VERSION = 1;
+    private static volatile BrowserDatabase instance;
 
-    BrowserDatabase(Context context) {
+    private BrowserDatabase(Context context) {
         super(context.getApplicationContext(), DB_NAME, null, DB_VERSION);
+    }
+
+    public static BrowserDatabase getInstance(Context context) {
+        if (instance == null) {
+            synchronized (BrowserDatabase.class) {
+                if (instance == null) {
+                    instance = new BrowserDatabase(context);
+                }
+            }
+        }
+        return instance;
     }
 
     @Override

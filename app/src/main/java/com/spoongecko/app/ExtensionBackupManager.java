@@ -23,14 +23,10 @@ public final class ExtensionBackupManager {
     public static final class BackupEntry {
         public final String id;
         public final String name;
-        public final String version;
-        public final boolean enabled;
 
-        BackupEntry(String id, String name, String version, boolean enabled) {
+        BackupEntry(String id, String name) {
             this.id = id;
             this.name = name;
-            this.version = version;
-            this.enabled = enabled;
         }
     }
 
@@ -44,8 +40,6 @@ public final class ExtensionBackupManager {
                 JSONObject item = new JSONObject();
                 item.put("id", ext.id);
                 item.put("name", ExtensionController.getDisplayName(ext));
-                item.put("version", ExtensionController.getVersion(ext));
-                item.put("enabled", ExtensionController.isEnabled(ext));
                 array.put(item);
             }
 
@@ -82,11 +76,7 @@ public final class ExtensionBackupManager {
                 if (item == null) continue;
                 String id = item.optString("id", "");
                 if (id.isEmpty()) continue;
-                entries.add(new BackupEntry(
-                        id,
-                        item.optString("name", ""),
-                        item.optString("version", ""),
-                        item.optBoolean("enabled", true)));
+                entries.add(new BackupEntry(id, item.optString("name", "")));
             }
             return entries;
         } catch (Exception e) {

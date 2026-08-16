@@ -4,11 +4,14 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class BookmarkStore {
+
+    private static final String TAG = "BookmarkStore";
 
     public static final class Entry {
         public final long id;
@@ -28,21 +31,30 @@ public final class BookmarkStore {
 
     public static boolean add(Context context, String url, String title) {
         if (context == null || url == null || url.isEmpty()) return false;
-        BrowserDatabase helper = new BrowserDatabase(context);
-        SQLiteDatabase db = helper.getWritableDatabase();
-        ContentValues values = new ContentValues();
-        values.put("url", url);
-        values.put("title", title != null && !title.isEmpty() ? title : url);
-        values.put("added_at", System.currentTimeMillis());
-        long id = db.insert("bookmarks", null, values);
-        db.close();
-        return id != -1;
+        try {
+            SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
+            ContentValues values = new ContentValues();
+            values.put("url", url);
+            values.put("title", title != null && !title.isEmpty() ? title : url);
+            values.put("added_at", System.currentTimeMillis());
+            long id = db.insert("bookmarks", null, values);
+            return id != -1;
+        } catch (Exception e) {
+            Log.e(TAG, "add failed", e);
+            return false;
+        }
     }
 
     public static List<Entry> query(Context context, String search) {
         List<Entry> entries = new ArrayList<>();
-        BrowserDatabase helper = new BrowserDatabase(context);
-        SQLiteDatabase db = helper.getReadableDatabase();
+        if (context == null) return entries;
+        SQLiteDatabase db;
+        try {
+            db = BrowserDatabase.getInstance(context).getReadableDatabase();
+        } catch (Exception e) {
+            Log.e(TAG, "query failed to open db", e);
+            return entries;
+        }
 
         String selection = null;
         String[] args = null;
@@ -63,14 +75,16 @@ public final class BookmarkStore {
             }
             cursor.close();
         }
-        db.close();
         return entries;
     }
 
     public static void delete(Context context, long id) {
-        BrowserDatabase helper = new BrowserDatabase(context);
-        SQLiteDatabase db = helper.getWritableDatabase();
-        db.delete("bookmarks", "_id=?", new String[]{String.valueOf(id)});
-        db.close();
+        if (context == null) return;
+        try {
+            SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
+            db.delete("bookmarks", "_id=?", new String[]{String.valueOf(id)});
+        } catch (Exception e) {
+            Log.e(TAG, "delete failed", e);
+        }
     }
 }
