@@ -77,6 +77,9 @@ public class MainActivity extends AppCompatActivity {
     static volatile GeckoRuntime sGeckoRuntime;
     private static Context appContext;
 
+    private final ExtensionSessionManager extensionSessionManager =
+            ExtensionSessionManager.getInstance();
+
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
     private String cachedNewTabHtmlStart;
@@ -84,13 +87,13 @@ public class MainActivity extends AppCompatActivity {
 
     private GeckoView geckoView;
     private View toolbarContainer;
-    private List<GeckoSession> sessions = new ArrayList<>();
-    private Map<GeckoSession, String> tabTitles = new HashMap<>();
-    private Map<GeckoSession, String> tabUrls = new HashMap<>();
+    private final List<GeckoSession> sessions = new ArrayList<>();
+    private final Map<GeckoSession, String> tabTitles = new HashMap<>();
+    private final Map<GeckoSession, String> tabUrls = new HashMap<>();
     private int currentTabIndex = 0;
-    private Map<GeckoSession, Boolean> canGoBackMap = new HashMap<>();
-    private Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
-    private Map<GeckoSession, GeckoSession.SessionState> sessionStates = new HashMap<>();
+    private final Map<GeckoSession, Boolean> canGoBackMap = new HashMap<>();
+    private final Map<GeckoSession, Boolean> canGoForwardMap = new HashMap<>();
+    private final Map<GeckoSession, GeckoSession.SessionState> sessionStates = new HashMap<>();
 
     private AutoCompleteTextView urlBar;
     private ProgressBar progressBar;
@@ -119,6 +122,9 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(R.layout.activity_main);
         appContext = getApplicationContext();
+
+        extensionSessionManager.init(this, () -> sessions);
+        extensionSessionManager.setTabOpener(() -> createNewTab(true));
 
         geckoView = findViewById(R.id.gecko_view);
         toolbarContainer = findViewById(R.id.toolbar_container);
@@ -263,6 +269,8 @@ public class MainActivity extends AppCompatActivity {
                 moveTaskToBack(true);
             }
         });
+
+        extensionSessionManager.refresh(sGeckoRuntime);
     }
 
     private void attachDelegates(GeckoSession session) {
@@ -271,6 +279,7 @@ public class MainActivity extends AppCompatActivity {
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this));
+        extensionSessionManager.sync(session);
     }
 
     private class SuggestionAdapter extends ArrayAdapter<String> {
@@ -399,11 +408,13 @@ public class MainActivity extends AppCompatActivity {
         GeckoSession previous = getCurrentSession();
         if (previous != null && previous != sessions.get(index)) {
             previous.setActive(false);
+            extensionSessionManager.setTabActive(sGeckoRuntime, previous, false);
         }
         currentTabIndex = index;
         GeckoSession selected = sessions.get(index);
         geckoView.setSession(selected);
         selected.setActive(true);
+        extensionSessionManager.setTabActive(sGeckoRuntime, selected, true);
         updateNavigationButtons();
         updateTabManagerText();
         String url = tabUrls.get(selected);
@@ -699,6 +710,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            GeckoSession current = getCurrentSession();
+            if (current != null) {
+                current.setActive(true);
+                extensionSessionManager.setTabActive(sGeckoRuntime, current, true);
+            }
+            geckoView.requestLayout();
+            updateNavigationButtons();
+        }
+    }
+
+    @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         int total = Math.min(sessions.size(), MAX_TABS);
@@ -727,7 +752,10 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         GeckoSession current = getCurrentSession();
-        if (current != null) current.setActive(true);
+        if (current != null) {
+            current.setActive(true);
+            extensionSessionManager.setTabActive(sGeckoRuntime, current, true);
+        }
         if (BuildConfig.EXTENSIONS_ENABLED && sGeckoRuntime != null) {
             sGeckoRuntime.getWebExtensionController()
                     .setPromptDelegate(new InstallPromptDelegate(this));
@@ -737,7 +765,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        GeckoSession current = getCurrentSession();
         for (GeckoSession session : sessions) session.setActive(false);
+        if (current != null) {
+            extensionSessionManager.setTabActive(sGeckoRuntime, current, false);
+        }
         if (BuildConfig.EXTENSIONS_ENABLED && sGeckoRuntime != null) {
             sGeckoRuntime.getWebExtensionController().setPromptDelegate(null);
         }
@@ -769,6 +801,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        extensionSessionManager.clear();
         for (GeckoSession session : sessions) session.close();
         sessions.clear();
         tabTitles.clear();

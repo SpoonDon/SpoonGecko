@@ -33,6 +33,13 @@ public final class ExtensionActionManager implements WebExtension.ActionDelegate
         }
     }
 
+    public void registerForSession(GeckoSession session, WebExtension extension) {
+        if (session != null && extension != null) {
+            session.getWebExtensionController()
+                    .setActionDelegate(extension, this);
+        }
+    }
+
     public boolean click(WebExtension extension) {
         if (extension == null) return false;
         WebExtension.Action action = defaultActions.get(extension.id);
