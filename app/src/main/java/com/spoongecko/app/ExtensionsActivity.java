@@ -323,7 +323,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
             boolean enabled = (ext.metaData != null)
                     ? ExtensionController.isEnabled(ext)
-                    : ExtensionController.isEnabledInPrefs(this, ext.id);
+                    : ExtensionController.isEnabledInPrefs(ExtensionsActivity.this, ext.id);
             holder.badge.setText(enabled ? R.string.extension_on : R.string.extension_off);
             holder.badge.setTextColor(enabled
                     ? getResources().getColor(R.color.md_theme_primary, null)
