@@ -9,6 +9,7 @@ import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -44,10 +45,11 @@ public class ExtensionsActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
     private TextView emptyView;
     private ExtensionAdapter adapter;
-    private List<WebExtension> installedExtensions = new ArrayList<>();
+    private final List<WebExtension> installedExtensions = new ArrayList<>();
     private ActivityResultLauncher<String[]> openXpiLauncher;
     private ActivityResultLauncher<String> createBackupLauncher;
     private ActivityResultLauncher<String[]> restoreBackupLauncher;
+    private ExtensionPopupController popupController;
 
     private int restoreIndex;
     private int restoredCount;
@@ -102,9 +104,16 @@ public class ExtensionsActivity extends AppCompatActivity {
             return;
         }
 
+        FrameLayout container = new FrameLayout(this);
+        container.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(container);
+
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), dp(16), dp(16), dp(16));
+        container.addView(content, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
@@ -179,8 +188,10 @@ public class ExtensionsActivity extends AppCompatActivity {
         recyclerView.setAdapter(adapter);
         content.addView(recyclerView);
 
-        root.addView(content, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        popupController = new ExtensionPopupController(
+                this, container, MainActivity.getGeckoRuntime());
+        ExtensionActionManager.getInstance().setPopupOpener(popupController::openPopup);
+
         setContentView(root);
     }
 
@@ -199,6 +210,7 @@ public class ExtensionsActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (popupController != null) popupController.closePopup();
         if (!BuildConfig.EXTENSIONS_ENABLED) return;
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
         if (runtime != null) {
@@ -217,6 +229,9 @@ public class ExtensionsActivity extends AppCompatActivity {
             public void onResult(List<WebExtension> extensions) {
                 installedExtensions.clear();
                 installedExtensions.addAll(extensions);
+                for (WebExtension extension : extensions) {
+                    ExtensionActionManager.getInstance().register(extension);
+                }
                 runOnUiThread(() -> rebuildExtensionsList());
             }
 
@@ -282,6 +297,15 @@ public class ExtensionsActivity extends AppCompatActivity {
 
             row.addView(info);
 
+            MaterialButton btnPopup = new MaterialButton(parent.getContext());
+            btnPopup.setText(R.string.extension_popup);
+            btnPopup.setTextSize(12);
+            LinearLayout.LayoutParams popupParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            popupParams.setMargins(dp(8), 0, dp(8), 0);
+            btnPopup.setLayoutParams(popupParams);
+            row.addView(btnPopup);
+
             MaterialButton btnOptions = new MaterialButton(parent.getContext());
             btnOptions.setText(R.string.settings_title);
             btnOptions.setTextSize(12);
@@ -304,7 +328,8 @@ public class ExtensionsActivity extends AppCompatActivity {
             row.addView(btnRemove);
 
             card.addView(row);
-            return new Holder(card, nameView, versionView, idView, badge, btnOptions, toggle, btnRemove);
+            return new Holder(card, nameView, versionView, idView, badge,
+                    btnPopup, btnOptions, toggle, btnRemove);
         }
 
         @Override
@@ -345,6 +370,13 @@ public class ExtensionsActivity extends AppCompatActivity {
                 }
             });
 
+            holder.btnPopup.setOnClickListener(v -> {
+                boolean clicked = ExtensionActionManager.getInstance().click(ext);
+                if (!clicked) {
+                    Toast.makeText(ExtensionsActivity.this,
+                            R.string.extension_no_popup, Toast.LENGTH_SHORT).show();
+                }
+            });
             holder.btnOptions.setOnClickListener(v -> openExtensionSettings(ext));
             holder.btnRemove.setOnClickListener(v -> confirmAndRemove(ext));
             holder.card.setOnClickListener(v -> openExtensionSettings(ext));
@@ -361,19 +393,22 @@ public class ExtensionsActivity extends AppCompatActivity {
             final TextView versionView;
             final TextView idView;
             final TextView badge;
+            final MaterialButton btnPopup;
             final MaterialButton btnOptions;
             final SwitchCompat toggle;
             final MaterialButton btnRemove;
             WebExtension ext;
 
             Holder(MaterialCardView card, TextView nameView, TextView versionView, TextView idView,
-                   TextView badge, MaterialButton btnOptions, SwitchCompat toggle, MaterialButton btnRemove) {
+                   TextView badge, MaterialButton btnPopup, MaterialButton btnOptions,
+                   SwitchCompat toggle, MaterialButton btnRemove) {
                 super(card);
                 this.card = card;
                 this.nameView = nameView;
                 this.versionView = versionView;
                 this.idView = idView;
                 this.badge = badge;
+                this.btnPopup = btnPopup;
                 this.btnOptions = btnOptions;
                 this.toggle = toggle;
                 this.btnRemove = btnRemove;
