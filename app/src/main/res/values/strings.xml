@@ -102,6 +102,14 @@
     <string name="size_kb">%.1f KB</string>
     <string name="size_mb">%.1f MB</string>
 
+    <!-- Download notifications -->
+    <string name="download_notification_channel">Downloads</string>
+    <string name="download_notification_channel_desc">Shows active download progress</string>
+    <string name="download_cancel">Cancel download</string>
+    <string name="download_complete_text">Download complete</string>
+    <string name="download_failed_text">Download failed</string>
+    <string name="download_canceled_text">Download canceled</string>
+
     <!-- History -->
     <string name="history_title">History</string>
     <string name="history_search_hint">Search history…</string>
@@ -145,30 +153,4 @@
     <string name="extension_enabled">Extension enabled.</string>
     <string name="extension_disabled">Extension disabled.</string>
     <string name="extension_failed_remove">Failed to remove extension: %1$s</string>
-    <string name="extension_failed_enable">Failed to enable extension: %1$s</string>
-    <string name="extension_failed_disable">Failed to disable extension: %1$s</string>
-    <string name="extension_failed_list">Failed to list extensions: %1$s</string>
-    <string name="extension_failed_install_corrupt">Install failed: the .xpi file is corrupted.</string>
-    <string name="extension_failed_install_incompatible">Install failed: extension is not compatible with this browser version.</string>
-    <string name="extension_failed_install_signed_state">Install failed: extension must be signed or the source is untrusted.</string>
-    <string name="extension_failed_install_network">Install failed: network error. Check your connection and try again.</string>
-    <string name="extension_failed_install_generic">Install failed: %1$s</string>
-    <string name="extension_failed_install_unknown">Install failed.</string>
-    <string name="extension_no_options">This extension has no options page.</string>
-
-    <!-- Extension backup -->
-    <string name="backup_extensions">Backup</string>
-    <string name="restore_extensions">Restore</string>
-    <string name="backup_exported">Extension backup exported</string>
-    <string name="backup_export_failed">Failed to export backup</string>
-    <string name="backup_restore_failed_parse">Failed to read backup file</string>
-    <string name="backup_restore_empty">Backup file contains no extensions</string>
-    <string name="backup_restore_done">Restore finished: %1$d installed, %2$d failed</string>
-    <string name="backup_no_extensions">No installed extensions to back up</string>
-
-    <!-- Browser service -->
-    <string name="browser_service_channel">Browser Service</string>
-    <string name="browser_service_channel_desc">Keeps the browser alive in background.</string>
-    <string name="browser_notification_title">Spoon Gecko</string>
-    <string name="browser_notification_text">Browser running in background</string>
-</resources>
+    <string name="extension_failed
