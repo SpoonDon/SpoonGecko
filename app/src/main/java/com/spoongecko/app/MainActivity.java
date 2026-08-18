@@ -433,6 +433,7 @@ public class MainActivity extends AppCompatActivity {
         if (index < 0 || index >= sessions.size()) return;
         GeckoSession previous = getCurrentSession();
         if (previous != null && previous != sessions.get(index)) {
+            previous.setFocused(false);
             previous.setActive(false);
             extensionSessionManager.setTabActive(sGeckoRuntime, previous, false);
         }
@@ -440,6 +441,7 @@ public class MainActivity extends AppCompatActivity {
         GeckoSession selected = sessions.get(index);
         geckoView.setSession(selected);
         selected.setActive(true);
+        selected.setFocused(true);
         extensionSessionManager.setTabActive(sGeckoRuntime, selected, true);
         updateNavigationButtons();
         updateTabManagerText();
@@ -739,13 +741,7 @@ public class MainActivity extends AppCompatActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            GeckoSession current = getCurrentSession();
-            if (current != null) {
-                current.setActive(true);
-                extensionSessionManager.setTabActive(sGeckoRuntime, current, true);
-            }
-            geckoView.requestLayout();
-            updateNavigationButtons();
+            reactivateCurrentSession();
         }
     }
 
@@ -777,22 +773,44 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        GeckoSession current = getCurrentSession();
-        if (current != null) {
-            current.setActive(true);
-            extensionSessionManager.setTabActive(sGeckoRuntime, current, true);
-        }
+        reactivateCurrentSession();
         if (BuildConfig.EXTENSIONS_ENABLED && sGeckoRuntime != null) {
             sGeckoRuntime.getWebExtensionController()
                     .setPromptDelegate(new InstallPromptDelegate(this));
         }
     }
 
+    private void reactivateCurrentSession() {
+        GeckoSession current = getCurrentSession();
+        if (current == null) return;
+        applyActiveState(current);
+        geckoView.postDelayed(() -> {
+            GeckoSession latest = getCurrentSession();
+            if (latest != null) {
+                applyActiveState(latest);
+            }
+            geckoView.requestLayout();
+        }, 150);
+    }
+
+    private void applyActiveState(GeckoSession session) {
+        if (session == null) return;
+        geckoView.setSession(session);
+        session.setActive(true);
+        session.setFocused(true);
+        extensionSessionManager.setTabActive(sGeckoRuntime, session, true);
+        updateNavigationButtons();
+        geckoView.requestLayout();
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
         GeckoSession current = getCurrentSession();
-        for (GeckoSession session : sessions) session.setActive(false);
+        for (GeckoSession session : sessions) {
+            session.setFocused(false);
+            session.setActive(false);
+        }
         if (current != null) {
             extensionSessionManager.setTabActive(sGeckoRuntime, current, false);
         }
