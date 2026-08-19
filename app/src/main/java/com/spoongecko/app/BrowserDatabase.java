@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 public final class BrowserDatabase extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "browser_data.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
     private static volatile BrowserDatabase instance;
 
     private BrowserDatabase(Context context) {
@@ -38,12 +38,18 @@ public final class BrowserDatabase extends SQLiteOpenHelper {
                 + "url TEXT NOT NULL,"
                 + "title TEXT,"
                 + "added_at INTEGER NOT NULL)");
+
+        db.execSQL("CREATE INDEX idx_history_visited_at ON history(visited_at)");
+        db.execSQL("CREATE INDEX idx_history_url ON history(url)");
+        db.execSQL("CREATE INDEX idx_bookmarks_added_at ON bookmarks(added_at)");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS history");
-        db.execSQL("DROP TABLE IF EXISTS bookmarks");
-        onCreate(db);
+        if (oldVersion < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_visited_at ON history(visited_at)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_url ON history(url)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_bookmarks_added_at ON bookmarks(added_at)");
+        }
     }
 }
