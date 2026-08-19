@@ -2,7 +2,10 @@ package com.spoongecko.app;
 
 import android.app.AlertDialog;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
@@ -13,6 +16,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -33,6 +37,8 @@ public class HistoryActivity extends AppCompatActivity {
     private TextView emptyView;
     private HistoryAdapter adapter;
     private final List<HistoryStore.Entry> entries = new ArrayList<>();
+    private final Handler searchHandler = new Handler(Looper.getMainLooper());
+    private final Runnable rebuildRunnable = this::rebuild;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,15 +56,19 @@ public class HistoryActivity extends AppCompatActivity {
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(16), dp(16), dp(16));
+        content.setPadding(UiUtils.dp(this, 16), UiUtils.dp(this, 16),
+                UiUtils.dp(this, 16), UiUtils.dp(this, 16));
 
         searchBox = new EditText(this);
         searchBox.setSingleLine(true);
         searchBox.setHint(R.string.history_search_hint);
-        searchBox.setPadding(0, dp(12), 0, dp(12));
+        searchBox.setPadding(0, UiUtils.dp(this, 12), 0, UiUtils.dp(this, 12));
         searchBox.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { rebuild(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                searchHandler.removeCallbacks(rebuildRunnable);
+                searchHandler.postDelayed(rebuildRunnable, 100);
+            }
             @Override public void afterTextChanged(Editable s) {}
         });
         content.addView(searchBox);
@@ -67,34 +77,34 @@ public class HistoryActivity extends AppCompatActivity {
         btnClear.setText(R.string.clear_all_history);
         LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        btnParams.topMargin = dp(8);
-        btnParams.bottomMargin = dp(8);
+        btnParams.topMargin = UiUtils.dp(this, 8);
+        btnParams.bottomMargin = UiUtils.dp(this, 8);
         btnClear.setLayoutParams(btnParams);
-        btnClear.setOnClickListener(v -> {
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.clear_all_history)
-                    .setMessage(R.string.clear_history_confirm)
-                    .setPositiveButton(R.string.clear, (d, w) -> {
-                        HistoryStore.clear(this);
-                        rebuild();
-                        Toast.makeText(this, R.string.deleted, Toast.LENGTH_SHORT).show();
-                    })
-                    .setNegativeButton(R.string.cancel, null)
-                    .show();
-        });
+        btnClear.setOnClickListener(v ->
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.clear_all_history)
+                        .setMessage(R.string.clear_history_confirm)
+                        .setPositiveButton(R.string.clear, (d, w) -> {
+                            HistoryStore.clear(this);
+                            rebuild();
+                            Toast.makeText(this, R.string.deleted, Toast.LENGTH_SHORT).show();
+                        })
+                        .setNegativeButton(R.string.cancel, null)
+                        .show());
         content.addView(btnClear);
 
         emptyView = new TextView(this);
         emptyView.setText(R.string.no_history);
         emptyView.setTextSize(14);
         emptyView.setGravity(Gravity.CENTER);
-        emptyView.setPadding(0, dp(32), 0, 0);
+        emptyView.setPadding(0, UiUtils.dp(this, 32), 0, 0);
         emptyView.setVisibility(View.GONE);
         content.addView(emptyView);
 
         recyclerView = new RecyclerView(this);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         adapter = new HistoryAdapter();
+        adapter.setHasStableIds(true);
         recyclerView.setAdapter(adapter);
         content.addView(recyclerView, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
@@ -106,18 +116,43 @@ public class HistoryActivity extends AppCompatActivity {
         rebuild();
     }
 
+    @Override
+    protected void onDestroy() {
+        searchHandler.removeCallbacks(rebuildRunnable);
+        super.onDestroy();
+    }
+
     private void rebuild() {
         String query = searchBox.getText().toString().trim();
+        List<HistoryStore.Entry> newEntries = HistoryStore.query(this, query, 200);
+        DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new HistoryDiff(entries, newEntries));
         entries.clear();
-        entries.addAll(HistoryStore.query(this, query, 200));
+        entries.addAll(newEntries);
+        diff.dispatchUpdatesTo(adapter);
+        updateEmptyState();
+    }
+
+    private void updateEmptyState() {
         boolean empty = entries.isEmpty();
         emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
         recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
-        adapter.notifyDataSetChanged();
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density);
+    private void deleteEntry(HistoryStore.Entry entry) {
+        HistoryStore.delete(this, entry.id);
+        int index = indexOfEntry(entry.id);
+        if (index >= 0) {
+            entries.remove(index);
+            adapter.notifyItemRemoved(index);
+            updateEmptyState();
+        }
+    }
+
+    private int indexOfEntry(long id) {
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).id == id) return i;
+        }
+        return -1;
     }
 
     private String formatDate(long millis) {
@@ -128,19 +163,25 @@ public class HistoryActivity extends AppCompatActivity {
     private class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.Holder> {
 
         @Override
+        public long getItemId(int position) {
+            return entries.get(position).id;
+        }
+
+        @Override
         public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
             MaterialCardView card = new MaterialCardView(parent.getContext());
-            card.setRadius(dp(12));
-            card.setCardElevation(dp(1));
+            card.setRadius(UiUtils.dp(parent.getContext(), 12));
+            card.setCardElevation(UiUtils.dp(parent.getContext(), 1));
             RecyclerView.LayoutParams params = new RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
-            params.bottomMargin = dp(8);
+            params.bottomMargin = UiUtils.dp(parent.getContext(), 8);
             card.setLayoutParams(params);
 
             LinearLayout row = new LinearLayout(parent.getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), dp(12), dp(8), dp(12));
+            row.setPadding(UiUtils.dp(parent.getContext(), 16), UiUtils.dp(parent.getContext(), 12),
+                    UiUtils.dp(parent.getContext(), 8), UiUtils.dp(parent.getContext(), 12));
 
             LinearLayout info = new LinearLayout(parent.getContext());
             info.setOrientation(LinearLayout.VERTICAL);
@@ -150,7 +191,7 @@ public class HistoryActivity extends AppCompatActivity {
             TextView title = new TextView(parent.getContext());
             title.setTextSize(14);
             title.setMaxLines(1);
-            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            title.setEllipsize(TextUtils.TruncateAt.END);
             info.addView(title);
 
             TextView meta = new TextView(parent.getContext());
@@ -179,17 +220,13 @@ public class HistoryActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(Holder holder, int position) {
             HistoryStore.Entry entry = entries.get(position);
-            holder.title.setText(entry.title != null && !entry.title.isEmpty() ? entry.title : entry.url);
-            holder.meta.setText(entry.url + "\n" + formatDate(entry.visitedAt) + "  |  " + entry.visitCount + " visits");
-            holder.card.setOnClickListener(v -> RuntimeController.openUrlInMain(HistoryActivity.this, entry.url));
-            holder.btnDelete.setOnClickListener(v -> {
-                HistoryStore.delete(HistoryActivity.this, entry.id);
-                entries.remove(position);
-                notifyItemRemoved(position);
-                boolean empty = entries.isEmpty();
-                emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
-                recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
-            });
+            holder.title.setText(entry.title != null && !entry.title.isEmpty()
+                    ? entry.title : entry.url);
+            holder.meta.setText(entry.url + "\n" + formatDate(entry.visitedAt)
+                    + "  |  " + entry.visitCount + " visits");
+            holder.card.setOnClickListener(v ->
+                    RuntimeController.openUrlInMain(HistoryActivity.this, entry.url));
+            holder.btnDelete.setOnClickListener(v -> deleteEntry(entry));
         }
 
         @Override
@@ -210,6 +247,38 @@ public class HistoryActivity extends AppCompatActivity {
                 this.meta = meta;
                 this.btnDelete = btnDelete;
             }
+        }
+    }
+
+    private static class HistoryDiff extends DiffUtil.Callback {
+        private final List<HistoryStore.Entry> oldList;
+        private final List<HistoryStore.Entry> newList;
+
+        HistoryDiff(List<HistoryStore.Entry> oldList, List<HistoryStore.Entry> newList) {
+            this.oldList = oldList;
+            this.newList = newList;
+        }
+
+        @Override public int getOldListSize() { return oldList.size(); }
+        @Override public int getNewListSize() { return newList.size(); }
+
+        @Override
+        public boolean areItemsTheSame(int oldPos, int newPos) {
+            return oldList.get(oldPos).id == newList.get(newPos).id;
+        }
+
+        @Override
+        public boolean areContentsTheSame(int oldPos, int newPos) {
+            HistoryStore.Entry a = oldList.get(oldPos);
+            HistoryStore.Entry b = newList.get(newPos);
+            if (!strEq(a.url, b.url)) return false;
+            if (!strEq(a.title, b.title)) return false;
+            if (a.visitedAt != b.visitedAt) return false;
+            return a.visitCount == b.visitCount;
+        }
+
+        private static boolean strEq(String a, String b) {
+            return a == null ? b == null : a.equals(b);
         }
     }
 }

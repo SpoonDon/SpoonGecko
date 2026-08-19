@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 class SuggestionAdapter extends ArrayAdapter<String> {
+
     private final List<String> values = new ArrayList<>();
     private final Context context;
 
@@ -38,8 +39,9 @@ class SuggestionAdapter extends ArrayAdapter<String> {
                     return results;
                 }
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(100);
                 } catch (InterruptedException ignored) {}
+
                 List<HistoryStore.Entry> entries = HistoryStore.query(
                         context, constraint.toString().trim(), 10);
                 List<String> urls = new ArrayList<>();

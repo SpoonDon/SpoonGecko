@@ -4,6 +4,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.List;
 public final class BookmarkStore {
 
     private static final String TAG = "BookmarkStore";
+    private static final String[] COLUMNS = {"_id", "url", "title", "added_at"};
 
     public static final class Entry {
         public final long id;
@@ -39,7 +41,7 @@ public final class BookmarkStore {
             values.put("added_at", System.currentTimeMillis());
             long id = db.insert("bookmarks", null, values);
             return id != -1;
-        } catch (Exception e) {
+        } catch (SQLiteException e) {
             Log.e(TAG, "add failed", e);
             return false;
         }
@@ -48,32 +50,39 @@ public final class BookmarkStore {
     public static List<Entry> query(Context context, String search) {
         List<Entry> entries = new ArrayList<>();
         if (context == null) return entries;
+
         SQLiteDatabase db;
         try {
             db = BrowserDatabase.getInstance(context).getReadableDatabase();
-        } catch (Exception e) {
-            Log.e(TAG, "query failed to open db", e);
+        } catch (SQLiteException e) {
+            Log.e(TAG, "query open failed", e);
             return entries;
         }
 
-        String selection = null;
-        String[] args = null;
-        if (search != null && !search.isEmpty()) {
-            String like = "%" + search + "%";
-            selection = "url LIKE ? OR title LIKE ?";
-            args = new String[]{like, like};
-        }
-
-        Cursor cursor = db.query("bookmarks",
-                new String[]{"_id", "url", "title", "added_at"},
-                selection, args, null, null, "added_at DESC", null);
-
-        if (cursor != null) {
-            while (cursor.moveToNext()) {
-                entries.add(new Entry(cursor.getLong(0), cursor.getString(1),
-                        cursor.getString(2), cursor.getLong(3)));
+        Cursor cursor = null;
+        try {
+            if (search != null && !search.trim().isEmpty()) {
+                String match = FtsQuery.match(search);
+                cursor = db.rawQuery(
+                        "SELECT b._id, b.url, b.title, b.added_at "
+                                + "FROM bookmarks b JOIN bookmarks_fts f ON b._id = f.docid "
+                                + "WHERE bookmarks_fts MATCH ? ORDER BY b.added_at DESC",
+                        new String[]{match});
+            } else {
+                cursor = db.query("bookmarks", COLUMNS, null, null, null, null,
+                        "added_at DESC", null);
             }
-            cursor.close();
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    entries.add(new Entry(cursor.getLong(0), cursor.getString(1),
+                            cursor.getString(2), cursor.getLong(3)));
+                }
+            }
+        } catch (SQLiteException e) {
+            Log.e(TAG, "query failed", e);
+        } finally {
+            if (cursor != null) cursor.close();
         }
         return entries;
     }
@@ -83,7 +92,7 @@ public final class BookmarkStore {
         try {
             SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
             db.delete("bookmarks", "_id=?", new String[]{String.valueOf(id)});
-        } catch (Exception e) {
+        } catch (SQLiteException e) {
             Log.e(TAG, "delete failed", e);
         }
     }

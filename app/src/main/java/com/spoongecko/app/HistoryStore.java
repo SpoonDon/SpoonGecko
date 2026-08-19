@@ -4,6 +4,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
+import android.database.sqlite.SQLiteStatement;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -14,11 +16,13 @@ import java.util.concurrent.Executors;
 public final class HistoryStore {
 
     private static final String TAG = "HistoryStore";
-    private static final ExecutorService WRITE_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "spoon-history-writer");
-        t.setPriority(Thread.MIN_PRIORITY);
-        return t;
-    });
+    private static final String[] COLUMNS = {"_id", "url", "title", "visited_at", "visit_count"};
+    private static final ExecutorService WRITE_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "spoon-history-writer");
+                t.setPriority(Thread.MIN_PRIORITY);
+                return t;
+            });
 
     public static final class Entry {
         public final long id;
@@ -48,26 +52,25 @@ public final class HistoryStore {
     private static void recordInternal(Context context, String url, String title) {
         try {
             SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
-            Cursor cursor = db.query("history", new String[]{"_id", "visit_count"},
-                    "url=?", new String[]{url}, null, null, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                long id = cursor.getLong(0);
-                int count = cursor.getInt(1) + 1;
-                ContentValues values = new ContentValues();
-                values.put("title", title != null ? title : "");
-                values.put("visited_at", System.currentTimeMillis());
-                values.put("visit_count", count);
-                db.update("history", values, "_id=?", new String[]{String.valueOf(id)});
-            } else {
+            long now = System.currentTimeMillis();
+            String safeTitle = title != null ? title : "";
+
+            SQLiteStatement update = db.compileStatement(
+                    "UPDATE history SET visit_count = visit_count + 1, title = ?, visited_at = ? WHERE url = ?");
+            update.bindString(1, safeTitle);
+            update.bindLong(2, now);
+            update.bindString(3, url);
+            int rows = update.executeUpdateDelete();
+
+            if (rows == 0) {
                 ContentValues values = new ContentValues();
                 values.put("url", url);
-                values.put("title", title != null ? title : "");
-                values.put("visited_at", System.currentTimeMillis());
+                values.put("title", safeTitle);
+                values.put("visited_at", now);
                 values.put("visit_count", 1);
                 db.insert("history", null, values);
             }
-            if (cursor != null) cursor.close();
-        } catch (Exception e) {
+        } catch (SQLiteException e) {
             Log.e(TAG, "record failed", e);
         }
     }
@@ -75,33 +78,40 @@ public final class HistoryStore {
     public static List<Entry> query(Context context, String search, int limit) {
         List<Entry> entries = new ArrayList<>();
         if (context == null) return entries;
+
         SQLiteDatabase db;
         try {
             db = BrowserDatabase.getInstance(context).getReadableDatabase();
-        } catch (Exception e) {
-            Log.e(TAG, "query failed to open db", e);
+        } catch (SQLiteException e) {
+            Log.e(TAG, "query open failed", e);
             return entries;
         }
 
-        String selection = null;
-        String[] args = null;
-        if (search != null && !search.isEmpty()) {
-            String like = "%" + search + "%";
-            selection = "url LIKE ? OR title LIKE ?";
-            args = new String[]{like, like};
-        }
-
-        Cursor cursor = db.query("history",
-                new String[]{"_id", "url", "title", "visited_at", "visit_count"},
-                selection, args, null, null, "visited_at DESC",
-                limit > 0 ? String.valueOf(limit) : null);
-
-        if (cursor != null) {
-            while (cursor.moveToNext()) {
-                entries.add(new Entry(cursor.getLong(0), cursor.getString(1),
-                        cursor.getString(2), cursor.getLong(3), cursor.getInt(4)));
+        Cursor cursor = null;
+        try {
+            if (search != null && !search.trim().isEmpty()) {
+                String match = FtsQuery.match(search);
+                String limitClause = limit > 0 ? " LIMIT " + limit : "";
+                cursor = db.rawQuery(
+                        "SELECT h._id, h.url, h.title, h.visited_at, h.visit_count "
+                                + "FROM history h JOIN history_fts f ON h._id = f.docid "
+                                + "WHERE history_fts MATCH ? ORDER BY h.visited_at DESC" + limitClause,
+                        new String[]{match});
+            } else {
+                cursor = db.query("history", COLUMNS, null, null, null, null,
+                        "visited_at DESC", limit > 0 ? String.valueOf(limit) : null);
             }
-            cursor.close();
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    entries.add(new Entry(cursor.getLong(0), cursor.getString(1),
+                            cursor.getString(2), cursor.getLong(3), cursor.getInt(4)));
+                }
+            }
+        } catch (SQLiteException e) {
+            Log.e(TAG, "query failed", e);
+        } finally {
+            if (cursor != null) cursor.close();
         }
         return entries;
     }
@@ -111,7 +121,7 @@ public final class HistoryStore {
         try {
             SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
             db.delete("history", "_id=?", new String[]{String.valueOf(id)});
-        } catch (Exception e) {
+        } catch (SQLiteException e) {
             Log.e(TAG, "delete failed", e);
         }
     }
@@ -121,7 +131,7 @@ public final class HistoryStore {
         try {
             SQLiteDatabase db = BrowserDatabase.getInstance(context).getWritableDatabase();
             db.delete("history", null, null);
-        } catch (Exception e) {
+        } catch (SQLiteException e) {
             Log.e(TAG, "clear failed", e);
         }
     }

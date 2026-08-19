@@ -18,6 +18,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -35,6 +36,9 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExtensionsActivity extends AppCompatActivity {
 
@@ -50,10 +54,6 @@ public class ExtensionsActivity extends AppCompatActivity {
     private ActivityResultLauncher<String> createBackupLauncher;
     private ActivityResultLauncher<String[]> restoreBackupLauncher;
     private ExtensionPopupController popupController;
-
-    private int restoreIndex;
-    private int restoredCount;
-    private int failedCount;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,7 +96,8 @@ public class ExtensionsActivity extends AppCompatActivity {
             disabled.setText(R.string.extensions_unavailable);
             disabled.setTextSize(15);
             disabled.setGravity(Gravity.CENTER);
-            disabled.setPadding(dp(32), dp(64), dp(32), 0);
+            disabled.setPadding(UiUtils.dp(this, 32), UiUtils.dp(this, 64),
+                    UiUtils.dp(this, 32), 0);
             disabled.setTextColor(getResources().getColor(
                     R.color.md_theme_on_surface_variant, null));
             root.addView(disabled);
@@ -111,7 +112,8 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(16), dp(16), dp(16));
+        content.setPadding(UiUtils.dp(this, 16), UiUtils.dp(this, 16),
+                UiUtils.dp(this, 16), UiUtils.dp(this, 16));
         container.addView(content, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
@@ -124,17 +126,15 @@ public class ExtensionsActivity extends AppCompatActivity {
 
         MaterialButton btnInstall = new MaterialButton(this);
         btnInstall.setText(R.string.install_xpi);
-        btnInstall.setOnClickListener(v ->
-                openXpiLauncher.launch(new String[]{"*/*"}));
+        btnInstall.setOnClickListener(v -> openXpiLauncher.launch(new String[]{"*/*"}));
         LinearLayout.LayoutParams installParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        installParams.setMargins(0, 0, dp(8), 0);
+        installParams.setMargins(0, 0, UiUtils.dp(this, 8), 0);
         btnInstall.setLayoutParams(installParams);
 
         MaterialButton btnBrowseAmo = new MaterialButton(this);
         btnBrowseAmo.setText(R.string.browse_amo);
-        btnBrowseAmo.setOnClickListener(v ->
-                RuntimeController.openUrlInMain(this, AMO_URL));
+        btnBrowseAmo.setOnClickListener(v -> RuntimeController.openUrlInMain(this, AMO_URL));
         btnBrowseAmo.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
@@ -145,14 +145,14 @@ public class ExtensionsActivity extends AppCompatActivity {
         LinearLayout backupRow = new LinearLayout(this);
         backupRow.setOrientation(LinearLayout.HORIZONTAL);
         backupRow.setGravity(Gravity.CENTER_VERTICAL);
-        backupRow.setPadding(0, dp(8), 0, 0);
+        backupRow.setPadding(0, UiUtils.dp(this, 8), 0, 0);
 
         MaterialButton btnBackup = new MaterialButton(this);
         btnBackup.setText(R.string.backup_extensions);
         btnBackup.setOnClickListener(v -> requestBackup());
         LinearLayout.LayoutParams backupParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        backupParams.setMargins(0, 0, dp(8), 0);
+        backupParams.setMargins(0, 0, UiUtils.dp(this, 8), 0);
         btnBackup.setLayoutParams(backupParams);
 
         MaterialButton btnRestore = new MaterialButton(this);
@@ -171,8 +171,8 @@ public class ExtensionsActivity extends AppCompatActivity {
         emptyView.setText(R.string.no_extensions);
         emptyView.setTextSize(14);
         emptyView.setGravity(Gravity.CENTER);
-        emptyView.setPadding(0, dp(32), 0, 0);
-        emptyView.setLineSpacing(dp(4), 1);
+        emptyView.setPadding(0, UiUtils.dp(this, 32), 0, 0);
+        emptyView.setLineSpacing(UiUtils.dp(this, 4), 1);
         emptyView.setTextColor(getResources().getColor(
                 R.color.md_theme_on_surface_variant, null));
         emptyView.setVisibility(View.GONE);
@@ -182,7 +182,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT);
-        listParams.topMargin = dp(12);
+        listParams.topMargin = UiUtils.dp(this, 12);
         recyclerView.setLayoutParams(listParams);
         adapter = new ExtensionAdapter();
         recyclerView.setAdapter(adapter);
@@ -218,21 +218,20 @@ public class ExtensionsActivity extends AppCompatActivity {
         }
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density);
-    }
-
     private void refreshExtensionsList() {
         GeckoRuntime runtime = MainActivity.getGeckoRuntime();
         ExtensionController.list(this, runtime, new ExtensionController.ListCallback() {
             @Override
             public void onResult(List<WebExtension> extensions) {
                 runOnUiThread(() -> {
+                    DiffUtil.DiffResult diff =
+                            DiffUtil.calculateDiff(new ExtensionDiff(installedExtensions, extensions));
                     installedExtensions.clear();
                     installedExtensions.addAll(extensions);
+                    diff.dispatchUpdatesTo(adapter);
                     ExtensionSessionManager.getInstance().setExtensions(extensions);
                     ExtensionSessionManager.getInstance().syncAll();
-                    rebuildExtensionsList();
+                    updateEmptyState();
                 });
             }
 
@@ -244,11 +243,10 @@ public class ExtensionsActivity extends AppCompatActivity {
         });
     }
 
-    private void rebuildExtensionsList() {
+    private void updateEmptyState() {
         boolean empty = installedExtensions.isEmpty();
         emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
         recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
-        adapter.notifyDataSetChanged();
     }
 
     private class ExtensionAdapter extends RecyclerView.Adapter<ExtensionAdapter.Holder> {
@@ -256,17 +254,18 @@ public class ExtensionsActivity extends AppCompatActivity {
         @Override
         public Holder onCreateViewHolder(ViewGroup parent, int viewType) {
             MaterialCardView card = new MaterialCardView(parent.getContext());
-            card.setRadius(dp(12));
-            card.setCardElevation(dp(1));
+            card.setRadius(UiUtils.dp(parent.getContext(), 12));
+            card.setCardElevation(UiUtils.dp(parent.getContext(), 1));
             RecyclerView.LayoutParams cardParams = new RecyclerView.LayoutParams(
                     RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT);
-            cardParams.bottomMargin = dp(8);
+            cardParams.bottomMargin = UiUtils.dp(parent.getContext(), 8);
             card.setLayoutParams(cardParams);
 
             LinearLayout row = new LinearLayout(parent.getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), dp(12), dp(8), dp(12));
+            row.setPadding(UiUtils.dp(parent.getContext(), 16), UiUtils.dp(parent.getContext(), 12),
+                    UiUtils.dp(parent.getContext(), 8), UiUtils.dp(parent.getContext(), 12));
             row.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
             LinearLayout info = new LinearLayout(parent.getContext());
@@ -293,7 +292,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
             TextView badge = new TextView(parent.getContext());
             badge.setTextSize(11);
-            badge.setPadding(0, dp(2), 0, 0);
+            badge.setPadding(0, UiUtils.dp(parent.getContext(), 2), 0, 0);
             info.addView(badge);
 
             row.addView(info);
@@ -303,7 +302,8 @@ public class ExtensionsActivity extends AppCompatActivity {
             btnPopup.setTextSize(12);
             LinearLayout.LayoutParams popupParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            popupParams.setMargins(dp(8), 0, dp(8), 0);
+            popupParams.setMargins(UiUtils.dp(parent.getContext(), 8), 0,
+                    UiUtils.dp(parent.getContext(), 8), 0);
             btnPopup.setLayoutParams(popupParams);
             row.addView(btnPopup);
 
@@ -312,14 +312,16 @@ public class ExtensionsActivity extends AppCompatActivity {
             btnOptions.setTextSize(12);
             LinearLayout.LayoutParams optionsParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            optionsParams.setMargins(dp(8), 0, dp(8), 0);
+            optionsParams.setMargins(UiUtils.dp(parent.getContext(), 8), 0,
+                    UiUtils.dp(parent.getContext(), 8), 0);
             btnOptions.setLayoutParams(optionsParams);
             row.addView(btnOptions);
 
             SwitchCompat toggle = new SwitchCompat(parent.getContext());
             LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            toggleParams.setMargins(dp(8), 0, dp(8), 0);
+            toggleParams.setMargins(UiUtils.dp(parent.getContext(), 8), 0,
+                    UiUtils.dp(parent.getContext(), 8), 0);
             toggle.setLayoutParams(toggleParams);
             row.addView(toggle);
 
@@ -347,9 +349,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
             holder.idView.setText(ext.id != null ? ext.id : "");
 
-            boolean enabled = (ext.metaData != null)
-                    ? ExtensionController.isEnabled(ext)
-                    : ExtensionController.isEnabledInPrefs(ExtensionsActivity.this, ext.id);
+            boolean enabled = extensionEnabled(ext);
             holder.badge.setText(enabled ? R.string.extension_on : R.string.extension_off);
             holder.badge.setTextColor(enabled
                     ? getResources().getColor(R.color.md_theme_primary, null)
@@ -417,6 +417,46 @@ public class ExtensionsActivity extends AppCompatActivity {
         }
     }
 
+    private class ExtensionDiff extends DiffUtil.Callback {
+        private final List<WebExtension> oldList;
+        private final List<WebExtension> newList;
+
+        ExtensionDiff(List<WebExtension> oldList, List<WebExtension> newList) {
+            this.oldList = oldList;
+            this.newList = newList;
+        }
+
+        @Override public int getOldListSize() { return oldList.size(); }
+        @Override public int getNewListSize() { return newList.size(); }
+
+        @Override
+        public boolean areItemsTheSame(int oldPos, int newPos) {
+            String oldId = oldList.get(oldPos).id;
+            String newId = newList.get(newPos).id;
+            return oldId != null ? oldId.equals(newId) : newId == null;
+        }
+
+        @Override
+        public boolean areContentsTheSame(int oldPos, int newPos) {
+            WebExtension a = oldList.get(oldPos);
+            WebExtension b = newList.get(newPos);
+            if (extensionEnabled(a) != extensionEnabled(b)) return false;
+            if (!strEq(ExtensionController.getDisplayName(a),
+                    ExtensionController.getDisplayName(b))) return false;
+            return strEq(ExtensionController.getVersion(a),
+                    ExtensionController.getVersion(b));
+        }
+
+        private boolean strEq(String a, String b) {
+            return a == null ? b == null : a.equals(b);
+        }
+    }
+
+    private boolean extensionEnabled(WebExtension ext) {
+        if (ext.metaData != null) return ExtensionController.isEnabled(ext);
+        return ExtensionController.isEnabledInPrefs(this, ext.id);
+    }
+
     private void openExtensionSettings(WebExtension ext) {
         String optionsUrl = ExtensionController.getOptionsPageUrl(ext);
         if (optionsUrl != null && !optionsUrl.isEmpty()) {
@@ -430,7 +470,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         String name = ExtensionController.getDisplayName(ext);
         String version = ExtensionController.getVersion(ext);
         String id = ext.id != null ? ext.id : "";
-        boolean enabled = ExtensionController.isEnabled(ext);
+        boolean enabled = extensionEnabled(ext);
         String state = enabled ? getString(R.string.extension_on)
                 : getString(R.string.extension_off);
         String message = getString(R.string.extension_version, version)
@@ -473,40 +513,52 @@ public class ExtensionsActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.backup_restore_empty, Toast.LENGTH_SHORT).show();
             return;
         }
-        restoreIndex = 0;
-        restoredCount = 0;
-        failedCount = 0;
-        restoreNext(entries);
+        restoreAll(entries);
     }
 
-    private void restoreNext(List<ExtensionBackupManager.BackupEntry> entries) {
-        if (restoreIndex >= entries.size()) {
-            Toast.makeText(this,
-                    getString(R.string.backup_restore_done, restoredCount, failedCount),
+    private void restoreAll(List<ExtensionBackupManager.BackupEntry> entries) {
+        int total = entries.size();
+        AtomicInteger restored = new AtomicInteger();
+        AtomicInteger failed = new AtomicInteger();
+        AtomicInteger remaining = new AtomicInteger(total);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+
+        for (ExtensionBackupManager.BackupEntry entry : entries) {
+            executor.execute(() -> {
+                ExtensionController.install(
+                        this,
+                        ExtensionBackupManager.amoLatestUrl(entry.id),
+                        runtime,
+                        new ExtensionController.Callback() {
+                            @Override
+                            public void onSuccess(String message) {
+                                restored.incrementAndGet();
+                                if (remaining.decrementAndGet() == 0) {
+                                    finishRestore(restored.get(), failed.get());
+                                }
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                failed.incrementAndGet();
+                                if (remaining.decrementAndGet() == 0) {
+                                    finishRestore(restored.get(), failed.get());
+                                }
+                            }
+                        });
+            });
+        }
+        executor.shutdown();
+    }
+
+    private void finishRestore(int restored, int failed) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            Toast.makeText(this, getString(R.string.backup_restore_done, restored, failed),
                     Toast.LENGTH_LONG).show();
             refreshExtensionsList();
-            return;
-        }
-        ExtensionBackupManager.BackupEntry entry = entries.get(restoreIndex);
-        restoreIndex++;
-        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
-        ExtensionController.install(
-                this,
-                ExtensionBackupManager.amoLatestUrl(entry.id),
-                runtime,
-                new ExtensionController.Callback() {
-                    @Override
-                    public void onSuccess(String message) {
-                        restoredCount++;
-                        runOnUiThread(() -> restoreNext(entries));
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        failedCount++;
-                        runOnUiThread(() -> restoreNext(entries));
-                    }
-                });
+        });
     }
 
     private void installExtension(Uri uri) {
@@ -520,7 +572,26 @@ public class ExtensionsActivity extends AppCompatActivity {
             return;
         }
 
-        File tempXpi = new File(getCacheDir(), "xpi_install.xpi");
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        ExtensionController.install(this, uri.toString(), runtime,
+                new ExtensionController.Callback() {
+                    @Override
+                    public void onSuccess(String message) {
+                        runOnUiThread(() -> {
+                            Toast.makeText(ExtensionsActivity.this, message, Toast.LENGTH_SHORT).show();
+                            refreshExtensionsList();
+                        });
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        installExtensionFromCopy(uri, runtime);
+                    }
+                });
+    }
+
+    private void installExtensionFromCopy(Uri uri, GeckoRuntime runtime) {
+        File tempXpi = new File(getCacheDir(), "xpi_install_" + System.currentTimeMillis() + ".xpi");
         try {
             try (InputStream in = getContentResolver().openInputStream(uri);
                  FileOutputStream out = new FileOutputStream(tempXpi)) {
@@ -530,11 +601,11 @@ public class ExtensionsActivity extends AppCompatActivity {
                 while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
             }
         } catch (IOException e) {
+            tempXpi.delete();
             showInstallError(getString(R.string.could_not_read_file));
             return;
         }
 
-        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
         ExtensionController.install(this, Uri.fromFile(tempXpi).toString(), runtime,
                 new ExtensionController.Callback() {
                     @Override
@@ -563,7 +634,9 @@ public class ExtensionsActivity extends AppCompatActivity {
     private long getFileSize(Uri uri) {
         String sizeStr = queryColumn(uri, OpenableColumns.SIZE);
         if (sizeStr != null) {
-            try { return Long.parseLong(sizeStr); } catch (NumberFormatException ignored) {}
+            try {
+                return Long.parseLong(sizeStr);
+            } catch (NumberFormatException ignored) {}
         }
         return -1;
     }
@@ -574,7 +647,7 @@ public class ExtensionsActivity extends AppCompatActivity {
                 int idx = cursor.getColumnIndex(column);
                 if (idx >= 0 && !cursor.isNull(idx)) return cursor.getString(idx);
             }
-        } catch (Exception ignored) {}
+        } catch (RuntimeException ignored) {}
         return null;
     }
 

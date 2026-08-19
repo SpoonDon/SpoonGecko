@@ -1,5 +1,6 @@
 package com.spoongecko.app;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -17,13 +18,16 @@ import java.util.List;
 import java.util.Set;
 
 class PermissionDelegate implements GeckoSession.PermissionDelegate {
+
     private final WeakReference<MainActivity> activityRef;
+    private final GeckoSession ownSession;
     private static final int REQUEST_CODE_PERMISSIONS = 1;
     private static final Set<Integer> AUTOPLAY_PERMISSIONS = new HashSet<>(Arrays.asList(
             PERMISSION_AUTOPLAY_AUDIBLE, PERMISSION_AUTOPLAY_INAUDIBLE));
 
-    PermissionDelegate(MainActivity activity) {
+    PermissionDelegate(MainActivity activity, GeckoSession session) {
         this.activityRef = new WeakReference<>(activity);
+        this.ownSession = session;
     }
 
     public GeckoResult<Integer> onContentPermissionRequest(
@@ -34,9 +38,10 @@ class PermissionDelegate implements GeckoSession.PermissionDelegate {
             return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
         }
         if (perm.permission == PERMISSION_GEOLOCATION) {
-            if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
+            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
                     != PackageManager.PERMISSION_GRANTED) {
-                activity.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION},
+                activity.requestPermissionForSession(ownSession,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                         REQUEST_CODE_PERMISSIONS);
                 return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
             }
@@ -83,35 +88,40 @@ class PermissionDelegate implements GeckoSession.PermissionDelegate {
         MainActivity activity = activityRef.get();
         if (activity == null) return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
         List<String> needed = new ArrayList<>();
-        if (video != null && video.length > 0 &&
-                ContextCompat.checkSelfPermission(activity, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(android.Manifest.permission.CAMERA);
+        if (video != null && video.length > 0
+                && ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.CAMERA);
         }
-        if (audio != null && audio.length > 0 &&
-                ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(android.Manifest.permission.RECORD_AUDIO);
+        if (audio != null && audio.length > 0
+                && ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.RECORD_AUDIO);
         }
         if (!needed.isEmpty()) {
-            activity.requestPermissions(needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
+            activity.requestPermissionForSession(ownSession,
+                    needed.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
             return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
         }
         return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
     }
 
     public GeckoResult<Integer> onGeckoPermissionRequest(
-            GeckoSession session, String uri, int type, GeckoSession.PermissionDelegate.Callback callback) {
+            GeckoSession session, String uri, int type,
+            GeckoSession.PermissionDelegate.Callback callback) {
         MainActivity activity = activityRef.get();
         if (activity == null) return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
         if (type == PERMISSION_GEOLOCATION) {
-            if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED) {
                 return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
-            } else {
-                activity.requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_CODE_PERMISSIONS);
-                return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
             }
+            activity.requestPermissionForSession(ownSession,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                    REQUEST_CODE_PERMISSIONS);
+            return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
         }
-        if (type == PERMISSION_AUTOPLAY_AUDIBLE ||
-                type == PERMISSION_AUTOPLAY_INAUDIBLE) {
+        if (type == PERMISSION_AUTOPLAY_AUDIBLE || type == PERMISSION_AUTOPLAY_INAUDIBLE) {
             return GeckoResult.fromValue(ContentPermission.VALUE_ALLOW);
         }
         return GeckoResult.fromValue(ContentPermission.VALUE_DENY);
