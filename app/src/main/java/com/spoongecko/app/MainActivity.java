@@ -260,14 +260,20 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (currentTabIndex >= 0 && currentTabIndex < sessions.size()) {
-                    GeckoSession session = sessions.get(currentTabIndex);
-                    if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
-                        session.goBack();
-                        return;
-                    }
+                GeckoSession session = getCurrentSession();
+                if (session == null) {
+                    moveTaskToBack(true);
+                    return;
                 }
-                moveTaskToBack(true);
+                if (Boolean.TRUE.equals(canGoBackMap.get(session))) {
+                    session.goBack();
+                    return;
+                }
+                if (sessions.size() > 1) {
+                    handleCloseRequest(session);
+                    return;
+                }
+                confirmExit();
             }
         });
 
@@ -483,6 +489,28 @@ public class MainActivity extends AppCompatActivity {
         selectTab(currentTabIndex);
     }
 
+    private void confirmExit() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.exit_confirm_title)
+                .setMessage(R.string.exit_confirm_message)
+                .setPositiveButton(R.string.exit_action, (dialog, which) -> exitApp())
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    private void exitApp() {
+        for (GeckoSession session : sessions) session.close();
+        sessions.clear();
+        tabTitles.clear();
+        tabUrls.clear();
+        canGoBackMap.clear();
+        canGoForwardMap.clear();
+        sessionStates.clear();
+        clearPersistedTabs();
+        stopService(new Intent(this, BrowserService.class));
+        finishAndRemoveTask();
+    }
+
     private String getSearchUrl(String query) {
         SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
         String engine = prefs.getString(Prefs.KEY_SEARCH_ENGINE, "brave");
@@ -669,16 +697,7 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, ExtensionsActivity.class));
             return true;
         } else if (id == R.id.action_exit) {
-            for (GeckoSession session : sessions) session.close();
-            sessions.clear();
-            tabTitles.clear();
-            tabUrls.clear();
-            canGoBackMap.clear();
-            canGoForwardMap.clear();
-            sessionStates.clear();
-            clearPersistedTabs();
-            stopService(new Intent(this, BrowserService.class));
-            finishAndRemoveTask();
+            exitApp();
             return true;
         }
         return false;
