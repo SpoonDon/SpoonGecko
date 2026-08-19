@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_manager_title">Download manager</string>
+    <string name="download_manager_native">Native (SpoonGecko)</string>
+    <string name="download_manager_external">External app</string>
+    <string name="torrent_title">Torrent link</string>
+    <string name="torrent_open_external">Open externally</string>
+    <string name="torrent_download_native">Download natively</string>
+    <string name="magnet_requires_external">Magnet links require External download mode in Settings</string>
+    <string name="no_app_for_download">No app found to handle this download</string>
+</resources>
