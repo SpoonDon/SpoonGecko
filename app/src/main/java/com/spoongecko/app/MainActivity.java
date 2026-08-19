@@ -943,9 +943,14 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
-                                                      GeckoSession.NavigationDelegate.LoadRequest request) {
-            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
+        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,                                                  
+            GeckoSession.NavigationDelegate.LoadRequest request) {        
+            MainActivity activity = activityRef.get();        
+            if (activity != null                
+                && DownloadDispatcher.interceptNavigation(activity, session, request.uri)) {            
+                return GeckoResult.fromValue(AllowOrDeny.DENY);        
+            }        
+            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);    
         }
 
         public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session,
