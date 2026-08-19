@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="exit_confirm_title">Exit SpoonGecko?</string>
+    <string name="exit_confirm_message">Close all tabs and exit the browser?</string>
+    <string name="exit_action">Exit</string>
+</resources>
