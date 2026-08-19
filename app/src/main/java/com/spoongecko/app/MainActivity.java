@@ -448,7 +448,10 @@ public class MainActivity extends AppCompatActivity {
         }
         currentTabIndex = index;
         GeckoSession selected = sessions.get(index);
+
+        geckoView.setSession(null);
         geckoView.setSession(selected);
+
         selected.setActive(true);
         selected.setFocused(true);
         extensionSessionManager.setTabActive(sGeckoRuntime, selected, true);
@@ -460,6 +463,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             urlBar.setText(url);
         }
+        geckoView.requestLayout();
     }
 
     private void handleCloseRequest() {
@@ -805,6 +809,10 @@ public class MainActivity extends AppCompatActivity {
     private void reactivateCurrentSession() {
         GeckoSession current = getCurrentSession();
         if (current == null) return;
+
+        geckoView.setSession(null);
+        geckoView.setSession(current);
+
         applyActiveState(current);
         geckoView.postDelayed(() -> {
             GeckoSession latest = getCurrentSession();
