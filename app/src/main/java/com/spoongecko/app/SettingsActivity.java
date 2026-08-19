@@ -16,6 +16,7 @@ import com.google.android.material.card.MaterialCardView;
 public class SettingsActivity extends AppCompatActivity {
 
     private TextView searchEngineSubtitle;
+    private TextView downloadModeSubtitle;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,6 +43,8 @@ public class SettingsActivity extends AppCompatActivity {
         content.setPadding(16, 16, 16, 16);
 
         content.addView(buildSearchEngineCard());
+
+        content.addView(buildDownloadModeCard());
 
         content.addView(buildSimpleCard(R.string.clear_browsing_data_title, v -> {
             new AlertDialog.Builder(this)
@@ -88,6 +91,14 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
+    private String getDownloadModeLabel() {
+        SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
+        String mode = prefs.getString(Prefs.KEY_DOWNLOAD_MODE, Prefs.DOWNLOAD_MODE_NATIVE);
+        return Prefs.DOWNLOAD_MODE_EXTERNAL.equals(mode)
+                ? getString(R.string.download_manager_external)
+                : getString(R.string.download_manager_native);
+    }
+
     private MaterialCardView buildSearchEngineCard() {
         MaterialCardView card = new MaterialCardView(this);
         card.setRadius(16);
@@ -130,6 +141,56 @@ public class SettingsActivity extends AppCompatActivity {
                         String value = which == 0 ? "brave" : which == 1 ? "duckduckgo" : "google";
                         prefs.edit().putString(Prefs.KEY_SEARCH_ENGINE, value).apply();
                         searchEngineSubtitle.setText(getSearchEngineLabel());
+                    })
+                    .show();
+        });
+
+        return card;
+    }
+
+    private MaterialCardView buildDownloadModeCard() {
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(16);
+        card.setCardElevation(2);
+        card.setUseCompatPadding(true);
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(0, 0, 0, 12);
+        card.setLayoutParams(cardParams);
+
+        LinearLayout inner = new LinearLayout(this);
+        inner.setOrientation(LinearLayout.VERTICAL);
+        inner.setPadding(20, 16, 20, 16);
+
+        TextView titleView = new TextView(this);
+        titleView.setText(R.string.download_manager_title);
+        titleView.setTextSize(16);
+        titleView.setTextColor(getResources().getColor(R.color.md_theme_on_surface, null));
+
+        downloadModeSubtitle = new TextView(this);
+        downloadModeSubtitle.setText(getDownloadModeLabel());
+        downloadModeSubtitle.setTextSize(13);
+        downloadModeSubtitle.setTextColor(getResources().getColor(R.color.md_theme_on_surface_variant, null));
+        downloadModeSubtitle.setPadding(0, 4, 0, 0);
+
+        inner.addView(titleView);
+        inner.addView(downloadModeSubtitle);
+        card.addView(inner);
+
+        card.setOnClickListener(v -> {
+            String[] modes = {
+                    getString(R.string.download_manager_native),
+                    getString(R.string.download_manager_external)
+            };
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.download_manager_title)
+                    .setItems(modes, (dialog, which) -> {
+                        SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
+                        String value = which == 0
+                                ? Prefs.DOWNLOAD_MODE_NATIVE
+                                : Prefs.DOWNLOAD_MODE_EXTERNAL;
+                        prefs.edit().putString(Prefs.KEY_DOWNLOAD_MODE, value).apply();
+                        downloadModeSubtitle.setText(getDownloadModeLabel());
                     })
                     .show();
         });

@@ -8,6 +8,9 @@ import android.os.Environment;
 import android.provider.MediaStore;
 import android.webkit.MimeTypeMap;
 
+import org.mozilla.geckoview.GeckoRuntime;
+import org.mozilla.geckoview.GeckoWebExecutor;
+import org.mozilla.geckoview.WebRequest;
 import org.mozilla.geckoview.WebResponse;
 
 import java.io.IOException;
@@ -27,6 +30,38 @@ public final class DownloadManager {
     private DownloadManager() {}
 
     public static void handleDownload(Context context, WebResponse response) {
+        if (context == null || response == null || response.uri == null || response.body == null) return;
+
+        if (DownloadDispatcher.isExternalMode(context)) {
+            String filename = deriveFilename(response);
+            String mime = deriveMimeType(response, filename);
+            DownloadDispatcher.openExternal(context, response.uri, mime, filename);
+            closeQuietly(response.body);
+            return;
+        }
+
+        nativeDownload(context, response);
+    }
+
+    public static void handleDownloadNative(Context context, WebResponse response) {
+        nativeDownload(context, response);
+    }
+
+    public static void downloadUrlNative(Context context, GeckoRuntime runtime, String url) {
+        if (context == null || runtime == null || url == null || url.isEmpty()) return;
+        try {
+            new GeckoWebExecutor(runtime).fetch(new WebRequest.Builder(url).build()).accept(
+                    response -> {
+                        if (response != null && response.body != null) {
+                            nativeDownload(context, response);
+                        }
+                    },
+                    error -> {}
+            );
+        } catch (Exception ignored) {}
+    }
+
+    private static void nativeDownload(Context context, WebResponse response) {
         if (context == null || response == null || response.uri == null || response.body == null) return;
         Context appContext = context.getApplicationContext();
         String filename = deriveFilename(response);
