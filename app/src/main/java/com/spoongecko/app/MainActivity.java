@@ -334,18 +334,21 @@ public class MainActivity extends AppCompatActivity {
                     if (constraint == null || constraint.length() == 0) {
                         results.values = new ArrayList<String>();
                         results.count = 0;
-                    } else {
-                        List<HistoryStore.Entry> entries = HistoryStore.query(
-                                MainActivity.this, constraint.toString().trim(), 10);
-                        List<String> urls = new ArrayList<>();
-                        for (HistoryStore.Entry entry : entries) {
-                            if (entry.url != null && !entry.url.isEmpty()) {
-                                urls.add(entry.url);
-                            }
-                        }
-                        results.values = urls;
-                        results.count = urls.size();
+                        return results;
                     }
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException ignored) {}
+                    List<HistoryStore.Entry> entries = HistoryStore.query(
+                            MainActivity.this, constraint.toString().trim(), 10);
+                    List<String> urls = new ArrayList<>();
+                    for (HistoryStore.Entry entry : entries) {
+                        if (entry.url != null && !entry.url.isEmpty()) {
+                            urls.add(entry.url);
+                        }
+                    }
+                    results.values = urls;
+                    results.count = urls.size();
                     return results;
                 }
 
@@ -840,6 +843,11 @@ public class MainActivity extends AppCompatActivity {
         super.onTrimMemory(level);
         if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
             for (GeckoSession session : sessions) session.setActive(false);
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            GeckoSession current = getCurrentSession();
+            for (GeckoSession session : sessions) {
+                if (session != current) session.setActive(false);
+            }
         }
     }
 
@@ -943,14 +951,14 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,                                                  
-            GeckoSession.NavigationDelegate.LoadRequest request) {        
-            MainActivity activity = activityRef.get();        
-            if (activity != null                
-                && DownloadDispatcher.interceptNavigation(activity, session, request.uri)) {            
-                return GeckoResult.fromValue(AllowOrDeny.DENY);        
-            }        
-            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);    
+        public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session,
+                                                      GeckoSession.NavigationDelegate.LoadRequest request) {
+            MainActivity activity = activityRef.get();
+            if (activity != null
+                    && DownloadDispatcher.interceptNavigation(activity, session, request.uri)) {
+                return GeckoResult.fromValue(AllowOrDeny.DENY);
+            }
+            return isAllowedScheme(request.uri) ? GeckoResult.allow() : GeckoResult.fromValue(AllowOrDeny.DENY);
         }
 
         public GeckoResult<AllowOrDeny> onSubframeLoadRequest(GeckoSession session,
@@ -1069,7 +1077,12 @@ public class MainActivity extends AppCompatActivity {
         public void onSessionStateChange(GeckoSession session, GeckoSession.SessionState sessionState) {
             MainActivity activity = activityRef.get();
             if (activity != null) {
-                activity.sessionStates.put(session, sessionState);
+                int index = activity.sessions.indexOf(session);
+                if (index >= 0 && index < MAX_PERSISTED_TABS) {
+                    activity.sessionStates.put(session, sessionState);
+                } else {
+                    activity.sessionStates.remove(session);
+                }
             }
         }
     }
