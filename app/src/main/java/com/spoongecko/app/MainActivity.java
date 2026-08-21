@@ -25,6 +25,8 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -105,6 +107,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         SpoonGeckoApplication.setAppContext(getApplicationContext());
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setBackgroundDrawable(new ColorDrawable(
                 ContextCompat.getColor(this, R.color.md_theme_background)));
 
@@ -123,6 +126,14 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btn_reload);
         tabManagerText = findViewById(R.id.tab_manager);
         btnMenu = findViewById(R.id.btn_menu);
+
+        View root = findViewById(R.id.root);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            toolbarContainer.setPadding(bars.left, bars.top, bars.right, 0);
+            geckoView.setPadding(bars.left, 0, bars.right, bars.bottom);
+            return insets;
+        });
 
         urlBar.setThreshold(1);
         urlBar.setAdapter(new SuggestionAdapter(this));
@@ -282,7 +293,7 @@ public class MainActivity extends AppCompatActivity {
         session.setSelectionActionDelegate(new BasicSelectionActionDelegate(this));
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
-        session.setPermissionDelegate(new PermissionDelegate(this, session));        
+        session.setPermissionDelegate(new PermissionDelegate(this, session));
         extensionSessionManager.sync(session);
     }
 
