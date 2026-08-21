@@ -59,6 +59,11 @@
             android:name=".BookmarksActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
             android:exported="false" />
+        
+        <activity        
+            android:name=".VaultActivity"        
+            android:exported="false"        
+            android:label="@string/vault_title" />
 
         <service
             android:name=".BrowserService"
