@@ -2,6 +2,7 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@+id/action_new_tab" android:title="@string/menu_new_tab" />
     <item android:id="@+id/action_close_tab" android:title="@string/menu_close_tab" />
+    <item android:id="@+id/action_vault" android:title="@string/vault_title" />
     <item android:id="@+id/action_bookmarks" android:title="@string/menu_bookmarks" />
     <item android:id="@+id/action_history" android:title="@string/menu_history" />
     <item android:id="@+id/action_downloads" android:title="@string/menu_downloads" />
