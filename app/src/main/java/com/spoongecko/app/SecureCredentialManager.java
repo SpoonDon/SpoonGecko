@@ -9,9 +9,9 @@ import androidx.security.crypto.MasterKey;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -208,43 +208,44 @@ final class SecureCredentialManager {
     }
 
     private void importFromCsvSync(InputStream input) {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(input, StandardCharsets.UTF_8))) {
-            String header = reader.readLine();
-            if (header == null) return;
-            String[] columns = splitCsv(header);
-            int colUrl = -1;
-            int colUser = -1;
-            int colPass = -1;
-            for (int i = 0; i < columns.length; i++) {
-                String column = columns[i].trim().toLowerCase(Locale.ROOT);
-                if (colUrl < 0 && (column.equals("url") || column.equals("host")
-                        || column.equals("website") || column.equals("site"))) {
-                    colUrl = i;
-                } else if (colUser < 0 && (column.equals("username")
-                        || column.equals("user") || column.equals("login"))) {
-                    colUser = i;
-                } else if (colPass < 0 && (column.equals("password")
-                        || column.equals("pass"))) {
-                    colPass = i;
-                }
+        List<String[]> rows = parseCsv(input);
+        if (rows.isEmpty()) return;
+
+        String[] header = rows.get(0);
+        if (header.length > 0 && header[0] != null && header[0].length() > 0
+                && header[0].charAt(0) == '\uFEFF') {
+            header[0] = header[0].substring(1);
+        }
+
+        int colUrl = -1;
+        int colUser = -1;
+        int colPass = -1;
+        for (int i = 0; i < header.length; i++) {
+            String column = header[i] == null ? "" : header[i].trim().toLowerCase(Locale.ROOT);
+            if (colUrl < 0 && (column.equals("url") || column.equals("host")
+                    || column.equals("website") || column.equals("site"))) {
+                colUrl = i;
+            } else if (colUser < 0 && (column.equals("username")
+                    || column.equals("user") || column.equals("login"))) {
+                colUser = i;
+            } else if (colPass < 0 && (column.equals("password")
+                    || column.equals("pass"))) {
+                colPass = i;
             }
-            if (colUser < 0 || colPass < 0) return;
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.trim().isEmpty()) continue;
-                String[] parts = splitCsv(line);
-                if (parts.length <= Math.max(colUser, colPass)) continue;
-                String host = colUrl >= 0 && colUrl < parts.length ? parts[colUrl] : "";
-                String user = parts[colUser];
-                String pass = parts[colPass];
-                String normalized = sanitizeHost(host);
-                if (normalized.isEmpty()) normalized = "imported";
-                String normalizedUser = user == null ? "" : user.trim();
-                if (normalizedUser.isEmpty() || pass == null || pass.isEmpty()) continue;
-                store(normalized, normalizedUser, pass);
-            }
-        } catch (Exception ignored) {
+        }
+        if (colUser < 0 || colPass < 0) return;
+
+        for (int r = 1; r < rows.size(); r++) {
+            String[] parts = rows.get(r);
+            if (parts.length <= Math.max(colUser, colPass)) continue;
+            String host = colUrl >= 0 && colUrl < parts.length ? parts[colUrl] : "";
+            String user = parts[colUser];
+            String pass = parts[colPass];
+            String normalized = sanitizeHost(host);
+            if (normalized.isEmpty()) normalized = "imported";
+            String normalizedUser = user == null ? "" : user.trim();
+            if (normalizedUser.isEmpty() || pass == null || pass.isEmpty()) continue;
+            store(normalized, normalizedUser, pass);
         }
     }
 
@@ -258,6 +259,59 @@ final class SecureCredentialManager {
             }
             return sb.toString();
         }
+    }
+
+    private List<String[]> parseCsv(InputStream input) {
+        List<String[]> rows = new ArrayList<>();
+        List<String> currentRow = new ArrayList<>();
+        StringBuilder field = new StringBuilder();
+        boolean inQuotes = false;
+        try {
+            Reader reader = new InputStreamReader(input, StandardCharsets.UTF_8);
+            int c;
+            while ((c = reader.read()) != -1) {
+                char ch = (char) c;
+                if (inQuotes) {
+                    if (ch == '"') {
+                        reader.mark(1);
+                        int next = reader.read();
+                        if (next == '"') {
+                            field.append('"');
+                        } else {
+                            inQuotes = false;
+                            if (next != -1) reader.reset();
+                        }
+                    } else {
+                        field.append(ch);
+                    }
+                } else {
+                    if (ch == '"') {
+                        inQuotes = true;
+                    } else if (ch == ',') {
+                        currentRow.add(field.toString());
+                        field.setLength(0);
+                    } else if (ch == '\n' || ch == '\r') {
+                        currentRow.add(field.toString());
+                        field.setLength(0);
+                        rows.add(currentRow.toArray(new String[0]));
+                        currentRow = new ArrayList<>();
+                        if (ch == '\r') {
+                            reader.mark(1);
+                            int next = reader.read();
+                            if (next != '\n' && next != -1) reader.reset();
+                        }
+                    } else {
+                        field.append(ch);
+                    }
+                }
+            }
+            if (field.length() > 0 || !currentRow.isEmpty()) {
+                currentRow.add(field.toString());
+                rows.add(currentRow.toArray(new String[0]));
+            }
+        } catch (Exception ignored) {
+        }
+        return rows;
     }
 
     private List<Credential> readIndex() {
@@ -325,41 +379,10 @@ final class SecureCredentialManager {
 
     private static String csvField(String value) {
         if (value == null) return "";
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")
+                || value.contains("\r")) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
-    }
-
-    private static String[] splitCsv(String line) {
-        List<String> out = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inQuotes = false;
-        for (int i = 0; i < line.length(); i++) {
-            char ch = line.charAt(i);
-            if (inQuotes) {
-                if (ch == '"') {
-                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
-                        current.append('"');
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    current.append(ch);
-                }
-            } else {
-                if (ch == '"') {
-                    inQuotes = true;
-                } else if (ch == ',') {
-                    out.add(current.toString());
-                    current.setLength(0);
-                } else {
-                    current.append(ch);
-                }
-            }
-        }
-        out.add(current.toString());
-        return out.toArray(new String[0]);
     }
 }
