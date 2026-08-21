@@ -151,6 +151,10 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        if (BuildConfig.EXTENSIONS_ENABLED) {
+            VaultSessionBinder.registerExtension(getGeckoRuntime());
+        }
+
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
             String[] stateStrings = savedInstanceState.getStringArray(KEY_SESSION_STATES);
             currentTabIndex = savedInstanceState.getInt(KEY_TAB_INDEX, 0);
@@ -281,6 +285,7 @@ public class MainActivity extends AppCompatActivity {
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
         session.setPermissionDelegate(new PermissionDelegate(this, session));
+        VaultSessionBinder.attach(this, session);
         extensionSessionManager.sync(session);
     }
 
@@ -635,6 +640,9 @@ public class MainActivity extends AppCompatActivity {
             return true;
         } else if (id == R.id.action_extensions) {
             startActivity(new Intent(this, ExtensionsActivity.class));
+            return true;
+        } else if (id == R.id.action_vault) {
+            startActivity(new Intent(this, VaultActivity.class));
             return true;
         } else if (id == R.id.action_exit) {
             exitApp();
