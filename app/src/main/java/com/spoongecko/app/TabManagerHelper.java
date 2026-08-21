@@ -4,6 +4,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -119,7 +120,7 @@ public class TabManagerHelper {
                 label.setPadding(12, 12, 28, 12);
                 label.setBackgroundColor(context.getResources().getColor(R.color.md_theme_surface, null));
                 label.setMaxLines(2);
-                label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                label.setEllipsize(TextUtils.TruncateAt.END);
                 FrameLayout.LayoutParams labelParams = new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT);
@@ -167,7 +168,7 @@ public class TabManagerHelper {
                 if (sessions.size() > 1) {
                     lastClosedPosition[0] = position;
                     listener.onTabClosed(position);
-                    notifyDataSetChanged();
+                    v.post(() -> notifyDataSetChanged());
                 }
             });
 
