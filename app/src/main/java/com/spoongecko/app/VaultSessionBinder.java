@@ -5,25 +5,35 @@ import android.app.Activity;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebExtension;
+import org.mozilla.geckoview.WebExtensionController;
 
 final class VaultSessionBinder {
 
     static final String NATIVE_APP = "spoonvault";
-    private static WebExtension vaultExtension;
+    private static final String EXTENSION_URI = "resource://android/assets/vault_extension/";
+    private static final String EXTENSION_ID = "vault@spoongecko.app";
 
-    private VaultSessionBinder() {
-    }
+    private VaultSessionBinder() {}
 
     static void registerExtension(GeckoRuntime runtime) {
-        if (vaultExtension != null) return;
-        vaultExtension = new WebExtension(
-                "resource://android/assets/vault_extension/",
-                "vault@spoongecko.app",
-                WebExtension.Flags.ALLOW_CONTENT_MESSAGING);
-        runtime.registerWebExtension(vaultExtension);
+        runtime.getWebExtensionController().ensureBuiltIn(EXTENSION_URI, EXTENSION_ID);
     }
 
     static void attach(Activity activity, GeckoSession session) {
-        session.setMessageDelegate(new VaultMessageDelegate(activity), NATIVE_APP);
+        GeckoRuntime runtime = SpoonGeckoApplication.getRuntime();
+        if (runtime == null) return;
+        WebExtensionController controller = runtime.getWebExtensionController();
+        controller.ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
+                extension -> {
+                    WebExtension.SessionController sessionController =
+                            controller.getSessionController(session);
+                    sessionController.setMessageDelegate(
+                            extension,
+                            new VaultMessageDelegate(activity),
+                            NATIVE_APP);
+                },
+                error -> {
+                }
+        );
     }
 }
