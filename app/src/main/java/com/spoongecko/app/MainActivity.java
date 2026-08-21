@@ -401,12 +401,30 @@ public class MainActivity extends AppCompatActivity {
 
     void handleCloseRequest(GeckoSession closing) {
         if (closing == null) return;
+        closeTab(sessions.indexOf(closing));
+    }
+
+    void closeTab(int index) {
         if (sessions.size() <= 1) {
             moveTaskToBack(true);
             return;
         }
-        int index = sessions.indexOf(closing);
-        if (index == -1) return;
+        if (index < 0 || index >= sessions.size()) return;
+
+        GeckoSession closing = sessions.get(index);
+        boolean wasCurrent = (index == currentTabIndex);
+
+        if (wasCurrent) {
+            int nextIndex = (index + 1 < sessions.size()) ? index + 1 : index - 1;
+            currentTabIndex = nextIndex;
+            GeckoSession next = sessions.get(nextIndex);
+            geckoView.setSession(next);
+            closing.setFocused(false);
+            closing.setActive(false);
+            closing.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
+            extensionSessionManager.setTabActive(getGeckoRuntime(), closing, false);
+        }
+
         closing.close();
         tabTitles.remove(closing);
         tabUrls.remove(closing);
@@ -415,11 +433,13 @@ public class MainActivity extends AppCompatActivity {
         sessionStates.remove(closing);
         pendingLoads.remove(closing);
         sessions.remove(index);
+
         if (index < currentTabIndex) {
             currentTabIndex--;
         } else if (currentTabIndex >= sessions.size()) {
             currentTabIndex = sessions.size() - 1;
         }
+
         selectTab(currentTabIndex);
     }
 
@@ -575,22 +595,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onTabClosed(int index) {
                         if (sessions.size() <= 1) return;
-                        GeckoSession closing = sessions.get(index);
-                        closing.close();
-                        tabTitles.remove(closing);
-                        tabUrls.remove(closing);
-                        canGoBackMap.remove(closing);
-                        canGoForwardMap.remove(closing);
-                        sessionStates.remove(closing);
-                        pendingLoads.remove(closing);
-                        sessions.remove(index);
-
-                        if (index < currentTabIndex) {
-                            currentTabIndex--;
-                        } else if (index >= currentTabIndex) {
-                            currentTabIndex = Math.min(currentTabIndex, sessions.size() - 1);
-                        }
-                        selectTab(currentTabIndex);
+                        closeTab(index);
                     }
 
                     @Override
