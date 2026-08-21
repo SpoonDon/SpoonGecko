@@ -10,12 +10,6 @@ import org.mozilla.geckoview.WebExtension;
 
 final class VaultMessageDelegate implements WebExtension.MessageDelegate {
 
-    private final Activity activity;
-
-    VaultMessageDelegate(Activity activity) {
-        this.activity = activity;
-    }
-
     public GeckoResult<Object> onMessage(Object message, WebExtension.MessageSender sender) {
         if (!(message instanceof JSONObject)) return null;
         JSONObject json = (JSONObject) message;
@@ -27,7 +21,7 @@ final class VaultMessageDelegate implements WebExtension.MessageDelegate {
         String password = json.optString("password", "");
         if (host.isEmpty() || password.isEmpty()) return null;
 
-        Activity target = activity;
+        Activity target = VaultSessionBinder.currentActivity();
         if (target == null || target.isFinishing() || target.isDestroyed()) return null;
 
         target.runOnUiThread(() -> prompt(target, host, username, password));
