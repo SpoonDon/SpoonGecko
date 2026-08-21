@@ -4,6 +4,7 @@ import android.app.Activity;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
+import org.mozilla.geckoview.WebExtensionController;
 
 import java.lang.ref.WeakReference;
 
@@ -26,9 +27,14 @@ final class VaultSessionBinder {
 
     static void registerExtension(Activity activity, GeckoRuntime runtime) {
         setCurrentActivity(activity);
-        runtime.getWebExtensionController().ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
-                extension -> extension.setMessageDelegate(
-                        new VaultMessageDelegate(), NATIVE_APP),
+        WebExtensionController controller = runtime.getWebExtensionController();
+        controller.ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
+                extension -> {
+                    WebExtension enabled = controller.enable(
+                            extension, WebExtensionController.EnableSource.USER);
+                    WebExtension target = enabled != null ? enabled : extension;
+                    target.setMessageDelegate(new VaultMessageDelegate(), NATIVE_APP);
+                },
                 error -> {
                 }
         );
