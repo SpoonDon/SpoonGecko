@@ -1,6 +1,4 @@
 (function () {
-  var NATIVE_APP = "spoonvault";
-
   function userField(form, passwordField) {
     var inputs = form.querySelectorAll("input");
     var candidates = [];
@@ -34,7 +32,7 @@
     var host = window.location.hostname || "";
     if (!host) return;
     try {
-      browser.runtime.sendNativeMessage(NATIVE_APP, {
+      browser.runtime.sendMessage({
         action: "AUTOSAVE_PROMPT",
         host: host,
         username: username,
