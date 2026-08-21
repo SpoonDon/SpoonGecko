@@ -29,12 +29,13 @@ final class VaultSessionBinder {
         setCurrentActivity(activity);
         WebExtensionController controller = runtime.getWebExtensionController();
         controller.ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
-                extension -> {
-                    WebExtension enabled = controller.enable(
-                            extension, WebExtensionController.EnableSource.USER);
-                    WebExtension target = enabled != null ? enabled : extension;
-                    target.setMessageDelegate(new VaultMessageDelegate(), NATIVE_APP);
-                },
+                extension -> controller.enable(
+                        extension, WebExtensionController.EnableSource.USER).accept(
+                        enabled -> enabled.setMessageDelegate(
+                                new VaultMessageDelegate(), NATIVE_APP),
+                        error -> {
+                        }
+                ),
                 error -> {
                 }
         );
