@@ -151,8 +151,8 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (BuildConfig.EXTENSIONS_ENABLED) {
-            VaultSessionBinder.registerExtension(getGeckoRuntime());
+        if (BuildConfig.EXTENSIONS_ENABLED) {        
+            VaultSessionBinder.registerExtension(this, getGeckoRuntime());                
         }
 
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
@@ -284,8 +284,7 @@ public class MainActivity extends AppCompatActivity {
         session.setSelectionActionDelegate(new BasicSelectionActionDelegate(this));
         session.setNavigationDelegate(new NavigationDelegate(this, session));
         session.setProgressDelegate(new ProgressDelegate(this, session));
-        session.setPermissionDelegate(new PermissionDelegate(this, session));
-        VaultSessionBinder.attach(this, session);
+        session.setPermissionDelegate(new PermissionDelegate(this, session));        
         extensionSessionManager.sync(session);
     }
 
