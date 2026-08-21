@@ -61,10 +61,13 @@ public final class DownloadDispatcher {
         if (context == null || uri == null || uri.isEmpty()) return false;
         try {
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setData(Uri.parse(uri));
+            Uri data = Uri.parse(uri);
             if (mime != null && !mime.isEmpty() && !"application/octet-stream".equals(mime)) {
-                intent.setType(mime);
+                intent.setDataAndType(data, mime);
+            } else {
+                intent.setData(data);
             }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(Intent.createChooser(intent, context.getString(R.string.open_with)));
             return true;
         } catch (ActivityNotFoundException e) {
