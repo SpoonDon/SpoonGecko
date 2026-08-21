@@ -3,6 +3,11 @@
   "name": "SpoonGecko Vault Autosave",
   "version": "1.0",
   "description": "Prompts to save login credentials on form submission.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "vault@spoongecko.app"
+    }
+  },
   "background": {
     "scripts": [
       "background.js"
