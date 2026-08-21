@@ -1,0 +1,22 @@
+<resources>
+    <string name="vault_title">Vault</string>
+    <string name="vault_search_hint">Search vault</string>
+    <string name="vault_add">Add</string>
+    <string name="vault_import">Import</string>
+    <string name="vault_export">Export</string>
+    <string name="vault_copy_user">Copy ID</string>
+    <string name="vault_copy_pass">Copy Pass</string>
+    <string name="vault_delete">Delete</string>
+    <string name="vault_prompt_title">Save password?</string>
+    <string name="vault_prompt_message">Save login for %1$s as %2$s?</string>
+    <string name="vault_prompt_save">Save</string>
+    <string name="vault_prompt_not_now">Not now</string>
+    <string name="vault_add_dialog_title">Add credential</string>
+    <string name="vault_add_dialog_host">Host</string>
+    <string name="vault_add_dialog_username">Username</string>
+    <string name="vault_add_dialog_password">Password</string>
+    <string name="vault_delete_confirm">Delete login for %1$s (%2$s)?</string>
+    <string name="vault_copied">Copied to clipboard</string>
+    <string name="vault_imported">Vault imported</string>
+    <string name="vault_exported">Vault exported</string>
+</resources>
