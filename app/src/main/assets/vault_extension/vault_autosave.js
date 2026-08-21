@@ -1,4 +1,23 @@
 (function () {
+  var pending = {};
+
+  function submit(host, username, password) {
+    if (!host || !password) return;
+    var key = host + "\u0001" + password;
+    if (pending[key]) return;
+    pending[key] = true;
+    setTimeout(function () { pending[key] = false; }, 2000);
+    try {
+      browser.runtime.sendMessage({
+        action: "AUTOSAVE_PROMPT",
+        host: host,
+        username: username,
+        password: password
+      });
+    } catch (e) {
+    }
+  }
+
   function userField(form, passwordField) {
     var inputs = form.querySelectorAll("input");
     var candidates = [];
@@ -20,8 +39,7 @@
     return candidates.length > 0 ? candidates[candidates.length - 1] : null;
   }
 
-  function handleSubmit(event) {
-    var form = event.target;
+  function handleForm(form) {
     if (!form || !form.querySelectorAll) return;
     var passwordField = form.querySelector('input[type="password"]');
     if (!passwordField) return;
@@ -29,18 +47,30 @@
     if (!password) return;
     var user = userField(form, passwordField);
     var username = user ? user.value : "";
-    var host = window.location.hostname || "";
-    if (!host) return;
-    try {
-      browser.runtime.sendMessage({
-        action: "AUTOSAVE_PROMPT",
-        host: host,
-        username: username,
-        password: password
-      });
-    } catch (e) {
-    }
+    submit(window.location.hostname || "", username, password);
   }
 
-  document.addEventListener("submit", handleSubmit, true);
+  document.addEventListener("submit", function (event) {
+    handleForm(event.target);
+  }, true);
+
+  document.addEventListener("click", function (event) {
+    var el = event.target;
+    if (!el || !el.tagName) return;
+    if (el.tagName === "BUTTON"
+        || (el.tagName === "INPUT"
+            && (el.type === "submit" || el.type === "button"))) {
+      var form = el.form || el.closest("form");
+      if (form) setTimeout(function () { handleForm(form); }, 300);
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    var el = event.target;
+    if (el && el.type === "password") {
+      var form = el.form || el.closest("form");
+      if (form) setTimeout(function () { handleForm(form); }, 300);
+    }
+  }, true);
 })();
