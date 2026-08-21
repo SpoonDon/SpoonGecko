@@ -151,9 +151,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (BuildConfig.EXTENSIONS_ENABLED) {        
-            VaultSessionBinder.registerExtension(this, getGeckoRuntime());                
-        }
+        VaultSessionBinder.registerExtension(this, getGeckoRuntime());
 
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_SESSION_STATES)) {
             String[] stateStrings = savedInstanceState.getStringArray(KEY_SESSION_STATES);
