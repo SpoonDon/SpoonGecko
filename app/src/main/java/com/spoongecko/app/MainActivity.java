@@ -127,8 +127,8 @@ public class MainActivity extends AppCompatActivity {
         tabManagerText = findViewById(R.id.tab_manager);
         btnMenu = findViewById(R.id.btn_menu);
 
-        View root = findViewById(R.id.root);
-        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+        View content = findViewById(android.R.id.content);
+        ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             toolbarContainer.setPadding(bars.left, bars.top, bars.right, 0);
             geckoView.setPadding(bars.left, 0, bars.right, bars.bottom);
