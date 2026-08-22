@@ -76,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
     private int dynamicToolbarHeight;
+    private int bottomInset;
 
     private GeckoView geckoView;
     private View toolbarContainer;
@@ -134,8 +135,9 @@ public class MainActivity extends AppCompatActivity {
         View content = findViewById(android.R.id.content);
         ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            bottomInset = bars.bottom;
             toolbarContainer.setPadding(bars.left, bars.top, bars.right, 0);
-            geckoView.setPadding(0, 0, 0, bars.bottom);
+            applyGeckoViewInset();
             return insets;
         });
 
@@ -300,9 +302,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void configureDynamicToolbar() {
         dynamicToolbarHeight = toolbarContainer.getHeight();
-        if (dynamicToolbarHeight > 0) {
-            geckoView.setDynamicToolbarMaxHeight(dynamicToolbarHeight);
-        }
+        applyGeckoViewInset();
+    }
+
+    private void applyGeckoViewInset() {
+        geckoView.setPadding(0, dynamicToolbarHeight, 0, bottomInset);
     }
 
     private void performHaptic(int constant) {
@@ -438,7 +442,6 @@ public class MainActivity extends AppCompatActivity {
 
         loadPendingUrl(selected);
         geckoView.requestLayout();
-        configureDynamicToolbar();
     }
 
     private void handleCloseRequest() {
