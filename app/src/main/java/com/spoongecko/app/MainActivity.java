@@ -13,6 +13,7 @@ import android.content.res.Configuration;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.HapticFeedbackConstants;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -258,9 +259,13 @@ public class MainActivity extends AppCompatActivity {
             if (session != null) session.reload();
         });
 
-        tabManagerText.setOnClickListener(v -> showTabManager());
+        tabManagerText.setOnClickListener(v -> {
+            performHaptic(HapticFeedbackConstants.CONTEXT_CLICK);
+            showTabManager();
+        });
 
         btnMenu.setOnClickListener(v -> {
+            performHaptic(HapticFeedbackConstants.CONTEXT_CLICK);
             PopupMenu popup = new PopupMenu(MainActivity.this, btnMenu);
             popup.getMenuInflater().inflate(R.menu.main_menu, popup.getMenu());
             popup.setOnMenuItemClickListener(item -> handleMenuItem(item));
@@ -288,6 +293,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         extensionSessionManager.refresh(getGeckoRuntime());
+    }
+
+    private void performHaptic(int constant) {
+        View host = toolbarContainer != null ? toolbarContainer : geckoView;
+        if (host != null) host.performHapticFeedback(constant);
     }
 
     void attachDelegates(GeckoSession session) {
@@ -379,6 +389,7 @@ public class MainActivity extends AppCompatActivity {
         if (index < 0 || index >= sessions.size()) return;
         GeckoSession previous = getCurrentSession();
         if (previous != null && previous != sessions.get(index)) {
+            performHaptic(HapticFeedbackConstants.CONFIRM);
             previous.setFocused(false);
             previous.setActive(false);
             previous.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
@@ -423,6 +434,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         if (index < 0 || index >= sessions.size()) return;
+
+        performHaptic(HapticFeedbackConstants.CONTEXT_CLICK);
 
         GeckoSession closing = sessions.get(index);
         boolean wasCurrent = (index == currentTabIndex);
