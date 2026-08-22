@@ -75,6 +75,7 @@ public class MainActivity extends AppCompatActivity {
 
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
+    private int dynamicToolbarHeight;
 
     private GeckoView geckoView;
     private View toolbarContainer;
@@ -134,9 +135,11 @@ public class MainActivity extends AppCompatActivity {
         ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             toolbarContainer.setPadding(bars.left, bars.top, bars.right, 0);
-            geckoView.setPadding(bars.left, 0, bars.right, bars.bottom);
+            geckoView.setPadding(0, 0, 0, bars.bottom);
             return insets;
         });
+
+        toolbarContainer.post(this::configureDynamicToolbar);
 
         urlBar.setThreshold(1);
         urlBar.setAdapter(new SuggestionAdapter(this));
@@ -295,9 +298,27 @@ public class MainActivity extends AppCompatActivity {
         extensionSessionManager.refresh(getGeckoRuntime());
     }
 
+    private void configureDynamicToolbar() {
+        dynamicToolbarHeight = toolbarContainer.getHeight();
+        if (dynamicToolbarHeight > 0) {
+            geckoView.setDynamicToolbarMaxHeight(dynamicToolbarHeight);
+        }
+    }
+
     private void performHaptic(int constant) {
         View host = toolbarContainer != null ? toolbarContainer : geckoView;
         if (host != null) host.performHapticFeedback(constant);
+    }
+
+    void showDynamicToolbar() {
+        if (toolbarContainer == null || toolbarContainer.getVisibility() != View.VISIBLE) return;
+        toolbarContainer.animate().translationY(0).setDuration(150).start();
+    }
+
+    void hideDynamicToolbar() {
+        if (toolbarContainer == null || toolbarContainer.getVisibility() != View.VISIBLE) return;
+        float height = dynamicToolbarHeight > 0 ? dynamicToolbarHeight : toolbarContainer.getHeight();
+        toolbarContainer.animate().translationY(-height).setDuration(150).start();
     }
 
     void attachDelegates(GeckoSession session) {
@@ -898,6 +919,7 @@ public class MainActivity extends AppCompatActivity {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         geckoView.requestLayout();
+        toolbarContainer.post(this::configureDynamicToolbar);
     }
 
     GeckoSession getCurrentSession() {

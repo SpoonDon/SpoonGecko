@@ -48,4 +48,16 @@ class TabContentDelegate implements GeckoSession.ContentDelegate {
         if (activity == null || element == null) return;
         activity.runOnUiThread(() -> activity.showContextMenu(element));
     }
+
+    public void onShowDynamicToolbar(GeckoSession session) {
+        MainActivity activity = activityRef.get();
+        if (activity == null || session != ownSession) return;
+        activity.runOnUiThread(activity::showDynamicToolbar);
+    }
+
+    public void onHideDynamicToolbar(GeckoSession session) {
+        MainActivity activity = activityRef.get();
+        if (activity == null || session != ownSession) return;
+        activity.runOnUiThread(activity::hideDynamicToolbar);
+    }
 }
