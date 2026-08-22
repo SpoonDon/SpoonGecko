@@ -153,7 +153,7 @@ public class TabManagerHelper {
         }
 
         @Override
-        public void onBindViewHolder(@NonNull TabViewHolder holder, int position) {
+        public void onBindViewHolder(@NonNull TabViewHolder holder, final int position) {
             GeckoSession session = sessions.get(position);
             String title = titles.get(session);
             if (title == null || title.trim().isEmpty()) {
@@ -170,13 +170,13 @@ public class TabManagerHelper {
             }
 
             holder.label.setOnClickListener(v -> {
-                listener.onTabSelected(holder.getBindingAdapterPosition());
+                listener.onTabSelected(position);
                 dialog.dismiss();
             });
 
             holder.closeBtn.setOnClickListener(v -> {
                 if (sessions.size() > 1) {
-                    listener.onTabClosed(holder.getBindingAdapterPosition());
+                    listener.onTabClosed(position);
                     v.post(this::notifyDataSetChanged);
                 }
             });
