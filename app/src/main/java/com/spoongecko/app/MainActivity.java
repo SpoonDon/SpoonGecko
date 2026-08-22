@@ -438,6 +438,7 @@ public class MainActivity extends AppCompatActivity {
 
         loadPendingUrl(selected);
         geckoView.requestLayout();
+        configureDynamicToolbar();
     }
 
     private void handleCloseRequest() {
