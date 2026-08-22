@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
@@ -12,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -47,7 +47,7 @@ public class SettingsActivity extends AppCompatActivity {
         content.addView(buildDownloadModeCard());
 
         content.addView(buildSimpleCard(R.string.clear_browsing_data_title, v -> {
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.clear_browsing_data_title)
                     .setMessage(R.string.clear_browsing_data_message)
                     .setPositiveButton(R.string.clear, (dialog, which) -> {
@@ -59,7 +59,7 @@ public class SettingsActivity extends AppCompatActivity {
         }));
 
         content.addView(buildSimpleCard(R.string.site_permissions_title, v -> {
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.site_permissions_title)
                     .setMessage(R.string.site_permissions_message)
                     .setPositiveButton(R.string.open_app_settings, (dialog, which) -> {
@@ -134,7 +134,7 @@ public class SettingsActivity extends AppCompatActivity {
                     getString(R.string.search_engine_duckduckgo),
                     getString(R.string.search_engine_google)
             };
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.search_engine_title)
                     .setItems(engines, (dialog, which) -> {
                         SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
@@ -182,7 +182,7 @@ public class SettingsActivity extends AppCompatActivity {
                     getString(R.string.download_manager_native),
                     getString(R.string.download_manager_external)
             };
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.download_manager_title)
                     .setItems(modes, (dialog, which) -> {
                         SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);

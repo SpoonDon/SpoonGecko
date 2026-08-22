@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import android.app.AlertDialog;
 import android.database.Cursor;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
@@ -25,6 +24,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
@@ -476,7 +476,7 @@ public class ExtensionsActivity extends AppCompatActivity {
         String message = getString(R.string.extension_version, version)
                 + "\n" + id + "\n" + state
                 + "\n\n" + getString(R.string.extension_no_options);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(name)
                 .setMessage(message)
                 .setPositiveButton(R.string.close, null)
@@ -652,7 +652,7 @@ public class ExtensionsActivity extends AppCompatActivity {
     }
 
     private void showInstallError(String message) {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.install_failed)
                 .setMessage(message)
                 .setPositiveButton(R.string.ok, null)
@@ -703,7 +703,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private void confirmAndRemove(WebExtension ext) {
         String name = ExtensionController.getDisplayName(ext);
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.remove_extension_title)
                 .setMessage(getString(R.string.remove_extension_message, name))
                 .setPositiveButton(R.string.remove, (dialog, which) -> removeExtension(ext))

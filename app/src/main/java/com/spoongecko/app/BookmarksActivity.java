@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -159,7 +159,7 @@ public class BookmarksActivity extends AppCompatActivity {
         titleInput.setPadding(0, UiUtils.dp(this, 12), 0, 0);
         form.addView(titleInput);
 
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.add_bookmark)
                 .setView(form)
                 .setPositiveButton(R.string.add, (d, w) -> {

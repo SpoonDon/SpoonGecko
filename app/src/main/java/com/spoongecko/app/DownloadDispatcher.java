@@ -1,12 +1,13 @@
 package com.spoongecko.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.widget.Toast;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.mozilla.geckoview.GeckoSession;
 
@@ -37,7 +38,7 @@ public final class DownloadDispatcher {
 
         if (isTorrentLink(uri) && context instanceof Activity) {
             Activity activity = (Activity) context;
-            new AlertDialog.Builder(activity)
+            new MaterialAlertDialogBuilder(activity)
                     .setTitle(R.string.torrent_title)
                     .setItems(new String[]{
                             activity.getString(R.string.torrent_open_external),

@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import android.app.AlertDialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ public class HistoryActivity extends AppCompatActivity {
         btnParams.bottomMargin = UiUtils.dp(this, 8);
         btnClear.setLayoutParams(btnParams);
         btnClear.setOnClickListener(v ->
-                new AlertDialog.Builder(this)
+                new MaterialAlertDialogBuilder(this)
                         .setTitle(R.string.clear_all_history)
                         .setMessage(R.string.clear_history_confirm)
                         .setPositiveButton(R.string.clear, (d, w) -> {

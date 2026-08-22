@@ -17,10 +17,11 @@ import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -126,7 +127,7 @@ public class VaultActivity extends AppCompatActivity {
     }
 
     private void confirmDelete(VaultEntry entry) {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vault_delete)
                 .setMessage(getString(R.string.vault_delete_confirm, entry.host, entry.username))
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> {
@@ -152,7 +153,7 @@ public class VaultActivity extends AppCompatActivity {
         box.addView(user);
         box.addView(pass);
 
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.vault_add_dialog_title)
                 .setView(box)
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> {
