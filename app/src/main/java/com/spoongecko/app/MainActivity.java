@@ -1,7 +1,6 @@
 package com.spoongecko.app;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentCallbacks2;
@@ -16,6 +15,7 @@ import android.os.Bundle;
 import android.view.HapticFeedbackConstants;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.AutoCompleteTextView;
 import android.widget.PopupMenu;
@@ -34,6 +34,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.mozilla.geckoview.BasicSelectionActionDelegate;
 import org.mozilla.geckoview.GeckoRuntime;
@@ -75,8 +76,6 @@ public class MainActivity extends AppCompatActivity {
 
     private String cachedNewTabBgHex;
     private String cachedNewTabFgHex;
-    private int dynamicToolbarHeight;
-    private int bottomInset;
 
     private GeckoView geckoView;
     private View toolbarContainer;
@@ -135,13 +134,13 @@ public class MainActivity extends AppCompatActivity {
         View content = findViewById(android.R.id.content);
         ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            bottomInset = bars.bottom;
             toolbarContainer.setPadding(bars.left, bars.top, bars.right, 0);
-            applyGeckoViewInset();
+            ViewGroup.MarginLayoutParams params =
+                    (ViewGroup.MarginLayoutParams) geckoView.getLayoutParams();
+            params.setMargins(bars.left, 0, bars.right, bars.bottom);
+            geckoView.setLayoutParams(params);
             return insets;
         });
-
-        toolbarContainer.post(this::configureDynamicToolbar);
 
         urlBar.setThreshold(1);
         urlBar.setAdapter(new SuggestionAdapter(this));
@@ -300,29 +299,21 @@ public class MainActivity extends AppCompatActivity {
         extensionSessionManager.refresh(getGeckoRuntime());
     }
 
-    private void configureDynamicToolbar() {
-        dynamicToolbarHeight = toolbarContainer.getHeight();
-        applyGeckoViewInset();
-    }
-
-    private void applyGeckoViewInset() {
-        geckoView.setPadding(0, dynamicToolbarHeight, 0, bottomInset);
-    }
-
     private void performHaptic(int constant) {
         View host = toolbarContainer != null ? toolbarContainer : geckoView;
         if (host != null) host.performHapticFeedback(constant);
     }
 
     void showDynamicToolbar() {
-        if (toolbarContainer == null || toolbarContainer.getVisibility() != View.VISIBLE) return;
-        toolbarContainer.animate().translationY(0).setDuration(150).start();
+        if (toolbarContainer == null || toolbarContainer.getVisibility() == View.VISIBLE) return;
+        toolbarContainer.setVisibility(View.VISIBLE);
+        geckoView.requestLayout();
     }
 
     void hideDynamicToolbar() {
         if (toolbarContainer == null || toolbarContainer.getVisibility() != View.VISIBLE) return;
-        float height = dynamicToolbarHeight > 0 ? dynamicToolbarHeight : toolbarContainer.getHeight();
-        toolbarContainer.animate().translationY(-height).setDuration(150).start();
+        toolbarContainer.setVisibility(View.GONE);
+        geckoView.requestLayout();
     }
 
     void attachDelegates(GeckoSession session) {
@@ -495,7 +486,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void confirmExit() {
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.exit_confirm_title)
                 .setMessage(R.string.exit_confirm_message)
                 .setPositiveButton(R.string.exit_action, (dialog, which) -> exitApp())
@@ -685,7 +676,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
             } catch (Exception ignored) {}
-            new AlertDialog.Builder(this)
+            new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.about_title)
                     .setMessage(getString(R.string.about_message, versionName, getGeckoViewVersion()))
                     .setPositiveButton(R.string.close, null)
@@ -736,7 +727,7 @@ public class MainActivity extends AppCompatActivity {
             actions.add(() -> createNewTabWithUrl(element.srcUri, true));
         }
         if (items.isEmpty()) return;
-        new AlertDialog.Builder(this)
+        new MaterialAlertDialogBuilder(this)
                 .setTitle(extractContextTitle(element))
                 .setItems(items.toArray(new String[0]), (dialog, which) -> actions.get(which).run())
                 .show();
@@ -923,7 +914,6 @@ public class MainActivity extends AppCompatActivity {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         geckoView.requestLayout();
-        toolbarContainer.post(this::configureDynamicToolbar);
     }
 
     GeckoSession getCurrentSession() {
