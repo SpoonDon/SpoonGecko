@@ -26,6 +26,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.SpoonGecko.Starting"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
             android:exported="true"
             android:windowSoftInputMode="stateUnspecified|adjustResize">
@@ -59,10 +60,10 @@
             android:name=".BookmarksActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density"
             android:exported="false" />
-        
-        <activity        
-            android:name=".VaultActivity"        
-            android:exported="false"        
+
+        <activity
+            android:name=".VaultActivity"
+            android:exported="false"
             android:label="@string/vault_title" />
 
         <service
