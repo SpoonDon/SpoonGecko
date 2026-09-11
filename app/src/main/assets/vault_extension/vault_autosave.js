@@ -1,7 +1,7 @@
 (function () {
   var pending = {};
 
-  function submit(host, username, password) {
+  function submit(host, url, username, password) {
     if (!host || !password) return;
     var key = host + "\u0001" + password;
     if (pending[key]) return;
@@ -11,6 +11,7 @@
       browser.runtime.sendMessage({
         action: "AUTOSAVE_PROMPT",
         host: host,
+        url: url,
         username: username,
         password: password
       });
@@ -47,7 +48,12 @@
     if (!password) return;
     var user = userField(form, passwordField);
     var username = user ? user.value : "";
-    submit(window.location.hostname || "", username, password);
+    submit(
+      window.location.hostname || "",
+      window.location.href || "",
+      username,
+      password
+    );
   }
 
   document.addEventListener("submit", function (event) {
