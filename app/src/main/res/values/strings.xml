@@ -164,6 +164,14 @@
     <string name="extension_failed_install_unknown">Install failed.</string>
     <string name="extension_no_options">This extension has no options page.</string>
 
+    <!-- Extension update -->
+    <string name="update_all_extensions">Update all</string>
+    <string name="extensions_updating">Updating…</string>
+    <string name="extensions_update_none">No extensions to update</string>
+    <string name="extensions_update_done">%1$d updated, %2$d failed</string>
+    <string name="extensions_update_failed_title">Update failures</string>
+    <string name="extensions_update_no_id">Extension has no ID</string>
+
     <!-- Extension backup -->
     <string name="backup_extensions">Backup</string>
     <string name="restore_extensions">Restore</string>
