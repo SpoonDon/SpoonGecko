@@ -17,6 +17,7 @@ final class VaultMessageDelegate implements WebExtension.MessageDelegate {
         if (!"AUTOSAVE_PROMPT".equals(action)) return null;
 
         String host = json.optString("host", "").trim();
+        String url = json.optString("url", "").trim();
         String username = json.optString("username", "").trim();
         String password = json.optString("password", "");
         if (host.isEmpty() || password.isEmpty()) return null;
@@ -24,11 +25,12 @@ final class VaultMessageDelegate implements WebExtension.MessageDelegate {
         Activity target = VaultSessionBinder.currentActivity();
         if (target == null || target.isFinishing() || target.isDestroyed()) return null;
 
-        target.runOnUiThread(() -> prompt(target, host, username, password));
+        final String sourceUrl = url;
+        target.runOnUiThread(() -> prompt(target, host, sourceUrl, username, password));
         return null;
     }
 
-    private void prompt(Activity target, String host, String username, String password) {
+    private void prompt(Activity target, String host, String sourceUrl, String username, String password) {
         SecureCredentialManager.get(target).hasCredential(host, username, password, same -> {
             target.runOnUiThread(() -> {
                 if (same) return;
@@ -37,7 +39,7 @@ final class VaultMessageDelegate implements WebExtension.MessageDelegate {
                         .setMessage(target.getString(R.string.vault_prompt_message, host, username))
                         .setPositiveButton(R.string.vault_prompt_save, (dialog, which) ->
                                 SecureCredentialManager.get(target)
-                                        .saveCredentials(host, username, password))
+                                        .saveCredentialsWithUrl(host, sourceUrl, username, password))
                         .setNegativeButton(R.string.vault_prompt_not_now, null)
                         .show();
             });

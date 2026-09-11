@@ -55,15 +55,33 @@ final class SecureCredentialManager {
         void onResult(String value);
     }
 
+    interface IntCallback {
+        void onResult(int value);
+    }
+
     private static final class Credential {
         final String host;
         final String username;
         final String password;
+        final String matchDomain;
+        final String path;
 
-        Credential(String host, String username, String password) {
+        Credential(String host, String username, String password, String matchDomain, String path) {
             this.host = host;
             this.username = username;
             this.password = password;
+            this.matchDomain = matchDomain == null ? "" : matchDomain;
+            this.path = path == null ? "" : path;
+        }
+    }
+
+    private static final class Scored {
+        final Credential credential;
+        final int score;
+
+        Scored(Credential credential, int score) {
+            this.credential = credential;
+            this.score = score;
         }
     }
 
@@ -91,10 +109,72 @@ final class SecureCredentialManager {
     }
 
     void saveCredentials(String rawHost, String username, String password) {
+        saveCredentialsWithUrl(rawHost, null, username, password);
+    }
+
+    void saveCredentialsWithUrl(String rawHost, String sourceUrl, String username, String password) {
         String host = sanitizeHost(rawHost);
         String user = username == null ? "" : username.trim();
         if (host.isEmpty() || user.isEmpty() || password == null || password.isEmpty()) return;
-        io.execute(() -> store(host, user, password));
+        final String url = sourceUrl;
+        io.execute(() -> store(host, user, password, url));
+    }
+
+    void countForUrl(String url, IntCallback callback) {
+        UrlMatchKey key = UrlMatchKey.from(url);
+        if (key.domain.isEmpty()) {
+            callback.onResult(0);
+            return;
+        }
+        io.execute(() -> {
+            int count = 0;
+            synchronized (prefs) {
+                for (Credential credential : readIndex()) {
+                    if (scoreMatch(credential, key) > 0) count++;
+                }
+            }
+            callback.onResult(count);
+        });
+    }
+
+    void listForUrl(String url, CredentialsCallback callback) {
+        UrlMatchKey key = UrlMatchKey.from(url);
+        if (key.domain.isEmpty()) {
+            callback.onResult(new ArrayList<>());
+            return;
+        }
+        io.execute(() -> {
+            List<Entry> out = new ArrayList<>();
+            synchronized (prefs) {
+                List<Scored> scored = new ArrayList<>();
+                for (Credential credential : readIndex()) {
+                    int score = scoreMatch(credential, key);
+                    if (score > 0) scored.add(new Scored(credential, score));
+                }
+                scored.sort((a, b) -> Integer.compare(b.score, a.score));
+                for (Scored s : scored) {
+                    out.add(new Entry(s.credential.host, s.credential.username, s.credential.password));
+                }
+            }
+            callback.onResult(out);
+        });
+    }
+
+    private static int scoreMatch(Credential credential, UrlMatchKey key) {
+        String storedDomain = credential.matchDomain;
+        if (storedDomain.isEmpty()) {
+            storedDomain = PublicSuffixList.registrableDomain(credential.host);
+        }
+        if (storedDomain.isEmpty() || !storedDomain.equalsIgnoreCase(key.domain)) return 0;
+
+        boolean exactHost = credential.host.equalsIgnoreCase(key.host);
+        boolean hasPath = !credential.path.isEmpty();
+        boolean pathMatch = hasPath && key.pathMatchesStored(credential.path);
+
+        if (exactHost && pathMatch) return 4;
+        if (exactHost) return 3;
+        if (pathMatch) return 2;
+        return 1;
     }
 
     void hasCredential(String rawHost, String username, String password, BooleanCallback callback) {
@@ -185,7 +265,14 @@ final class SecureCredentialManager {
         io.execute(() -> callback.onResult(exportCsvSync()));
     }
 
-    private void store(String host, String username, String password) {
+    private void store(String host, String username, String password, String sourceUrl) {
+        String matchDomain = PublicSuffixList.registrableDomain(host);
+        String path = "";
+        if (sourceUrl != null && !sourceUrl.isEmpty()) {
+            UrlMatchKey key = UrlMatchKey.from(sourceUrl);
+            if (!key.domain.isEmpty()) matchDomain = key.domain;
+            path = key.path;
+        }
         synchronized (prefs) {
             prefs.edit()
                     .putString(keyUser(host, username), username)
@@ -194,14 +281,16 @@ final class SecureCredentialManager {
                     .apply();
             List<Credential> index = readIndex();
             boolean found = false;
-            for (Credential credential : index) {
-                if (credential.host.equals(host) && credential.username.equals(username)) {
+            for (int i = 0; i < index.size(); i++) {
+                Credential existing = index.get(i);
+                if (existing.host.equals(host) && existing.username.equals(username)) {
+                    index.set(i, new Credential(host, username, password, matchDomain, path));
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                index.add(new Credential(host, username, password));
+                index.add(new Credential(host, username, password, matchDomain, path));
             }
             writeIndex(index);
         }
@@ -238,14 +327,14 @@ final class SecureCredentialManager {
         for (int r = 1; r < rows.size(); r++) {
             String[] parts = rows.get(r);
             if (parts.length <= Math.max(colUser, colPass)) continue;
-            String host = colUrl >= 0 && colUrl < parts.length ? parts[colUrl] : "";
+            String rawUrl = colUrl >= 0 && colUrl < parts.length ? parts[colUrl] : "";
             String user = parts[colUser];
             String pass = parts[colPass];
-            String normalized = sanitizeHost(host);
+            String normalized = sanitizeHost(rawUrl);
             if (normalized.isEmpty()) normalized = "imported";
             String normalizedUser = user == null ? "" : user.trim();
             if (normalizedUser.isEmpty() || pass == null || pass.isEmpty()) continue;
-            store(normalized, normalizedUser, pass);
+            store(normalized, normalizedUser, pass, rawUrl);
         }
     }
 
@@ -325,9 +414,13 @@ final class SecureCredentialManager {
                 String username = object.optString("username", "");
                 if (host.isEmpty() || username.isEmpty()) continue;
                 String password = prefs.getString(keyPass(host, username), null);
-                if (password != null) {
-                    result.add(new Credential(host, username, password));
+                if (password == null) continue;
+                String matchDomain = object.optString("match_domain", "");
+                String path = object.optString("path", "");
+                if (matchDomain.isEmpty()) {
+                    matchDomain = PublicSuffixList.registrableDomain(host);
                 }
+                result.add(new Credential(host, username, password, matchDomain, path));
             }
         } catch (Exception ignored) {
         }
@@ -341,6 +434,8 @@ final class SecureCredentialManager {
             try {
                 object.put("host", credential.host);
                 object.put("username", credential.username);
+                object.put("match_domain", credential.matchDomain);
+                object.put("path", credential.path);
             } catch (Exception ignored) {
                 continue;
             }

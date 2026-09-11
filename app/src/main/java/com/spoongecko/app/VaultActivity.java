@@ -13,9 +13,12 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
@@ -35,6 +38,8 @@ import java.util.concurrent.Executors;
 
 public class VaultActivity extends AppCompatActivity {
 
+    static final String EXTRA_FILTER_URL = "filter_url";
+
     private static final String TAG = "VaultActivity";
     private static final int REQ_IMPORT = 1001;
     private static final int REQ_EXPORT = 1002;
@@ -45,6 +50,8 @@ public class VaultActivity extends AppCompatActivity {
 
     private ClipboardManager clipboard;
     private String lastCopied;
+    private String filterUrl;
+    private boolean filterActive;
 
     private final Runnable clearClipboard = () -> {
         ClipData data = clipboard.getPrimaryClip();
@@ -65,6 +72,12 @@ public class VaultActivity extends AppCompatActivity {
         setContentView(R.layout.activity_vault);
 
         clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+
+        String incomingFilter = getIntent().getStringExtra(EXTRA_FILTER_URL);
+        if (incomingFilter != null && !incomingFilter.isEmpty()) {
+            filterUrl = incomingFilter;
+            filterActive = true;
+        }
 
         RecyclerView list = findViewById(R.id.vault_list);
         list.setLayoutManager(new LinearLayoutManager(this));
@@ -111,12 +124,50 @@ public class VaultActivity extends AppCompatActivity {
     }
 
     private void reload() {
-        SecureCredentialManager.get(this).getAllCredentials(entries -> {
+        SecureCredentialManager manager = SecureCredentialManager.get(this);
+        SecureCredentialManager.CredentialsCallback callback = entries -> {
             List<VaultEntry> converted = new ArrayList<>();
             for (SecureCredentialManager.Entry entry : entries) {
                 converted.add(new VaultEntry(entry.host, entry.username, entry.password));
             }
             main.post(() -> adapter.submitAll(converted));
+        };
+        if (filterActive && filterUrl != null) {
+            manager.listForUrl(filterUrl, callback);
+        } else {
+            manager.getAllCredentials(callback);
+        }
+        updateFilterBanner();
+    }
+
+    private void updateFilterBanner() {
+        View banner = findViewById(R.id.vault_filter_banner);
+        TextView text = findViewById(R.id.vault_filter_text);
+        Button toggle = findViewById(R.id.vault_filter_toggle);
+
+        if (filterUrl == null || filterUrl.isEmpty()) {
+            banner.setVisibility(View.GONE);
+            return;
+        }
+
+        banner.setVisibility(View.VISIBLE);
+        if (filterActive) {
+            String host = null;
+            try {
+                host = Uri.parse(filterUrl).getHost();
+            } catch (Exception ignored) {
+            }
+            if (host == null || host.isEmpty()) host = filterUrl;
+            text.setText(getString(R.string.vault_filter_banner, host));
+            toggle.setText(R.string.vault_filter_show_all);
+        } else {
+            text.setText(R.string.vault_filter_all);
+            toggle.setText(R.string.vault_filter_back);
+        }
+
+        toggle.setOnClickListener(v -> {
+            filterActive = !filterActive;
+            reload();
         });
     }
 
@@ -171,7 +222,7 @@ public class VaultActivity extends AppCompatActivity {
                     String u = user.getText().toString().trim();
                     String p = pass.getText().toString();
                     if (h.isEmpty() || u.isEmpty() || p.isEmpty()) return;
-                    SecureCredentialManager.get(this).saveCredentials(h, u, p);
+                    SecureCredentialManager.get(this).saveCredentialsWithUrl(h, h, u, p);
                     main.postDelayed(this::reload, 300L);
                 })
                 .setNegativeButton(android.R.string.cancel, null)
