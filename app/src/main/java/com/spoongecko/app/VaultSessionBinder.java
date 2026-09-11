@@ -1,6 +1,7 @@
 package com.spoongecko.app;
 
 import android.app.Activity;
+import android.util.Log;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
@@ -10,6 +11,7 @@ import java.lang.ref.WeakReference;
 
 final class VaultSessionBinder {
 
+    private static final String TAG = "VaultSessionBinder";
     static final String NATIVE_APP = "spoonvault";
     private static final String EXTENSION_URI = "resource://android/assets/vault_extension/";
     private static final String EXTENSION_ID = "vault@spoongecko.app";
@@ -26,6 +28,7 @@ final class VaultSessionBinder {
     }
 
     static void registerExtension(Activity activity, GeckoRuntime runtime) {
+        if (runtime == null) return;
         setCurrentActivity(activity);
         WebExtensionController controller = runtime.getWebExtensionController();
         controller.ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
@@ -33,11 +36,9 @@ final class VaultSessionBinder {
                         extension, WebExtensionController.EnableSource.USER).accept(
                         enabled -> enabled.setMessageDelegate(
                                 new VaultMessageDelegate(), NATIVE_APP),
-                        error -> {
-                        }
+                        error -> Log.e(TAG, "Vault extension enable failed", error)
                 ),
-                error -> {
-                }
+                error -> Log.e(TAG, "Vault extension registration failed", error)
         );
     }
 }

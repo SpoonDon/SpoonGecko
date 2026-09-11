@@ -10,7 +10,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -33,6 +35,7 @@ import java.util.concurrent.Executors;
 
 public class VaultActivity extends AppCompatActivity {
 
+    private static final String TAG = "VaultActivity";
     private static final int REQ_IMPORT = 1001;
     private static final int REQ_EXPORT = 1002;
 
@@ -141,10 +144,17 @@ public class VaultActivity extends AppCompatActivity {
     private void showAddDialog() {
         EditText host = new EditText(this);
         host.setHint(R.string.vault_add_dialog_host);
+        host.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+
         EditText user = new EditText(this);
         user.setHint(R.string.vault_add_dialog_username);
+        user.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+
         EditText pass = new EditText(this);
         pass.setHint(R.string.vault_add_dialog_password);
+        pass.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_PASSWORD);
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -178,13 +188,19 @@ public class VaultActivity extends AppCompatActivity {
     private void importCsv(Uri uri) {
         try {
             InputStream input = getContentResolver().openInputStream(uri);
-            if (input == null) return;
+            if (input == null) {
+                Log.e(TAG, "importCsv: openInputStream returned null");
+                Toast.makeText(this, R.string.vault_import_failed, Toast.LENGTH_SHORT).show();
+                return;
+            }
             SecureCredentialManager.get(this).importFromCsv(input, () ->
                     main.post(() -> {
                         Toast.makeText(this, R.string.vault_imported, Toast.LENGTH_SHORT).show();
                         reload();
                     }));
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            Log.e(TAG, "importCsv failed", e);
+            Toast.makeText(this, R.string.vault_import_failed, Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -199,12 +215,19 @@ public class VaultActivity extends AppCompatActivity {
     private void writeExport(Uri uri) {
         SecureCredentialManager.get(this).getExportCsv(csv ->
                 io.execute(() -> {
+                    boolean ok = false;
                     try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                        if (out != null) out.write(csv.getBytes(StandardCharsets.UTF_8));
-                    } catch (Exception ignored) {
+                        if (out != null) {
+                            out.write(csv.getBytes(StandardCharsets.UTF_8));
+                            ok = true;
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "writeExport failed", e);
                     }
-                    main.post(() ->
-                            Toast.makeText(this, R.string.vault_exported, Toast.LENGTH_SHORT).show());
+                    final boolean success = ok;
+                    main.post(() -> Toast.makeText(this,
+                            success ? R.string.vault_exported : R.string.vault_export_failed,
+                            Toast.LENGTH_SHORT).show());
                 }));
     }
 

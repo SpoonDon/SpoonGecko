@@ -48,6 +48,10 @@ public final class ExtensionActionManager implements WebExtension.ActionDelegate
         return true;
     }
 
+    public void clear() {
+        defaultActions.clear();
+    }
+
     @Override
     public void onBrowserAction(WebExtension extension, GeckoSession session,
                                 WebExtension.Action action) {

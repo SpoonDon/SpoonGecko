@@ -61,6 +61,7 @@ public final class ExtensionSessionManager {
 
             @Override
             public void onError(String message) {
+                Log.e(TAG, "refresh failed: " + message);
             }
         });
     }
@@ -122,6 +123,7 @@ public final class ExtensionSessionManager {
 
     public void clear() {
         setExtensions(null);
+        actionManager.clear();
     }
 
     private static void runOnUiThread(Runnable runnable) {

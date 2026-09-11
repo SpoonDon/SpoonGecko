@@ -150,7 +150,6 @@ public class BookmarksActivity extends AppCompatActivity {
         EditText urlInput = new EditText(this);
         urlInput.setSingleLine(true);
         urlInput.setHint(R.string.bookmark_url_hint);
-        urlInput.setText("https://");
         form.addView(urlInput);
 
         EditText titleInput = new EditText(this);
