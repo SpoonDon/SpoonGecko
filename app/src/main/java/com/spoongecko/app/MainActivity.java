@@ -106,9 +106,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {    
+        SplashScreen.installSplashScreen(this);    
         super.onCreate(savedInstanceState);
-        SplashScreen.installSplashScreen(this);
 
         SpoonGeckoApplication.setAppContext(getApplicationContext());
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
