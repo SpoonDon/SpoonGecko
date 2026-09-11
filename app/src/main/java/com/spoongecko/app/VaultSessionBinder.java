@@ -1,6 +1,7 @@
 package com.spoongecko.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.util.Log;
 
 import org.mozilla.geckoview.GeckoRuntime;
@@ -15,20 +16,32 @@ final class VaultSessionBinder {
     static final String NATIVE_APP = "spoonvault";
     private static final String EXTENSION_URI = "resource://android/assets/vault_extension/";
     private static final String EXTENSION_ID = "vault@spoongecko.app";
+
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
+    private static Context appContext;
 
     private VaultSessionBinder() {}
 
     static void setCurrentActivity(Activity activity) {
         currentActivity = new WeakReference<>(activity);
+        if (activity != null) {
+            appContext = activity.getApplicationContext();
+        }
     }
 
     static Activity currentActivity() {
         return currentActivity.get();
     }
 
+    static Context appContext() {
+        return appContext;
+    }
+
     static void registerExtension(Activity activity, GeckoRuntime runtime) {
-        if (runtime == null) return;
+        if (runtime == null) {
+            Log.e(TAG, "registerExtension: runtime is null");
+            return;
+        }
         setCurrentActivity(activity);
         WebExtensionController controller = runtime.getWebExtensionController();
         controller.ensureBuiltIn(EXTENSION_URI, EXTENSION_ID).accept(
