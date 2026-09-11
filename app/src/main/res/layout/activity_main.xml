@@ -86,6 +86,21 @@
                 android:completionThreshold="1"
                 android:dropDownHeight="240dp" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_vault"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                style="@style/Widget.Material3.Button.IconButton"
+                app:icon="@drawable/ic_vault"
+                app:iconSize="18dp"
+                app:iconTint="@color/md_theme_primary"
+                android:contentDescription="@string/cd_vault_button"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/tab_manager"
                 android:layout_width="wrap_content"

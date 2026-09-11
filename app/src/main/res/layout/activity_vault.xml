@@ -41,6 +41,38 @@
             android:text="@string/vault_export" />
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/vault_filter_banner"
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:gravity="center_vertical"
+        android:background="@color/md_theme_surface_variant"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/vault_filter_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@color/md_theme_on_surface_variant" />
+
+        <Button
+            android:id="@+id/vault_filter_toggle"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingHorizontal="8dp"
+            android:textSize="13sp"
+            android:text="@string/vault_filter_show_all" />
+    </LinearLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/vault_list"
         android:layout_width="match_parent"
