@@ -48,6 +48,7 @@ public class ExtensionsActivity extends AppCompatActivity {
 
     private RecyclerView recyclerView;
     private TextView emptyView;
+    private MaterialButton btnUpdateAll;
     private ExtensionAdapter adapter;
     private final List<WebExtension> installedExtensions = new ArrayList<>();
     private ActivityResultLauncher<String[]> openXpiLauncher;
@@ -165,6 +166,20 @@ public class ExtensionsActivity extends AppCompatActivity {
         backupRow.addView(btnRestore);
         actions.addView(backupRow);
 
+        LinearLayout updateRow = new LinearLayout(this);
+        updateRow.setOrientation(LinearLayout.HORIZONTAL);
+        updateRow.setGravity(Gravity.CENTER_VERTICAL);
+        updateRow.setPadding(0, UiUtils.dp(this, 8), 0, 0);
+
+        btnUpdateAll = new MaterialButton(this);
+        btnUpdateAll.setText(R.string.update_all_extensions);
+        btnUpdateAll.setOnClickListener(v -> updateAllExtensions());
+        btnUpdateAll.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        updateRow.addView(btnUpdateAll);
+        actions.addView(updateRow);
+
         content.addView(actions);
 
         emptyView = new TextView(this);
@@ -247,6 +262,51 @@ public class ExtensionsActivity extends AppCompatActivity {
         boolean empty = installedExtensions.isEmpty();
         emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
         recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
+        if (btnUpdateAll != null) {
+            btnUpdateAll.setEnabled(!empty);
+        }
+    }
+
+    private void updateAllExtensions() {
+        if (installedExtensions.isEmpty()) {
+            Toast.makeText(this, R.string.extensions_update_none, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<WebExtension> targets = new ArrayList<>(installedExtensions);
+        btnUpdateAll.setEnabled(false);
+        btnUpdateAll.setText(R.string.extensions_updating);
+
+        GeckoRuntime runtime = MainActivity.getGeckoRuntime();
+        ExtensionController.updateAll(this, runtime, targets,
+                result -> runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    btnUpdateAll.setEnabled(true);
+                    btnUpdateAll.setText(R.string.update_all_extensions);
+
+                    Toast.makeText(this,
+                            getString(R.string.extensions_update_done,
+                                    result.totalChanged(), result.failures.size()),
+                            Toast.LENGTH_LONG).show();
+
+                    if (!result.failures.isEmpty()) {
+                        showUpdateFailures(result.failures);
+                    }
+
+                    refreshExtensionsList();
+                }));
+    }
+
+    private void showUpdateFailures(List<String> failures) {
+        StringBuilder sb = new StringBuilder();
+        for (String failure : failures) {
+            sb.append(failure).append('\n');
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.extensions_update_failed_title)
+                .setMessage(sb.toString().trim())
+                .setPositiveButton(R.string.close, null)
+                .show();
     }
 
     private class ExtensionAdapter extends RecyclerView.Adapter<ExtensionAdapter.Holder> {
