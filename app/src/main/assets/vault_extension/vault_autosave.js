@@ -1,6 +1,14 @@
 (function () {
   var pending = {};
 
+  try {
+    browser.runtime.sendMessage({
+      action: "DEBUG_CONTENT_LOADED",
+      url: window.location.href
+    });
+  } catch (e) {
+  }
+
   function submit(host, url, username, password) {
     if (!host || !password) return;
     var key = host + "\u0001" + password;
@@ -43,6 +51,14 @@
   function handleForm(form) {
     if (!form || !form.querySelectorAll) return;
     var passwordField = form.querySelector('input[type="password"]');
+    try {
+      browser.runtime.sendMessage({
+        action: "DEBUG_FORM_DETECTED",
+        url: window.location.href,
+        hasPassword: !!passwordField
+      });
+    } catch (e) {
+    }
     if (!passwordField) return;
     var password = passwordField.value;
     if (!password) return;
