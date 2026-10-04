@@ -24,6 +24,14 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
+
+        ndk {
+            // GeckoView ships a ~130 MB libxul.so per CPU architecture.
+            // Unfiltered APKs carry four copies (~550 MB total).
+            // Xiaomi 2410CRP4CI reports SUPPORTED_ABIS: arm64-v8a, and every
+            // Android phone from ~2017 onward is arm64. Ship only that.
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
