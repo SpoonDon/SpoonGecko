@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">SpoonGecko</string>
-
-    <string name="keepalive_channel_name">SpoonGecko keep-alive</string>
-    <string name="keepalive_channel_desc">Keeps the Gecko engine alive so your tabs survive background cleanup.</string>
-    <string name="keepalive_title">SpoonGecko is running</string>
-    <string name="keepalive_text">Tabs stay warm in the background.</string>
-</resources>
