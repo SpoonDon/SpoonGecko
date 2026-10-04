@@ -8,14 +8,10 @@ import java.util.UUID
 /**
  * Owns the GeckoSession instances, one per browser tab.
  *
- * We deliberately keep sessions alive when the UI detaches, so that when
- * the process is killed and respawned by an OEM skin, the restored session
- * (via GeckoSession.SessionState) is a warm resume, not a cold reload.
- *
  * IMPORTANT: session.open() is asynchronous. Calling loadUri() immediately
- * after open() is a race that has been observed to SIGSEGV libxul.so on
- * cold starts on Xiaomi HyperOS and several other OEM ROMs. We defer the
- * first load until OpenDelegate.onReady() fires.
+ * after open() races with Gecko's content-process startup and can SIGSEGV
+ * libxul.so on cold starts on HyperOS and several other OEM ROMs. We defer
+ * the first load until OpenDelegate.onReady() fires.
  */
 class TabManager(private val runtime: GeckoRuntime) {
 
@@ -25,14 +21,12 @@ class TabManager(private val runtime: GeckoRuntime) {
         val id = UUID.randomUUID().toString()
         val session = GeckoSession()
 
-        // Defer the initial load until the session is actually ready.
-        // onReady() fires on the Gecko thread; loadUri() is thread-safe.
         if (url != DEFAULT_URL) {
             session.openDelegate = object : GeckoSession.OpenDelegate {
                 override fun onReady(session: GeckoSession) {
                     session.openDelegate = null
                     runCatching { session.loadUri(url) }
-                        .onFailure { Log.e(TAG, "deferred loadUri failed for $url", it) }
+                        .onFailure { Log.e(TAG, "deferred loadUri failed: $url", it) }
                 }
             }
         }
