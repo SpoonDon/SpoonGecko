@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import com.spoongecko.app.browser.BrowserViewModel
+import com.spoongecko.app.service.KeepAliveService
 import com.spoongecko.app.ui.BrowserScreen
 import com.spoongecko.app.ui.theme.SpoonGeckoTheme
 import com.spoongecko.app.util.OemHelper
@@ -39,6 +40,14 @@ class MainActivity : ComponentActivity() {
         }
 
         maybePromptBatteryExemption()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Start keep-alive only once the Activity is visible. This is the
+        // earliest point on Android 14+ where a dataSync FGS start is legal.
+        runCatching { KeepAliveService.start(this) }
+            .onFailure { /* log if you have a logger; do NOT crash the app */ }
     }
 
     private fun ensureNotificationPermission() {
