@@ -1,6 +1,12 @@
 pluginManagement {
     repositories {
-        google()
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
         mavenCentral()
         gradlePluginPortal()
     }
@@ -11,7 +17,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://maven.mozilla.org/maven2/")
+        // GeckoView is NOT on Maven Central. This is mandatory.
+        maven { url = uri("https://maven.mozilla.org/maven2/") }
     }
 }
 
