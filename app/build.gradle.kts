@@ -8,6 +8,11 @@ plugins {
 // GeckoView pinned to the latest stable from maven.mozilla.org
 val geckoViewVersion = "157.0.20260924084938"
 
+// AGP 9.1.0 bundles Kotlin compiler 2.2.0. Any library that drags in a
+// kotlin-stdlib newer than that will trigger "incompatible metadata
+// version" errors at compile time. Force everything to match.
+val kotlinStdlibVersion = "2.2.0"
+
 android {
     namespace = "com.spoongecko.app"
     compileSdk = 37
@@ -71,6 +76,18 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+// Force kotlin-stdlib (and its jdk7/jdk8 shims) down to the compiler's version.
+configurations.all {
+    resolutionStrategy {
+        force(
+            "org.jetbrains.kotlin:kotlin-stdlib:$kotlinStdlibVersion",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinStdlibVersion",
+            "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinStdlibVersion",
+            "org.jetbrains.kotlin:kotlin-reflect:$kotlinStdlibVersion"
+        )
     }
 }
 
