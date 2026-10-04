@@ -44,10 +44,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Start keep-alive only once the Activity is visible. This is the
-        // earliest point on Android 14+ where a dataSync FGS start is legal.
+        // Earliest point on Android 12+ where a FGS start from app code is legal.
         runCatching { KeepAliveService.start(this) }
-            .onFailure { /* log if you have a logger; do NOT crash the app */ }
     }
 
     private fun ensureNotificationPermission() {
