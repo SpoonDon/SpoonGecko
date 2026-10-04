@@ -25,7 +25,7 @@ object GeckoRuntimeHolder {
             val settings = GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .aboutConfigEnabled(false)
-                .consoleOutput(false)
+                .consoleOutput(true)
                 .remoteDebuggingEnabled(false)
                 .build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
