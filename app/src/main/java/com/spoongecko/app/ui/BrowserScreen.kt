@@ -1,12 +1,12 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.spoongecko.app.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,9 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -89,7 +90,6 @@ fun BrowserScreen(
     ) {
         Column(Modifier.fillMaxSize().imePadding()) {
 
-            // ---- Top toolbar ----
             Surface(
                 tonalElevation = 2.dp,
                 modifier = Modifier.fillMaxWidth().statusBarsPadding()
@@ -104,13 +104,13 @@ fun BrowserScreen(
                         onClick = { viewModel.goBack() },
                         enabled = activeTab?.canGoBack == true
                     ) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                     IconButton(
                         onClick = { viewModel.goForward() },
                         enabled = activeTab?.canGoForward == true
                     ) {
-                        Icon(Icons.Filled.ArrowForward, contentDescription = "Forward")
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
                     }
                     IconButton(onClick = {
                         if (activeTab?.isLoading == true) viewModel.stop() else viewModel.reload()
@@ -176,7 +176,6 @@ fun BrowserScreen(
                 )
             }
 
-            // ---- GeckoView ----
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -193,7 +192,6 @@ fun BrowserScreen(
         }
     }
 
-    // ---- Tabs sheet ----
     if (showTabs) {
         val sheetState = rememberModalBottomSheetState()
         ModalBottomSheet(
@@ -210,7 +208,6 @@ fun BrowserScreen(
         }
     }
 
-    // ---- OEM guidance dialog ----
     if (showOemDialog) {
         AlertDialog(
             onDismissRequest = { showOemDialog = false },
