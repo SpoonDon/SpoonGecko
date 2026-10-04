@@ -78,6 +78,12 @@ android {
             "/META-INF/{AL2.0,LGPL2.1}",
             "/META-INF/DEPENDENCIES"
         )
+        jniLibs {
+            // Android's loader cannot reliably mmap GeckoView's 130 MB libxul.so
+            // from inside the APK. Force the installer to extract native libs
+            // to disk. Fixes silent SIGSEGV on MIUI/HyperOS and several other ROMs.
+            useLegacyPackaging = true
+        }
     }
 }
 
