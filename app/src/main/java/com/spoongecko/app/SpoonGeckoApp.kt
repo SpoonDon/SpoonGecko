@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.spoongecko.app.browser.GeckoRuntimeHolder
-import com.spoongecko.app.service.KeepAliveService
 
 /**
  * Application entry point.
@@ -15,7 +14,13 @@ import com.spoongecko.app.service.KeepAliveService
  *    activity destruction and can be reused when the process is respawned by
  *    the system after an OEM kill.
  *  - Register the foreground service notification channel.
- *  - Kick off the keep-alive foreground service as early as possible.
+ *
+ * NOTE: We deliberately do NOT start KeepAliveService here. On Android 14+
+ * (API 34+) starting a dataSync foreground service from Application.onCreate
+ * throws ForegroundServiceStartNotAllowedException on many ROMs, and on
+ * Xiaomi/HyperOS it manifests as a silent process death with no logcat trail.
+ * The service is started from MainActivity.onStart() instead, where the app
+ * is unambiguously in the foreground and the start is legal.
  */
 class SpoonGeckoApp : Application() {
 
@@ -23,7 +28,6 @@ class SpoonGeckoApp : Application() {
         super.onCreate()
         GeckoRuntimeHolder.init(this)
         createNotificationChannel()
-        KeepAliveService.start(this)
     }
 
     private fun createNotificationChannel() {
