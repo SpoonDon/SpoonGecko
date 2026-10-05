@@ -12,7 +12,6 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.mozilla.geckoview.GeckoRuntime;
@@ -26,7 +25,9 @@ import org.mozilla.geckoview.GeckoView;
  * toolbar (back / forward / URL / reload). No tabs yet — deliberate for v1.
  *
  * Navigation availability is tracked via HistoryDelegate, since GeckoSession
- * does not expose canGoBack()/canGoForward() directly.
+ * does not expose canGoBack()/canGoForward() directly. The URL bar is
+ * updated from ProgressDelegate.onPageStart and from our own navigate()
+ * call — NavigationDelegate.onLocationChange does not exist in GeckoView 157.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -90,6 +91,10 @@ public class MainActivity extends AppCompatActivity {
             public void onPageStart(@NonNull GeckoSession s, @NonNull String url) {
                 progressBar.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
+                // URL bar updates come from here — NavigationDelegate has no
+                // onLocationChange in GeckoView 157.
+                currentUrl = url;
+                updateUrlBar();
             }
 
             @Override
@@ -101,16 +106,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onProgressChange(@NonNull GeckoSession s, int progress) {
                 progressBar.setProgress(progress);
-            }
-        });
-
-        session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
-            public void onLocationChange(
-                    @NonNull GeckoSession s,
-                    @Nullable String url) {
-                currentUrl = (url == null) ? "" : url;
-                updateUrlBar();
             }
         });
 
@@ -170,6 +165,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         session.loadUri(url);
+
+        // Reflect the navigation immediately — onPageStart will correct this
+        // if a redirect happens.
+        currentUrl = url;
+        updateUrlBar();
     }
 
     private static boolean hasScheme(String s) {
