@@ -1,9 +1,9 @@
-
 package com.spoongecko.app;
 
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -11,6 +11,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -22,21 +23,14 @@ import org.mozilla.geckoview.GeckoView;
 /**
  * SpoonGecko main browser screen.
  *
- * Single GeckoSession rendered in a single GeckoView, wrapped in a minimal
- * toolbar (back, forward, URL, reload). No tabs yet, deliberate for v1.
- *
- * Session lifecycle:
- *   - setActive(true) in onResume keeps the compositor producing frames.
- *   - setActive(false) in onPause releases resources cleanly.
- *
- * Back handling:
- *   - dispatchKeyEvent runs BEFORE the view tree, so we intercept the back
- *     key before GeckoView forwards it to web content.
- *   - Back first dismisses the URL bar and soft keyboard, then navigates the
- *     web history, then falls through to the system (finish activity).
+ * Session lifecycle is fully asynchronous: the session is created, opened,
+ * attached to the GeckoView and pointed at the home URI only after the
+ * runtime handshake completes. Doing this in the correct order avoids a
+ * native crash in the GeckoView 157 content process on cold start.
  */
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "SpoonGecko";
     private static final String HOME_URI = "resource://android/assets/home.html";
     private static final String SEARCH_URL = "https://duckduckgo.com/?q=";
 
@@ -54,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean canGoBack = false;
     private boolean canGoForward = false;
+    private boolean sessionReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,17 +62,51 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btnReload);
         progressBar = findViewById(R.id.progressBar);
 
-        runtime = SpoonGeckoApp.getRuntime();
+        try {
+            runtime = SpoonGeckoApp.getRuntime(this);
+        } catch (Throwable t) {
+            Log.e(TAG, "Could not obtain GeckoRuntime", t);
+            Toast.makeText(this,
+                    "Browser engine failed to start. See logcat for details.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
 
-        session = new GeckoSession();
-        session.open(runtime);
-        wireSessionCallbacks();
-
-        geckoView.setSession(session);
-        session.loadUri(HOME_URI);
-
+        createSession();
         wireToolbar();
         updateNavigationButtons();
+    }
+
+    private void createSession() {
+        session = new GeckoSession();
+
+        session.setContentDelegate(new GeckoSession.ContentDelegate() {
+            @Override
+            public void onCrash(@NonNull GeckoSession s) {
+                Log.e(TAG, "Gecko content process crashed");
+                sessionReady = false;
+                runOnUiThread(() -> {
+                    if (progressBar != null) {
+                        progressBar.setVisibility(View.GONE);
+                    }
+                    Toast.makeText(MainActivity.this,
+                            "Web content process crashed. Reopen the app.",
+                            Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+
+        wireSessionCallbacks();
+
+        session.open(runtime).accept(
+                result -> {
+                    sessionReady = true;
+                    Log.i(TAG, "GeckoSession opened");
+                    geckoView.setSession(session);
+                    session.loadUri(HOME_URI);
+                    session.setActive(true);
+                },
+                throwable -> Log.e(TAG, "GeckoSession failed to open", throwable));
     }
 
     // ---------------------------------------------------------------------
@@ -127,12 +156,14 @@ public class MainActivity extends AppCompatActivity {
 
     private void wireToolbar() {
         btnBack.setOnClickListener(v -> {
-            if (canGoBack) session.goBack();
+            if (sessionReady && canGoBack) session.goBack();
         });
         btnForward.setOnClickListener(v -> {
-            if (canGoForward) session.goForward();
+            if (sessionReady && canGoForward) session.goForward();
         });
-        btnReload.setOnClickListener(v -> session.reload());
+        btnReload.setOnClickListener(v -> {
+            if (sessionReady) session.reload();
+        });
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null
@@ -156,6 +187,8 @@ public class MainActivity extends AppCompatActivity {
     // ---------------------------------------------------------------------
 
     private void navigate(String input) {
+        if (!sessionReady) return;
+
         String trimmed = input == null ? "" : input.trim();
         if (trimmed.isEmpty()) return;
 
@@ -193,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
     // ---------------------------------------------------------------------
 
     private void updateUrlBar() {
-        if (urlBar.hasFocus()) return;
+        if (urlBar == null || urlBar.hasFocus()) return;
 
         if (currentUrl == null
                 || currentUrl.isEmpty()
@@ -205,6 +238,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateNavigationButtons() {
+        if (btnBack == null || btnForward == null) return;
+
         btnBack.setEnabled(canGoBack);
         btnBack.setAlpha(canGoBack ? 1f : 0.35f);
 
@@ -215,13 +250,13 @@ public class MainActivity extends AppCompatActivity {
     private void hideKeyboard() {
         InputMethodManager imm =
                 (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
+        if (imm != null && urlBar != null) {
             imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
         }
     }
 
     // ---------------------------------------------------------------------
-    // Hardware back, dispatched before the GeckoView view tree
+    // Hardware back
     // ---------------------------------------------------------------------
 
     @Override
@@ -229,15 +264,13 @@ public class MainActivity extends AppCompatActivity {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
                 && event.getAction() == KeyEvent.ACTION_UP) {
 
-            // Keyboard and URL bar focus win first.
             if (urlBar != null && urlBar.hasFocus()) {
                 urlBar.clearFocus();
                 hideKeyboard();
                 return true;
             }
 
-            // Otherwise navigate web history.
-            if (session != null && canGoBack) {
+            if (sessionReady && canGoBack) {
                 session.goBack();
                 return true;
             }
@@ -246,20 +279,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ---------------------------------------------------------------------
-    // Lifecycle, keep the Gecko compositor alive while foreground
+    // Lifecycle
     // ---------------------------------------------------------------------
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (session != null) {
+        if (sessionReady && session != null) {
             session.setActive(true);
         }
     }
 
     @Override
     protected void onPause() {
-        if (session != null) {
+        if (sessionReady && session != null) {
             session.setActive(false);
         }
         super.onPause();
@@ -267,14 +300,25 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        // GeckoView 157 does not support setSession(null). Internally it
-        // tries to call .setOwner() on the null we pass and NPEs. Close the
-        // session directly instead. The GeckoRuntime is a process-wide
-        // singleton and survives this activity being torn down.
+        sessionReady = false;
+
+        if (geckoView != null) {
+            try {
+                geckoView.releaseSession();
+            } catch (Throwable t) {
+                Log.w(TAG, "releaseSession failed", t);
+            }
+        }
+
         if (session != null) {
-            session.close();
+            try {
+                session.close();
+            } catch (Throwable t) {
+                Log.w(TAG, "session.close failed", t);
+            }
             session = null;
         }
+
         geckoView = null;
         super.onDestroy();
     }
