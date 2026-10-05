@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -40,18 +40,34 @@ jobs:
           echo "=== Installed build-tools ==="
           ls -1 "$ANDROID_HOME/build-tools" || true
 
+      - name: Decode release keystore
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "ERROR: KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
+          echo "Keystore decoded to $RUNNER_TEMP/keystore/release.jks"
+          ls -la "$RUNNER_TEMP/keystore/"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
+
       - name: Set up Gradle 9.8.0
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.8.0'
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS:         ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD:      ${{ secrets.KEY_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload release APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: SpoonGecko-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: SpoonGecko-release
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
