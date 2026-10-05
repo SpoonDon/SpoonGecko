@@ -26,6 +26,9 @@ import java.util.List;
  *
  * Single GeckoSession rendered in a single GeckoView, wrapped in a minimal
  * toolbar (back / forward / URL / reload). No tabs yet — deliberate for v1.
+ *
+ * Navigation availability is tracked via HistoryDelegate, since GeckoSession
+ * does not expose canGoBack()/canGoForward() directly.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -43,6 +46,10 @@ public class MainActivity extends AppCompatActivity {
     private GeckoRuntime runtime;
 
     private String currentUrl = "";
+
+    /** Navigation state, kept in sync by HistoryDelegate. */
+    private boolean canGoBack = false;
+    private boolean canGoForward = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +78,12 @@ public class MainActivity extends AppCompatActivity {
         session.loadUri(HOME_URI);
 
         wireToolbar();
+        updateNavigationButtons();
     }
+
+    // ---------------------------------------------------------------------
+    // Callbacks
+    // ---------------------------------------------------------------------
 
     private void wireSessionCallbacks() {
 
@@ -102,29 +114,29 @@ public class MainActivity extends AppCompatActivity {
                     @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms) {
                 currentUrl = (url == null) ? "" : url;
                 updateUrlBar();
+            }
+        });
+
+        session.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
+            @Override
+            public void onHistoryStateChange(
+                    @NonNull GeckoSession s,
+                    @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
+                int current = historyList.getCurrentIndex();
+                int size = historyList.size();
+                canGoBack = current > 0;
+                canGoForward = current >= 0 && current < size - 1;
                 updateNavigationButtons();
-            }
-
-            @Override
-            public void onCanGoBack(@NonNull GeckoSession s, boolean canGoBack) {
-                btnBack.setEnabled(canGoBack);
-                btnBack.setAlpha(canGoBack ? 1f : 0.35f);
-            }
-
-            @Override
-            public void onCanGoForward(@NonNull GeckoSession s, boolean canGoForward) {
-                btnForward.setEnabled(canGoForward);
-                btnForward.setAlpha(canGoForward ? 1f : 0.35f);
             }
         });
     }
 
     private void wireToolbar() {
         btnBack.setOnClickListener(v -> {
-            if (session.canGoBack()) session.goBack();
+            if (canGoBack) session.goBack();
         });
         btnForward.setOnClickListener(v -> {
-            if (session.canGoForward()) session.goForward();
+            if (canGoForward) session.goForward();
         });
         btnReload.setOnClickListener(v -> session.reload());
 
@@ -144,6 +156,10 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
     }
+
+    // ---------------------------------------------------------------------
+    // Navigation
+    // ---------------------------------------------------------------------
 
     private void navigate(String input) {
         String trimmed = input == null ? "" : input.trim();
@@ -190,13 +206,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateNavigationButtons() {
-        boolean canBack = session.canGoBack();
-        btnBack.setEnabled(canBack);
-        btnBack.setAlpha(canBack ? 1f : 0.35f);
+        btnBack.setEnabled(canGoBack);
+        btnBack.setAlpha(canGoBack ? 1f : 0.35f);
 
-        boolean canFwd = session.canGoForward();
-        btnForward.setEnabled(canFwd);
-        btnForward.setAlpha(canFwd ? 1f : 0.35f);
+        btnForward.setEnabled(canGoForward);
+        btnForward.setAlpha(canGoForward ? 1f : 0.35f);
     }
 
     private void hideKeyboard() {
@@ -207,9 +221,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Lifecycle
+    // ---------------------------------------------------------------------
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && session != null && session.canGoBack()) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && session != null && canGoBack) {
             session.goBack();
             return true;
         }
