@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.spoongecko.app'
-    compileSdk 37
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.spoongecko.app"
