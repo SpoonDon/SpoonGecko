@@ -1,3 +1,4 @@
+
 package com.spoongecko.app;
 
 import android.content.Context;
@@ -22,18 +23,17 @@ import org.mozilla.geckoview.GeckoView;
  * SpoonGecko main browser screen.
  *
  * Single GeckoSession rendered in a single GeckoView, wrapped in a minimal
- * toolbar (back / forward / URL / reload). No tabs yet — deliberate for v1.
+ * toolbar (back, forward, URL, reload). No tabs yet, deliberate for v1.
  *
  * Session lifecycle:
- *   - session.setActive(true) in onResume keeps the Gecko compositor
- *     producing frames. Without this, the SurfaceView can be reclaimed
- *     when the device considers the app idle (very aggressive on MIUI/
- *     HyperOS), leaving a pure-white page behind.
- *   - session.setActive(false) in onPause releases resources cleanly.
+ *   - setActive(true) in onResume keeps the compositor producing frames.
+ *   - setActive(false) in onPause releases resources cleanly.
  *
  * Back handling:
- *   - dispatchKeyEvent runs BEFORE the view tree, so we get the back key
- *     before GeckoView swallows it to forward to web content.
+ *   - dispatchKeyEvent runs BEFORE the view tree, so we intercept the back
+ *     key before GeckoView forwards it to web content.
+ *   - Back first dismisses the URL bar and soft keyboard, then navigates the
+ *     web history, then falls through to the system (finish activity).
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -67,10 +67,9 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btnReload);
         progressBar = findViewById(R.id.progressBar);
 
-        runtime = GeckoRuntimeHolder.get(this);
+        runtime = SpoonGeckoApp.getRuntime();
 
         session = new GeckoSession();
-
         session.open(runtime);
         wireSessionCallbacks();
 
@@ -194,16 +193,14 @@ public class MainActivity extends AppCompatActivity {
     // ---------------------------------------------------------------------
 
     private void updateUrlBar() {
+        if (urlBar.hasFocus()) return;
+
         if (currentUrl == null
                 || currentUrl.isEmpty()
                 || currentUrl.startsWith("resource://")) {
-            if (!urlBar.hasFocus()) {
-                urlBar.setText("");
-            }
+            urlBar.setText("");
         } else {
-            if (!urlBar.hasFocus()) {
-                urlBar.setText(currentUrl);
-            }
+            urlBar.setText(currentUrl);
         }
     }
 
@@ -224,23 +221,32 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ---------------------------------------------------------------------
-    // Hardware back — dispatched before the GeckoView view tree
+    // Hardware back, dispatched before the GeckoView view tree
     // ---------------------------------------------------------------------
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
-                && event.getAction() == KeyEvent.ACTION_UP
-                && session != null
-                && canGoBack) {
-            session.goBack();
-            return true;
+                && event.getAction() == KeyEvent.ACTION_UP) {
+
+            // Keyboard and URL bar focus win first.
+            if (urlBar != null && urlBar.hasFocus()) {
+                urlBar.clearFocus();
+                hideKeyboard();
+                return true;
+            }
+
+            // Otherwise navigate web history.
+            if (session != null && canGoBack) {
+                session.goBack();
+                return true;
+            }
         }
         return super.dispatchKeyEvent(event);
     }
 
     // ---------------------------------------------------------------------
-    // Lifecycle — keep the Gecko compositor alive while foreground
+    // Lifecycle, keep the Gecko compositor alive while foreground
     // ---------------------------------------------------------------------
 
     @Override
@@ -258,10 +264,10 @@ public class MainActivity extends AppCompatActivity {
         }
         super.onPause();
     }
-        
+
     @Override
     protected void onDestroy() {
-        // GeckoView 157 does not support setSession(null) — internally it
+        // GeckoView 157 does not support setSession(null). Internally it
         // tries to call .setOwner() on the null we pass and NPEs. Close the
         // session directly instead. The GeckoRuntime is a process-wide
         // singleton and survives this activity being torn down.
