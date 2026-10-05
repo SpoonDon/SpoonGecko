@@ -258,12 +258,18 @@ public class MainActivity extends AppCompatActivity {
         }
         super.onPause();
     }
-
+        
     @Override
     protected void onDestroy() {
-        if (geckoView != null) {
-            geckoView.setSession(null);
+        // GeckoView 157 does not support setSession(null) — internally it
+        // tries to call .setOwner() on the null we pass and NPEs. Close the
+        // session directly instead. The GeckoRuntime is a process-wide
+        // singleton and survives this activity being torn down.
+        if (session != null) {
+            session.close();
+            session = null;
         }
+        geckoView = null;
         super.onDestroy();
     }
 }
