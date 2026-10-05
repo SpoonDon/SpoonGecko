@@ -1,5 +1,4 @@
-# GeckoView is heavily JNI/reflection driven. Don't let R8 touch it.
+# SpoonGecko ProGuard rules
 -keep class org.mozilla.geckoview.** { *; }
--keep class org.mozilla.gecko.** { *; }
--dontwarn org.mozilla.**
--dontwarn org.json.**
+-keep class com.spoongecko.app.** { *; }
+-dontwarn org.mozilla.geckoview.**
