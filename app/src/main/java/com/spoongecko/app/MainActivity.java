@@ -23,10 +23,9 @@ import org.mozilla.geckoview.GeckoView;
 /**
  * SpoonGecko main browser screen.
  *
- * Session lifecycle is fully asynchronous: the session is created, opened,
- * attached to the GeckoView and pointed at the home URI only after the
- * runtime handshake completes. Doing this in the correct order avoids a
- * native crash in the GeckoView 157 content process on cold start.
+ * Session lifecycle is fully asynchronous: the session is opened through
+ * the runtime (runtime.open(session) returns a GeckoResult), then attached
+ * to the GeckoView and pointed at the home URI once the handshake completes.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -98,8 +97,8 @@ public class MainActivity extends AppCompatActivity {
 
         wireSessionCallbacks();
 
-        session.open(runtime).accept(
-                result -> {
+        runtime.open(session).accept(
+                unused -> {
                     sessionReady = true;
                     Log.i(TAG, "GeckoSession opened");
                     geckoView.setSession(session);
