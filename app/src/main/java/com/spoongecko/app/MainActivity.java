@@ -1,3 +1,4 @@
+
 package com.spoongecko.app;
 
 import android.content.Context;
@@ -22,14 +23,14 @@ import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
 /**
- * Diagnostic build. Every lifecycle step, session callback and load event is
- * written to StartupLog so the cause of the white screen can be read from a
- * plain text file, without adb.
+ * Diagnostic build for Xiaomi HyperOS.
  *
- * The GeckoView first loads about:blank, then home.html after a 2 second
- * delay. If about:blank renders, GeckoView itself is fine and the local
- * asset page is the problem. If about:blank is also white, GeckoView's
- * rendering or content process is failing.
+ * Every lifecycle step and session callback writes to StartupLog, which saves
+ * to getExternalFilesDir(null)/startup.log so the user can read it without adb.
+ *
+ * Loads about:blank first, then home.html after 2 seconds. If about:blank
+ * renders, GeckoView itself is fine. If it is also white, HyperOS is killing
+ * the Gecko content process before the first frame.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -88,52 +89,17 @@ public class MainActivity extends AppCompatActivity {
 
         session.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
+            public void onFirstComposite(@NonNull GeckoSession s) {
+                StartupLog.i("ContentDelegate.onFirstComposite: first frame drawn");
+            }
+
+            @Override
             public void onCrash(@NonNull GeckoSession s) {
                 StartupLog.e("ContentDelegate.onCrash", null);
                 sessionReady = false;
                 runOnUiThread(() -> {
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
                 });
-            }
-
-            @Override
-            public void onKill(@NonNull GeckoSession s) {
-                StartupLog.e("ContentDelegate.onKill", null);
-                sessionReady = false;
-            }
-
-            @Override
-            public void onFirstComposite(@NonNull GeckoSession s) {
-                StartupLog.i("ContentDelegate.onFirstComposite - first frame");
-            }
-        });
-
-        session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
-            public void onLocationChange(@NonNull GeckoSession s,
-                                         @Nullable String url) {
-                StartupLog.i("NavigationDelegate.onLocationChange: " + url);
-            }
-
-            @Override
-            public void onLoadError(@NonNull GeckoSession s,
-                                    @Nullable String url,
-                                    @NonNull GeckoSession.NavigationDelegate.LoadError error) {
-                StartupLog.e("NavigationDelegate.onLoadError url=" + url
-                        + " code=" + error.code
-                        + " category=" + error.category, null);
-            }
-
-            @Override
-            public void onCanGoBack(@NonNull GeckoSession s, boolean value) {
-                canGoBack = value;
-                updateNavigationButtons();
-            }
-
-            @Override
-            public void onCanGoForward(@NonNull GeckoSession s, boolean value) {
-                canGoForward = value;
-                updateNavigationButtons();
             }
         });
 
