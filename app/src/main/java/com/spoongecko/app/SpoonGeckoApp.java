@@ -1,28 +1,28 @@
+
 package com.spoongecko.app;
 
 import android.app.Application;
 import android.util.Log;
 
-import androidx.annotation.Nullable;
+import androidx.annotation.NonNull;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 
 /**
- * Application entry point.
+ * Application entry point. Owns the single, process-wide GeckoRuntime.
  *
- * Responsibilities (Stage 1):
- *   - Create exactly one GeckoRuntime, before any GeckoSession is constructed
- *     (landmine #5).
- *   - Expose it to the rest of the app via a static getter.
+ * GeckoView requires the runtime to exist before any GeckoSession is
+ * constructed. Creating it here (in Application.onCreate) guarantees that
+ * ordering and avoids white-page and content-process failures on aggressive
+ * OEM ROMs that reap idle background processes.
  *
- * Deliberately does NOT start any foreground service here (landmine #1).
+ * Deliberately does NOT start any foreground service here.
  */
 public final class SpoonGeckoApp extends Application {
 
     private static final String TAG = "SpoonGecko";
 
-    @Nullable
     private static GeckoRuntime sRuntime;
 
     @Override
@@ -34,17 +34,23 @@ public final class SpoonGeckoApp extends Application {
         }
 
         GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                // Landmine #7 — native Gecko crashes appear in logcat only with
-                // consoleOutput enabled. Flip to false for release builds.
-                .consoleOutput(true)
+                // Native Gecko logs are useful in debug and very noisy in
+                // release. Gate on BuildConfig.DEBUG.
+                .consoleOutput(BuildConfig.DEBUG)
                 .build();
 
         sRuntime = GeckoRuntime.create(this, settings);
         Log.i(TAG, "GeckoRuntime created");
     }
 
-    @Nullable
+    @NonNull
     public static GeckoRuntime getRuntime() {
-        return sRuntime;
+        GeckoRuntime runtime = sRuntime;
+        if (runtime == null) {
+            throw new IllegalStateException(
+                    "GeckoRuntime not initialized. Check that SpoonGeckoApp is "
+                            + "declared via android:name in AndroidManifest.xml.");
+        }
+        return runtime;
     }
 }
