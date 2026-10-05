@@ -1,11 +1,11 @@
-
 package com.spoongecko.app;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -23,20 +23,17 @@ import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
 /**
- * Diagnostic build for Xiaomi HyperOS.
+ * SpoonGecko browser screen.
  *
- * Every lifecycle step and session callback writes to StartupLog, which saves
- * to getExternalFilesDir(null)/startup.log so the user can read it without adb.
- *
- * Loads about:blank first, then home.html after 2 seconds. If about:blank
- * renders, GeckoView itself is fine. If it is also white, HyperOS is killing
- * the Gecko content process before the first frame.
+ * A foreground service keeps the process in the foreground-service OOM bucket
+ * while this Activity is alive, which is the only reliable way to prevent
+ * HyperOS from SIGKILL-ing the Gecko content process during startup.
  */
 public class MainActivity extends AppCompatActivity {
 
     private static final String HOME_URI = "resource://android/assets/home.html";
     private static final String SEARCH_URL = "https://duckduckgo.com/?q=";
-    private static final long DIAGNOSTIC_DELAY_MS = 2000L;
+    private static final int REQ_POST_NOTIFICATIONS = 100;
 
     private GeckoView geckoView;
     private EditText urlBar;
@@ -58,8 +55,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         StartupLog.i("MainActivity.onCreate enter");
 
+        requestNotificationPermissionIfNeeded();
+
         setContentView(R.layout.activity_main);
-        StartupLog.i("ContentView set");
 
         geckoView = findViewById(R.id.geckoView);
         urlBar = findViewById(R.id.urlBar);
@@ -67,7 +65,6 @@ public class MainActivity extends AppCompatActivity {
         btnForward = findViewById(R.id.btnForward);
         btnReload = findViewById(R.id.btnReload);
         progressBar = findViewById(R.id.progressBar);
-        StartupLog.i("Views located");
 
         try {
             runtime = SpoonGeckoApp.getRuntime(this);
@@ -77,14 +74,27 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        BrowserKeepAliveService.start(this);
+        StartupLog.i("Requested keep-alive service");
+
         createSession();
         wireToolbar();
         updateNavigationButtons();
         StartupLog.i("MainActivity.onCreate exit");
     }
 
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(
+                new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                REQ_POST_NOTIFICATIONS);
+    }
+
     private void createSession() {
-        StartupLog.i("createSession: new GeckoSession");
         session = new GeckoSession();
 
         session.setContentDelegate(new GeckoSession.ContentDelegate() {
@@ -97,9 +107,6 @@ public class MainActivity extends AppCompatActivity {
             public void onCrash(@NonNull GeckoSession s) {
                 StartupLog.e("ContentDelegate.onCrash", null);
                 sessionReady = false;
-                runOnUiThread(() -> {
-                    if (progressBar != null) progressBar.setVisibility(View.GONE);
-                });
             }
         });
 
@@ -117,17 +124,8 @@ public class MainActivity extends AppCompatActivity {
         geckoView.setSession(session);
         StartupLog.i("geckoView.setSession OK");
 
-        StartupLog.i("Loading about:blank (diagnostic)");
-        session.loadUri("about:blank");
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (sessionReady) {
-                StartupLog.i("Loading " + HOME_URI);
-                session.loadUri(HOME_URI);
-            } else {
-                StartupLog.i("Session not ready, skipping home.html load");
-            }
-        }, DIAGNOSTIC_DELAY_MS);
+        StartupLog.i("Loading " + HOME_URI);
+        session.loadUri(HOME_URI);
     }
 
     private void wireSessionCallbacks() {
@@ -301,15 +299,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onStop() {
-        StartupLog.i("MainActivity.onStop");
-        super.onStop();
-    }
-
-    @Override
     protected void onDestroy() {
         StartupLog.i("MainActivity.onDestroy");
         sessionReady = false;
+
+        BrowserKeepAliveService.stop(this);
 
         if (geckoView != null) {
             try {
