@@ -2,6 +2,14 @@ plugins {
     id 'com.android.application'
 }
 
+// Signing credentials come from env vars (injected by GitHub Actions from
+// repository secrets). When they're absent — e.g. a local debug build —
+// the release signing config is skipped and only debug builds are signed.
+def keystorePath       = System.getenv("KEYSTORE_PATH")
+def keystorePassword   = System.getenv("KEYSTORE_PASSWORD")
+def keyAliasValue      = System.getenv("KEY_ALIAS")
+def keyPasswordValue   = System.getenv("KEY_PASSWORD")
+
 android {
     namespace 'com.spoongecko.app'
     compileSdk 37
@@ -18,13 +26,28 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (keystorePath != null && !keystorePath.isEmpty()) {
+                storeFile file(keystorePath)
+                storePassword keystorePassword
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
             minifyEnabled false
         }
         release {
+            debuggable false
             minifyEnabled false
+            if (keystorePath != null && !keystorePath.isEmpty()) {
+                signingConfig signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
