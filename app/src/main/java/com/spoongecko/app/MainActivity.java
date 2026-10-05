@@ -19,8 +19,6 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
-import java.util.List;
-
 /**
  * SpoonGecko main browser screen.
  *
@@ -110,8 +108,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onLocationChange(
                     @NonNull GeckoSession s,
-                    @Nullable String url,
-                    @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms) {
+                    @Nullable String url) {
                 currentUrl = (url == null) ? "" : url;
                 updateUrlBar();
             }
