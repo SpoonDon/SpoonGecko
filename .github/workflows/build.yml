@@ -53,7 +53,6 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             RAW_TAG="${GITHUB_REF_NAME}"
-            # Strip the leading "v" so versionName is "1.0.0", not "v1.0.0".
             VER="${RAW_TAG#v}"
           else
             RAW_TAG=""
@@ -72,7 +71,6 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/keystore"
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/keystore/release.jks"
-          echo "Keystore decoded to $RUNNER_TEMP/keystore/release.jks"
           echo "KEYSTORE_PATH=$RUNNER_TEMP/keystore/release.jks" >> "$GITHUB_ENV"
 
       - name: Set up Gradle 9.8.0
@@ -104,13 +102,20 @@ jobs:
           echo "Created $DEST"
           ls -la dist/
 
+      # Branch builds only: publish the APK as a workflow artifact.
+      # Tag builds skip this entirely — large uploads hit the artifact
+      # service's timeout, and the release attach below is the real
+      # deliverable for tags.
       - name: Upload APK as workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: SpoonGecko-${{ steps.version.outputs.name }}
           path: dist/*.apk
           if-no-files-found: error
+          retention-days: 14
 
+      # Tag builds only: attach the APK to the GitHub Release for the tag.
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
