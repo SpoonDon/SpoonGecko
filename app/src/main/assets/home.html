@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>SpoonGecko</title>
+<style>
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050505;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(94, 224, 126, 0.14), transparent 42%),
+      radial-gradient(circle at 82% 84%, rgba(77, 107, 254, 0.11), transparent 48%),
+      radial-gradient(circle at 50% 50%, #0e0e0e 0%, #050505 78%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 72%);
+            mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 72%);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .stage {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 22px;
+  }
+
+  .stack {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+    transform: translateY(-6vh);
+  }
+
+  .mark {
+    font-size: 27px;
+    font-weight: 300;
+    letter-spacing: 0.30em;
+    text-transform: lowercase;
+    color: rgba(255, 255, 255, 0.88);
+    padding-left: 0.30em;
+    animation: rise 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .search {
+    position: relative;
+    width: 100%;
+    animation: rise 900ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .search input {
+    width: 100%;
+    height: 56px;
+    padding: 0 60px 0 22px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.045);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+            backdrop-filter: blur(22px) saturate(140%);
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 400;
+    outline: none;
+    box-shadow:
+      0 10px 34px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    transition: border-color 180ms ease, background 180ms ease,
+                box-shadow 180ms ease;
+  }
+
+  .search input::placeholder {
+    color: rgba(255, 255, 255, 0.34);
+    font-weight: 300;
+  }
+
+  .search input:focus {
+    border-color: rgba(94, 224, 126, 0.55);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow:
+      0 10px 34px rgba(0, 0, 0, 0.55),
+      0 0 0 3px rgba(94, 224, 126, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .search button {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 42px;
+    height: 42px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(140deg, #7CF3A0 0%, #4BDA75 100%);
+    color: #04120a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(94, 224, 126, 0.35);
+    transition: transform 120ms ease, box-shadow 180ms ease;
+  }
+
+  .search button:active {
+    transform: scale(0.93);
+    box-shadow: 0 3px 10px rgba(94, 224, 126, 0.30);
+  }
+
+  .search button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .wordmark {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 2;
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.36em;
+    text-transform: lowercase;
+    color: rgba(255, 255, 255, 0.26);
+    padding-left: 0.36em;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+  <div class="stage">
+    <div class="stack">
+      <div class="mark">spoongecko</div>
+
+      <form class="search" id="searchForm" autocomplete="off">
+        <input id="q"
+               type="text"
+               inputmode="text"
+               placeholder="Search the web"
+               spellcheck="false"
+               autocapitalize="off"
+               autocorrect="off">
+        <button type="submit" aria-label="Search">
+          <svg viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.6"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="wordmark">spoongecko</div>
+
+<script>
+  (function () {
+    var form = document.getElementById('searchForm');
+    var input = document.getElementById('q');
+
+    function looksLikeUrl(s) {
+      if (s.indexOf(' ') !== -1) return false;
+      if (/^(https?|about|resource|file|data):/i.test(s)) return true;
+      if (/^localhost(:\d+)?(\/.*)?$/i.test(s)) return true;
+      return /^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(s);
+    }
+
+    function resolve(q) {
+      if (/^(https?|about|resource|file|data):/i.test(q)) return q;
+      if (looksLikeUrl(q)) return 'https://' + q;
+      return 'https://duckduckgo.com/?q=' + encodeURIComponent(q);
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = (input.value || '').trim();
+      if (!q) return;
+      window.location.href = resolve(q);
+    });
+  })();
+</script>
+
+</body>
+</html>
