@@ -11,9 +11,6 @@ on:
 permissions:
   contents: write
 
-# Only one run per branch/tag ref at a time. Pushing again while a build is
-# still going cancels the older run. Tag builds are on their own ref, so a
-# branch push cannot cancel an in-flight release build.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -102,20 +99,21 @@ jobs:
           echo "Created $DEST"
           ls -la dist/
 
-      # Branch builds only: publish the APK as a workflow artifact.
-      # Tag builds skip this entirely — large uploads hit the artifact
-      # service's timeout, and the release attach below is the real
-      # deliverable for tags.
+      # Branch builds only. continue-on-error + compression-level 0 are
+      # defensive — large APK uploads occasionally time out the artifact
+      # service, and we don't want that failure killing the rest of the job.
       - name: Upload APK as workflow artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: SpoonGecko-${{ steps.version.outputs.name }}
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
-      # Tag builds only: attach the APK to the GitHub Release for the tag.
+      # Tag builds only — the release is the deliverable.
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
