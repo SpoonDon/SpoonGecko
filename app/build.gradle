@@ -2,13 +2,18 @@ plugins {
     id 'com.android.application'
 }
 
-// Signing credentials come from env vars (injected by GitHub Actions from
-// repository secrets). When they're absent — e.g. a local debug build —
-// the release signing config is skipped and only debug builds are signed.
+// Keystore credentials come from env vars (injected by GitHub Actions from
+// repository secrets). When absent (local debug builds), the release
+// signing config is skipped.
 def keystorePath       = System.getenv("KEYSTORE_PATH")
 def keystorePassword   = System.getenv("KEYSTORE_PASSWORD")
 def keyAliasValue      = System.getenv("KEY_ALIAS")
 def keyPasswordValue   = System.getenv("KEY_PASSWORD")
+
+// Version metadata can be overridden from the command line:
+//   gradle assembleRelease -PappVersionName=1.2.3 -PappVersionCode=42
+def appVersionName = project.findProperty('appVersionName') ?: '1.0.0-dev'
+def appVersionCode = (project.findProperty('appVersionCode') ?: '1').toString().toInteger()
 
 android {
     namespace 'com.spoongecko.app'
@@ -18,8 +23,8 @@ android {
         applicationId "com.spoongecko.app"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0.0"
+        versionCode appVersionCode
+        versionName appVersionName
 
         ndk {
             abiFilters 'arm64-v8a'
