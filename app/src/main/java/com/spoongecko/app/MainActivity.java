@@ -24,10 +24,16 @@ import org.mozilla.geckoview.GeckoView;
  * Single GeckoSession rendered in a single GeckoView, wrapped in a minimal
  * toolbar (back / forward / URL / reload). No tabs yet — deliberate for v1.
  *
- * Navigation availability is tracked via HistoryDelegate, since GeckoSession
- * does not expose canGoBack()/canGoForward() directly. The URL bar is
- * updated from ProgressDelegate.onPageStart and from our own navigate()
- * call — NavigationDelegate.onLocationChange does not exist in GeckoView 157.
+ * Session lifecycle:
+ *   - session.setActive(true) in onResume keeps the Gecko compositor
+ *     producing frames. Without this, the SurfaceView can be reclaimed
+ *     when the device considers the app idle (very aggressive on MIUI/
+ *     HyperOS), leaving a pure-white page behind.
+ *   - session.setActive(false) in onPause releases resources cleanly.
+ *
+ * Back handling:
+ *   - dispatchKeyEvent runs BEFORE the view tree, so we get the back key
+ *     before GeckoView swallows it to forward to web content.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -46,7 +52,6 @@ public class MainActivity extends AppCompatActivity {
 
     private String currentUrl = "";
 
-    /** Navigation state, kept in sync by HistoryDelegate. */
     private boolean canGoBack = false;
     private boolean canGoForward = false;
 
@@ -66,10 +71,6 @@ public class MainActivity extends AppCompatActivity {
 
         session = new GeckoSession();
 
-        // Correct order for GeckoView 157:
-        //   1. open the session on the runtime
-        //   2. attach it to the GeckoView
-        //   3. load a URI
         session.open(runtime);
         wireSessionCallbacks();
 
@@ -81,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ---------------------------------------------------------------------
-    // Callbacks
+    // GeckoSession callbacks
     // ---------------------------------------------------------------------
 
     private void wireSessionCallbacks() {
@@ -91,8 +92,6 @@ public class MainActivity extends AppCompatActivity {
             public void onPageStart(@NonNull GeckoSession s, @NonNull String url) {
                 progressBar.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
-                // URL bar updates come from here — NavigationDelegate has no
-                // onLocationChange in GeckoView 157.
                 currentUrl = url;
                 updateUrlBar();
             }
@@ -122,6 +121,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
+
+    // ---------------------------------------------------------------------
+    // Toolbar
+    // ---------------------------------------------------------------------
 
     private void wireToolbar() {
         btnBack.setOnClickListener(v -> {
@@ -166,8 +169,6 @@ public class MainActivity extends AppCompatActivity {
 
         session.loadUri(url);
 
-        // Reflect the navigation immediately — onPageStart will correct this
-        // if a redirect happens.
         currentUrl = url;
         updateUrlBar();
     }
@@ -187,6 +188,10 @@ public class MainActivity extends AppCompatActivity {
         if (s.matches("^localhost(:\\d+)?(/.*)?$")) return true;
         return s.matches("^[\\w-]+(\\.[\\w-]+)+(/.*)?$");
     }
+
+    // ---------------------------------------------------------------------
+    // UI helpers
+    // ---------------------------------------------------------------------
 
     private void updateUrlBar() {
         if (currentUrl == null
@@ -219,16 +224,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ---------------------------------------------------------------------
-    // Lifecycle
+    // Hardware back — dispatched before the GeckoView view tree
     // ---------------------------------------------------------------------
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && session != null && canGoBack) {
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                && event.getAction() == KeyEvent.ACTION_UP
+                && session != null
+                && canGoBack) {
             session.goBack();
             return true;
         }
-        return super.onKeyDown(keyCode, event);
+        return super.dispatchKeyEvent(event);
+    }
+
+    // ---------------------------------------------------------------------
+    // Lifecycle — keep the Gecko compositor alive while foreground
+    // ---------------------------------------------------------------------
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (session != null) {
+            session.setActive(true);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (session != null) {
+            session.setActive(false);
+        }
+        super.onPause();
     }
 
     @Override
