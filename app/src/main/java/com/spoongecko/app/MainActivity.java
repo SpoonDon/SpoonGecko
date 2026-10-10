@@ -1,15 +1,19 @@
 package com.spoongecko.app;
 
 import android.os.Bundle;
-import android.view.View;
+import android.view.KeyEvent;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageButton;
+
 import androidx.appcompat.app.AppCompatActivity;
+
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
+
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -41,8 +45,17 @@ public class MainActivity extends AppCompatActivity {
         btnReload.setOnClickListener(v -> session.reload());
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            navigate(urlBar.getText().toString());
-            return true;
+            boolean enter = event != null
+                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == KeyEvent.ACTION_DOWN;
+            if (actionId == EditorInfo.IME_ACTION_GO
+                    || actionId == EditorInfo.IME_ACTION_DONE
+                    || enter) {
+                navigate(urlBar.getText().toString());
+                urlBar.clearFocus();
+                return true;
+            }
+            return false;
         });
     }
 
@@ -53,7 +66,9 @@ public class MainActivity extends AppCompatActivity {
             public void onLocationChange(GeckoSession s, String url,
                                          List<GeckoSession.PermissionDelegate.ContentPermission> perms,
                                          Boolean hasUserGesture) {
-                if (url != null) urlBar.setText(url);
+                if (url != null && !urlBar.hasFocus()) {
+                    urlBar.setText(url);
+                }
             }
             @Override
             public GeckoResult<String> onLoadError(GeckoSession s, String url, WebRequestError error) {
@@ -96,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
         if (!url.startsWith("http") && !url.contains("://")) {
             if (url.contains(" ") || !url.contains(".")) {
                 url = "https://duckduckgo.com/?q=" + url;
-            } else if (!url.startsWith("http")) {
+            } else {
                 url = "https://" + url;
             }
         }
