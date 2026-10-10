@@ -3,9 +3,7 @@
   "name": "SpoonGecko Blocker",
   "version": "1.0",
   "browser_specific_settings": {
-    "gecko": {
-      "id": "blocker@spoongecko.app"
-    }
+    "gecko": { "id": "blocker@spoongecko.app" }
   },
   "permissions": [
     "webRequest",
