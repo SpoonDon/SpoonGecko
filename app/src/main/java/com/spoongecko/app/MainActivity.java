@@ -30,6 +30,7 @@ import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebRequestError;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -142,17 +143,19 @@ public class MainActivity extends AppCompatActivity {
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override
             public void onLocationChange(@NonNull GeckoSession s,
-                                         @Nullable String url) {
-                currentUrl = url == null ? "" : url;
+                             @Nullable String url,
+                             @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms,
+                             boolean hasUserGesture) {    
+                currentUrl = url == null ? "" : url;    
                 updateUrlBar();
             }
 
             @Override
-            public void onLoadError(@NonNull GeckoSession s,
-                                    @Nullable String url,
-                                    int category, int error) {
-                StartupLog.e("onLoadError " + url + " cat=" + category
-                        + " err=" + error, null);
+            public GeckoResult<String> onLoadError(@NonNull GeckoSession s,
+                                       @Nullable String url,
+                                       @NonNull WebRequestError error) {    
+                StartupLog.e("onLoadError " + url + " err=" + error, null);    
+                return null; // Return a custom error page URI if you want, otherwise null
             }
 
             @Override
