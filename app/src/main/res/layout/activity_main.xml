@@ -2,90 +2,58 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:fitsSystemWindows="true"
     android:orientation="vertical">
 
     <LinearLayout
-        android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:background="@color/surface"
-        android:elevation="4dp"
+        android:background="#0F0F0F"
         android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp">
+        android:orientation="horizontal">
 
         <ImageButton
             android:id="@+id/btnBack"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/back"
             android:src="@android:drawable/ic_media_previous"
-            android:tint="@color/text_primary" />
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
 
         <ImageButton
             android:id="@+id/btnForward"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/forward"
             android:src="@android:drawable/ic_media_next"
-            android:tint="@color/text_primary" />
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
 
         <EditText
             android:id="@+id/urlBar"
             android:layout_width="0dp"
             android:layout_height="42dp"
+            android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:autofillHints=""
-            android:background="@drawable/bg_url_bar"
-            android:hint="@string/url_hint"
+            android:background="#181818"
+            android:hint="Search or enter address"
             android:imeOptions="actionGo"
-            android:importantForAutofill="no"
             android:inputType="textUri"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
-            android:selectAllOnFocus="true"
-            android:singleLine="true"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_secondary"
-            android:textSize="14sp" />
+            android:textColor="#FFFFFF"
+            android:textColorHint="#8A8A8A"
+            android:singleLine="true" />
 
         <ImageButton
             android:id="@+id/btnReload"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/reload"
             android:src="@android:drawable/ic_popup_sync"
-            android:tint="@color/text_primary" />
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
     </LinearLayout>
 
-    <FrameLayout
+    <org.mozilla.geckoview.GeckoView
+        android:id="@+id/geckoView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <org.mozilla.geckoview.GeckoView
-            android:id="@+id/geckoView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <ProgressBar
-            android:id="@+id/progressBar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:layout_gravity="top"
-            android:max="100"
-            android:progressBackgroundTint="@android:color/transparent"
-            android:progressTint="@color/accent"
-            android:visibility="gone" />
-    </FrameLayout>
+        android:layout_weight="1" />
 
 </LinearLayout>
