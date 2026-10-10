@@ -19,8 +19,20 @@ android {
         versionCode 1
         versionName "1.0.0"
 
+        // Only arm64-v8a — covers every modern Android phone.
         ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    // ABI splits kept for future use, but only one ABI is included,
+    // so a single APK is produced.
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a'
+            universalApk false
         }
     }
 
@@ -43,6 +55,7 @@ android {
         release {
             debuggable false
             minifyEnabled false
+            shrinkResources true
             if (keystorePath != null && !keystorePath.isEmpty()) {
                 signingConfig signingConfigs.release
             }
@@ -61,7 +74,7 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            useLegacyPackaging = false
         }
     }
 }
@@ -70,8 +83,7 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core:1.15.0'
     implementation 'androidx.annotation:annotation:1.9.1'
-    implementation 'com.google.android.material:material:1.12.0'
 
     // GeckoView - Latest Stable
-    implementation 'org.mozilla.geckoview:geckoview:156.0.20260921121718'
+    implementation 'org.mozilla.geckoview:geckoview:156.0.20260909172920'
 }
