@@ -2,10 +2,14 @@ package com.spoongecko.app;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
+import android.util.Patterns;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -17,18 +21,15 @@ import android.widget.ProgressBar;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
-/**
- * SpoonGecko browser screen.
- *
- * A foreground service keeps the process in the foreground-service OOM bucket
- * while this Activity is alive, which is the only reliable way to prevent
- * HyperOS from SIGKILL-ing the Gecko content process during startup.
- */
 public class MainActivity extends AppCompatActivity {
 
     private static final String HOME_URI = "resource://android/assets/home.html";
@@ -66,6 +67,8 @@ public class MainActivity extends AppCompatActivity {
         btnReload = findViewById(R.id.btnReload);
         progressBar = findViewById(R.id.progressBar);
 
+        applyEdgeToEdgeInsets(findViewById(R.id.toolbar));
+
         try {
             runtime = SpoonGeckoApp.getRuntime(this);
             StartupLog.i("Runtime obtained");
@@ -77,10 +80,20 @@ public class MainActivity extends AppCompatActivity {
         BrowserKeepAliveService.start(this);
         StartupLog.i("Requested keep-alive service");
 
+        promptForBatteryOptimizationExemption();
+
         createSession();
         wireToolbar();
         updateNavigationButtons();
         StartupLog.i("MainActivity.onCreate exit");
+    }
+
+    private void applyEdgeToEdgeInsets(View toolbar) {
+        ViewCompat.setOnApplyWindowInsetsListener(toolbar, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(v.getPaddingLeft(), bars.top, v.getPaddingRight(), 0);
+            return insets;
+        });
     }
 
     private void requestNotificationPermissionIfNeeded() {
@@ -94,19 +107,58 @@ public class MainActivity extends AppCompatActivity {
                 REQ_POST_NOTIFICATIONS);
     }
 
+    private void promptForBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            if (pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+
+            Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            i.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Throwable t) {
+            StartupLog.e("battery optimization prompt failed", t);
+        }
+    }
+
     private void createSession() {
         session = new GeckoSession();
 
         session.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
             public void onFirstComposite(@NonNull GeckoSession s) {
-                StartupLog.i("ContentDelegate.onFirstComposite: first frame drawn");
+                StartupLog.i("onFirstComposite");
             }
 
             @Override
             public void onCrash(@NonNull GeckoSession s) {
-                StartupLog.e("ContentDelegate.onCrash", null);
+                StartupLog.e("onCrash", null);
                 sessionReady = false;
+            }
+        });
+
+        session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override
+            public void onLocationChange(@NonNull GeckoSession s,
+                                         @Nullable String url) {
+                currentUrl = url == null ? "" : url;
+                updateUrlBar();
+            }
+
+            @Override
+            public void onLoadError(@NonNull GeckoSession s,
+                                    @Nullable String url,
+                                    int category, int error) {
+                StartupLog.e("onLoadError " + url + " cat=" + category
+                        + " err=" + error, null);
+            }
+
+            @Override
+            public GeckoResult<GeckoSession> onNewSession(
+                    @NonNull GeckoSession s, @NonNull String uri) {
+                s.loadUri(uri);
+                return GeckoResult.fromValue(s);
             }
         });
 
@@ -115,16 +167,12 @@ public class MainActivity extends AppCompatActivity {
         try {
             session.open(runtime);
             sessionReady = true;
-            StartupLog.i("session.open(runtime) OK");
         } catch (Throwable t) {
             StartupLog.e("session.open(runtime) threw", t);
             return;
         }
 
         geckoView.setSession(session);
-        StartupLog.i("geckoView.setSession OK");
-
-        StartupLog.i("Loading " + HOME_URI);
         session.loadUri(HOME_URI);
     }
 
@@ -133,7 +181,6 @@ public class MainActivity extends AppCompatActivity {
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
             public void onPageStart(@NonNull GeckoSession s, @NonNull String url) {
-                StartupLog.i("ProgressDelegate.onPageStart: " + url);
                 progressBar.setVisibility(View.VISIBLE);
                 progressBar.setProgress(0);
                 currentUrl = url;
@@ -142,7 +189,6 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPageStop(@NonNull GeckoSession s, boolean success) {
-                StartupLog.i("ProgressDelegate.onPageStop success=" + success);
                 progressBar.setVisibility(View.GONE);
                 updateNavigationButtons();
             }
@@ -208,9 +254,7 @@ public class MainActivity extends AppCompatActivity {
             url = SEARCH_URL + Uri.encode(trimmed);
         }
 
-        StartupLog.i("navigate: " + url);
         session.loadUri(url);
-
         currentUrl = url;
         updateUrlBar();
     }
@@ -228,7 +272,8 @@ public class MainActivity extends AppCompatActivity {
         if (s.contains(" ")) return false;
         if (hasScheme(s)) return true;
         if (s.matches("^localhost(:\\d+)?(/.*)?$")) return true;
-        return s.matches("^[\\w-]+(\\.[\\w-]+)+(/.*)?$");
+        if (s.matches("^(\\d{1,3}\\.){3}\\d{1,3}(:\\d+)?(/.*)?$")) return true;
+        return Patterns.WEB_URL.matcher(s).matches();
     }
 
     private void updateUrlBar() {
@@ -303,7 +348,9 @@ public class MainActivity extends AppCompatActivity {
         StartupLog.i("MainActivity.onDestroy");
         sessionReady = false;
 
-        BrowserKeepAliveService.stop(this);
+        // Note: we deliberately do NOT stop the keep-alive service here.
+        // It runs as long as the app process is alive so the browser
+        // survives OEM kill attempts during background use.
 
         if (geckoView != null) {
             try {
