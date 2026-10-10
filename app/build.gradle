@@ -2,32 +2,25 @@ plugins {
     id 'com.android.application'
 }
 
-// Keystore credentials come from env vars (injected by GitHub Actions from
-// repository secrets). When absent (local debug builds), the release
-// signing config is skipped.
-def keystorePath       = System.getenv("KEYSTORE_PATH")
-def keystorePassword   = System.getenv("KEYSTORE_PASSWORD")
-def keyAliasValue      = System.getenv("KEY_ALIAS")
-def keyPasswordValue   = System.getenv("KEY_PASSWORD")
-
-// Version metadata can be overridden from the command line:
-//   gradle assembleRelease -PappVersionName=1.2.3 -PappVersionCode=42
-def appVersionName = project.findProperty('appVersionName') ?: '1.0.0-dev'
-def appVersionCode = (project.findProperty('appVersionCode') ?: '1').toString().toInteger()
+def keystorePath = System.getenv("KEYSTORE_PATH")
+def keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+def keyAliasValue = System.getenv("KEY_ALIAS")
+def keyPasswordValue = System.getenv("KEY_PASSWORD")
 
 android {
     namespace 'com.spoongecko.app'
     compileSdk 37
+    buildToolsVersion "37.0.0"
 
     defaultConfig {
         applicationId "com.spoongecko.app"
         minSdk 26
         targetSdk 35
-        versionCode appVersionCode
-        versionName appVersionName
+        versionCode 1
+        versionName "1.0.0"
 
         ndk {
-            abiFilters 'arm64-v8a'
+            abiFilters 'arm64-v8a', 'x86_64'
         }
     }
 
@@ -70,15 +63,6 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
-        resources {
-            excludes += [
-                'META-INF/DEPENDENCIES',
-                'META-INF/LICENSE',
-                'META-INF/LICENSE.txt',
-                'META-INF/NOTICE',
-                'META-INF/NOTICE.txt'
-            ]
-        }
     }
 }
 
@@ -86,12 +70,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core:1.15.0'
     implementation 'androidx.annotation:annotation:1.9.1'
+    implementation 'com.google.android.material:material:1.12.0'
 
-    implementation 'org.mozilla.geckoview:geckoview:157.0.20260924084938'
-
-    constraints {
-        implementation('org.jetbrains.kotlin:kotlin-stdlib:2.2.0') {
-            because 'Pin kotlin-stdlib to match GeckoView 157 expectations'
-        }
-    }
+    // GeckoView - Latest Stable
+    implementation 'org.mozilla.geckoview:geckoview:157.0.20260918091356'
 }
