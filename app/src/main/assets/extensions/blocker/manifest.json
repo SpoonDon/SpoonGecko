@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "SpoonGecko Blocker",
+  "version": "1.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "blocker@spoongecko.app"
+    }
+  },
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  }
+}
