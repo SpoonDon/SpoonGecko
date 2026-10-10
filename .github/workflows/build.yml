@@ -37,9 +37,9 @@ jobs:
           log-accepted-android-sdk-licenses: false
           packages: platform-tools
 
-      - name: Install Android platform 37 + build-tools 37
+      - name: Install Android platform 37.0 + build-tools 37
         run: |
-          sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
+          sdkmanager --channel=3 --install "platforms;android-37.0" "build-tools;37.0.0"
           echo "=== Installed platforms ==="
           ls -1 "$ANDROID_HOME/platforms" || true
           echo "=== Installed build-tools ==="
