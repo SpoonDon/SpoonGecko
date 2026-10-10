@@ -8,12 +8,16 @@ import androidx.annotation.Nullable;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
+import org.mozilla.geckoview.WebExtension;
 
 /**
  * Application entry point and single owner of the process-wide GeckoRuntime.
- * Diagnostic build: every step is written to StartupLog.
  */
 public final class SpoonGeckoApp extends Application {
+
+    private static final String BLOCKER_ID = "blocker@spoongecko.app";
+    private static final String BLOCKER_URI =
+            "resource://android/assets/extensions/blocker/";
 
     @Nullable
     private static volatile GeckoRuntime sRuntime;
@@ -24,7 +28,8 @@ public final class SpoonGeckoApp extends Application {
         StartupLog.init(this);
         StartupLog.i("Application.onCreate enter");
         try {
-            getRuntime(this);
+            GeckoRuntime rt = getRuntime(this);
+            installBuiltInExtensions(rt);
             StartupLog.i("Application.onCreate: runtime ready");
         } catch (Throwable t) {
             StartupLog.e("Application.onCreate: runtime init failed", t);
@@ -43,8 +48,8 @@ public final class SpoonGeckoApp extends Application {
                 StartupLog.i("GeckoRuntime.create: begin");
                 Context appCtx = context.getApplicationContext();
                 GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                        .consoleOutput(true)
-                        .debugLogging(true)
+                        .consoleOutput(BuildConfig.DEBUG)
+                        .debugLogging(BuildConfig.DEBUG)
                         .build();
                 local = GeckoRuntime.create(appCtx, settings);
                 sRuntime = local;
@@ -52,5 +57,17 @@ public final class SpoonGeckoApp extends Application {
             }
         }
         return local;
+    }
+
+    private static void installBuiltInExtensions(@NonNull GeckoRuntime rt) {
+        try {
+            rt.getWebExtensionController()
+                    .ensureBuiltIn(BLOCKER_URI, BLOCKER_ID)
+                    .accept(
+                            ext -> StartupLog.i("Extension ready: " + ext.id),
+                            err -> StartupLog.e("Extension install failed", err));
+        } catch (Throwable t) {
+            StartupLog.e("installBuiltInExtensions crashed", t);
+        }
     }
 }
