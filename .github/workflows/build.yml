@@ -30,16 +30,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK (base tools only)
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
           packages: platform-tools
 
-      - name: Install Android platform 37 + build-tools
+      - name: Install Android platform 37 + build-tools 37
         run: |
-          sdkmanager --install "platforms;android-37.0" "build-tools;37.0.0"
+          sdkmanager --install "platforms;android-37" "build-tools;37.0.0"
           echo "=== Installed platforms ==="
           ls -1 "$ANDROID_HOME/platforms" || true
           echo "=== Installed build-tools ==="
@@ -58,9 +58,9 @@ jobs:
             VER="0.0.${GITHUB_RUN_NUMBER}-dev"
             CODE="${GITHUB_RUN_NUMBER}"
           fi
-          echo "tag=$RAW_TAG"        >> "$GITHUB_OUTPUT"
-          echo "name=$VER"           >> "$GITHUB_OUTPUT"
-          echo "code=${CODE}"        >> "$GITHUB_OUTPUT"
+          echo "tag=$RAW_TAG"     >> "$GITHUB_OUTPUT"
+          echo "name=$VER"        >> "$GITHUB_OUTPUT"
+          echo "code=${CODE}"     >> "$GITHUB_OUTPUT"
           echo "Resolved version: $VER (versionCode $CODE)"
 
       - name: Decode release keystore
@@ -88,23 +88,20 @@ jobs:
             -PappVersionName="${{ steps.version.outputs.name }}" \
             -PappVersionCode="${{ steps.version.outputs.code }}"
 
-      - name: Rename APK to match version
+      - name: Prepare APK for upload
         run: |
           mkdir -p dist
-          SRC="app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$SRC" ]; then
-            echo "ERROR: expected APK not found at $SRC"
+          SRC=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+          if [ -z "$SRC" ]; then
+            echo "ERROR: no APK found"
             ls -la app/build/outputs/apk/release/ || true
             exit 1
           fi
-          DEST="dist/SpoonGecko-${{ steps.version.outputs.name }}.apk"
+          DEST="dist/SpoonGecko-${{ steps.version.outputs.name }}-arm64-v8a.apk"
           cp "$SRC" "$DEST"
           echo "Created $DEST"
           ls -la dist/
 
-      # Branch builds only. continue-on-error + compression-level 0 are
-      # defensive — large APK uploads occasionally time out the artifact
-      # service, and we don't want that failure killing the rest of the job.
       - name: Upload APK as workflow artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         continue-on-error: true
@@ -116,7 +113,6 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      # Tag builds only — the release is the deliverable.
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
