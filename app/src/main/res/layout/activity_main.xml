@@ -2,6 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#050505"
     android:orientation="vertical">
 
     <LinearLayout
@@ -15,39 +16,45 @@
             android:id="@+id/btnBack"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back"
             android:src="@android:drawable/ic_media_previous"
-            android:background="?android:attr/selectableItemBackgroundBorderless" />
+            android:tint="#FFFFFF" />
 
         <ImageButton
             android:id="@+id/btnForward"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Forward"
             android:src="@android:drawable/ic_media_next"
-            android:background="?android:attr/selectableItemBackgroundBorderless" />
+            android:tint="#FFFFFF" />
 
         <EditText
             android:id="@+id/urlBar"
             android:layout_width="0dp"
             android:layout_height="42dp"
-            android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
+            android:layout_weight="1"
             android:background="#181818"
             android:hint="Search or enter address"
             android:imeOptions="actionGo"
             android:inputType="textUri"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
+            android:singleLine="true"
             android:textColor="#FFFFFF"
-            android:textColorHint="#8A8A8A"
-            android:singleLine="true" />
+            android:textColorHint="#8A8A8A" />
 
         <ImageButton
             android:id="@+id/btnReload"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Reload"
             android:src="@android:drawable/ic_popup_sync"
-            android:background="?android:attr/selectableItemBackgroundBorderless" />
+            android:tint="#FFFFFF" />
     </LinearLayout>
 
     <org.mozilla.geckoview.GeckoView
