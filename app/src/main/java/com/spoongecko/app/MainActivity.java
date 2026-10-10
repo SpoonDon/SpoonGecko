@@ -1,6 +1,5 @@
 package com.spoongecko.app;
 
-import java.util.List;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
@@ -31,6 +30,8 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
+
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -140,31 +141,35 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+        GeckoSession.NavigationDelegate navDelegate = new GeckoSession.NavigationDelegate() {
+
             @Override
             public void onLocationChange(@NonNull GeckoSession s,
-                             @Nullable String url,
-                             @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms,
-                             boolean hasUserGesture) {    
-                currentUrl = url == null ? "" : url;    
+                                         @Nullable String url,
+                                         @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms,
+                                         boolean hasUserGesture) {
+                currentUrl = url == null ? "" : url;
                 updateUrlBar();
             }
 
             @Override
             public GeckoResult<String> onLoadError(@NonNull GeckoSession s,
-                                       @Nullable String url,
-                                       @NonNull WebRequestError error) {    
-                StartupLog.e("onLoadError " + url + " err=" + error, null);    
-                return null; // Return a custom error page URI if you want, otherwise null
+                                                   @Nullable String url,
+                                                   @NonNull WebRequestError error) {
+                StartupLog.e("onLoadError " + url + " err=" + error, null);
+                return null;
             }
 
             @Override
-            public GeckoResult<GeckoSession> onNewSession(
-                    @NonNull GeckoSession s, @NonNull String uri) {
-                s.loadUri(uri);
-                return GeckoResult.fromValue(s);
+            public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
+                GeckoSession newSession = new GeckoSession();
+                newSession.setNavigationDelegate(this);
+                geckoView.setSession(newSession);
+                return GeckoResult.fromValue(newSession);
             }
-        });
+        };
+
+        session.setNavigationDelegate(navDelegate);
 
         wireSessionCallbacks();
 
@@ -351,10 +356,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         StartupLog.i("MainActivity.onDestroy");
         sessionReady = false;
-
-        // Note: we deliberately do NOT stop the keep-alive service here.
-        // It runs as long as the app process is alive so the browser
-        // survives OEM kill attempts during background use.
 
         if (geckoView != null) {
             try {
