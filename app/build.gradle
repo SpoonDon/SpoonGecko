@@ -18,7 +18,6 @@ android {
         targetSdk 35
         versionCode 1
         versionName "1.0.0"
-        // Do NOT set ndk.abiFilters here when using splits.abi below.
     }
 
     // ABI splits — only arm64-v8a is included, so a single APK is produced.
@@ -49,7 +48,9 @@ android {
         }
         release {
             debuggable false
-            minifyEnabled false
+            // Enable code shrinking (required for shrinkResources)
+            minifyEnabled true
+            // Enable resource shrinking to remove unused resources
             shrinkResources true
             if (keystorePath != null && !keystorePath.isEmpty()) {
                 signingConfig signingConfigs.release
