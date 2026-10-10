@@ -51,14 +51,17 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             RAW_TAG="${GITHUB_REF_NAME}"
             VER="${RAW_TAG#v}"
+            BASE_VER="${VER%%-*}"
+            CODE=$(echo "$BASE_VER" | awk -F. '{printf "%d%02d%02d", $1, $2, $3}')
           else
             RAW_TAG=""
             VER="0.0.${GITHUB_RUN_NUMBER}-dev"
+            CODE="${GITHUB_RUN_NUMBER}"
           fi
-          echo "tag=$RAW_TAG"              >> "$GITHUB_OUTPUT"
-          echo "name=$VER"                 >> "$GITHUB_OUTPUT"
-          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $VER (versionCode ${GITHUB_RUN_NUMBER})"
+          echo "tag=$RAW_TAG"        >> "$GITHUB_OUTPUT"
+          echo "name=$VER"           >> "$GITHUB_OUTPUT"
+          echo "code=${CODE}"        >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VER (versionCode $CODE)"
 
       - name: Decode release keystore
         run: |
