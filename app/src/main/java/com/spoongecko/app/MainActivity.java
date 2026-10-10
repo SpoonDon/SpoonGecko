@@ -147,12 +147,13 @@ public class MainActivity extends AppCompatActivity {
             public void onLocationChange(@NonNull GeckoSession s,
                                          @Nullable String url,
                                          @NonNull List<GeckoSession.PermissionDelegate.ContentPermission> perms,
-                                         boolean hasUserGesture) {
+                                         @NonNull Boolean hasUserGesture) {
                 currentUrl = url == null ? "" : url;
                 updateUrlBar();
             }
 
             @Override
+            @Nullable
             public GeckoResult<String> onLoadError(@NonNull GeckoSession s,
                                                    @Nullable String url,
                                                    @NonNull WebRequestError error) {
@@ -161,7 +162,9 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
+            @Nullable
+            public GeckoResult<GeckoSession> onNewSession(@NonNull GeckoSession session,
+                                                          @NonNull String uri) {
                 GeckoSession newSession = new GeckoSession();
                 newSession.setNavigationDelegate(this);
                 geckoView.setSession(newSession);
