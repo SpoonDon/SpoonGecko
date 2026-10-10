@@ -20,7 +20,6 @@ android {
         versionName "1.0.0"
     }
 
-    // ABI splits — only arm64-v8a is included, so a single APK is produced.
     splits {
         abi {
             enable true
@@ -48,9 +47,7 @@ android {
         }
         release {
             debuggable false
-            // Enable code shrinking (required for shrinkResources)
             minifyEnabled true
-            // Enable resource shrinking to remove unused resources
             shrinkResources true
             if (keystorePath != null && !keystorePath.isEmpty()) {
                 signingConfig signingConfigs.release
@@ -81,5 +78,5 @@ dependencies {
     implementation 'androidx.annotation:annotation:1.9.1'
 
     // GeckoView - Latest Stable
-    implementation 'org.mozilla.geckoview:geckoview:156.0.20260909172920'
+    implementation 'org.mozilla.geckoview:geckoview:156.0.20260921121718'
 }
