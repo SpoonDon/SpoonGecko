@@ -103,7 +103,18 @@ public class MainActivity extends AppCompatActivity {
 
         session.open(runtime);
         geckoView.setSession(session);
-        session.loadUri("resource://android/assets/home.html");
+        // Clear the GeckoView asset cache before loading to prevent a
+// corrupt cache from serving a blank page.
+try {
+    File cacheDir = new File(getCacheDir(), "android_asset");
+    if (cacheDir.exists()) {
+        deleteRecursive(cacheDir);
+    }
+} catch (Throwable t) {
+    // Best-effort; if it fails, continue anyway.
+}
+
+session.loadUri("resource://android/assets/home.html");
     }
 
     private void navigate(String input) {
