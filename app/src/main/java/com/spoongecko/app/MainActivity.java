@@ -15,6 +15,7 @@ import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.util.List;
+import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
     private GeckoView geckoView;
