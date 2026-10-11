@@ -16,7 +16,13 @@ import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -33,6 +39,16 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "onCreate: enter");
+
+        // Set the global exception handler first
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable throwable) {
+                writeCrashLog(throwable);
+                // Let the system handle the crash (kills the process)
+                System.exit(1);
+            }
+        });
 
         setContentView(R.layout.activity_main);
         Log.d(TAG, "onCreate: layout inflated");
@@ -80,6 +96,25 @@ public class MainActivity extends AppCompatActivity {
         });
 
         Log.d(TAG, "onCreate: exit");
+    }
+
+    private void writeCrashLog(Throwable throwable) {
+        try {
+            File file = new File(getExternalFilesDir(null), "crash.log");
+            FileWriter writer = new FileWriter(file, true);
+            String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                    .format(new Date());
+            writer.write("=== CRASH " + timestamp + " ===\n");
+            StringWriter sw = new StringWriter();
+            throwable.printStackTrace(new PrintWriter(sw));
+            writer.write(sw.toString());
+            writer.write("\n\n");
+            writer.flush();
+            writer.close();
+            Log.e(TAG, "Crash log written to: " + file.getAbsolutePath(), throwable);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to write crash log", e);
+        }
     }
 
     private void createSession() {
