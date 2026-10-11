@@ -61,6 +61,11 @@ public class MainActivity extends Activity {
     private String currentUrl = HOME_URL;
     private boolean canGoBack = false;
 
+    // Latest page title reported by ContentDelegate.onTitleChange. GeckoSession
+    // itself does not expose getTitle(), so we cache the value here and read it
+    // when recording a visit in ProgressDelegate.onPageStop.
+    private String currentTitle = "";
+
     // -------------------------------------------------------------- lifecycle
 
     @Override
@@ -252,8 +257,9 @@ public class MainActivity extends Activity {
                             "page.stop ok=" + success);
                     progressBar.setVisibility(View.GONE);
                     if (success && isHttpOrHttps(currentUrl)) {
-                        String title = s.getTitle();
-                        VisitStore.record(MainActivity.this, title, currentUrl);
+                        // Title is not exposed on GeckoSession; ContentDelegate
+                        // caches it into currentTitle on every onTitleChange.
+                        VisitStore.record(MainActivity.this, currentTitle, currentUrl);
                     }
                     SessionStore.save(MainActivity.this, currentUrl);
                 }
@@ -264,7 +270,17 @@ public class MainActivity extends Activity {
                 }
             };
 
-        private final GeckoSession.NavigationDelegate navigationDelegate =
+    private final GeckoSession.ContentDelegate contentDelegate =
+            new GeckoSession.ContentDelegate() {
+                @Override
+                public void onTitleChange(GeckoSession s, String title) {
+                    currentTitle = title == null ? "" : title;
+                    setTitle(TextUtils.isEmpty(title)
+                            ? getString(R.string.app_name) : title);
+                }
+            };
+
+    private final GeckoSession.NavigationDelegate navigationDelegate =
             new GeckoSession.NavigationDelegate() {
 
                 @Override
@@ -289,22 +305,25 @@ public class MainActivity extends Activity {
                  * engine sits in a half-loaded state where back/forward/reload
                  * and scroll all stop responding — the GeckoView equivalent of
                  * the WebView "phantom loading" bug.
+                 *
+                 * AllowOrDeny is nested inside NavigationDelegate. Because
+                 * javac does not always see the simple name inside an anonymous
+                 * subclass of a large interface, we fully qualify every use.
                  */
                 @Override
-                public GeckoResult<AllowOrDeny> onLoadRequest(
+                public GeckoResult<GeckoSession.NavigationDelegate.AllowOrDeny> onLoadRequest(
                         GeckoSession s, LoadRequest request) {
 
                     if (request == null || request.uri == null) {
-                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                        return GeckoResult.fromValue(
+                                GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
                     }
 
-                    // LoadRequest.isUserTriggered is not available on all
-                    // GeckoView versions; we gate on scheme alone, which is
-                    // what actually matters for the freeze.
                     Uri uri = Uri.parse(request.uri);
                     String scheme = uri.getScheme();
                     if (scheme == null) {
-                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                        return GeckoResult.fromValue(
+                                GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
                     }
 
                     String lower = scheme.toLowerCase();
@@ -315,19 +334,22 @@ public class MainActivity extends Activity {
                         case "data":
                         case "blob":
                         case "file":
-                            return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                            return GeckoResult.fromValue(
+                                    GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
 
                         case "javascript":
                             // Never let a page run javascript: through the loader;
                             // that's not a navigation, that's an injection vector.
-                            return GeckoResult.fromValue(AllowOrDeny.DENY);
+                            return GeckoResult.fromValue(
+                                    GeckoSession.NavigationDelegate.AllowOrDeny.DENY);
 
                         default:
                             // magnet:, tel:, mailto:, market:, intent:, sms:,
                             // custom-app schemes — hand off to the OS, then
                             // explicitly DENY so the engine doesn't stall.
                             LinkSchemeHelper.dispatch(MainActivity.this, uri);
-                            return GeckoResult.fromValue(AllowOrDeny.DENY);
+                            return GeckoResult.fromValue(
+                                    GeckoSession.NavigationDelegate.AllowOrDeny.DENY);
                     }
                 }
 
@@ -337,15 +359,6 @@ public class MainActivity extends Activity {
                     // When multi-tab lands this becomes a TabManager.newTab call.
                     s.loadUri(uri);
                     return GeckoResult.fromValue(null);
-                }
-            };
-
-    private final GeckoSession.ContentDelegate contentDelegate =
-            new GeckoSession.ContentDelegate() {
-                @Override
-                public void onTitleChange(GeckoSession s, String title) {
-                    setTitle(TextUtils.isEmpty(title)
-                            ? getString(R.string.app_name) : title);
                 }
             };
 
