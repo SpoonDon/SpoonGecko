@@ -61,7 +61,7 @@ android {
             // If the app misbehaves after enabling these, set both to false and
             // rebuild — you get a much larger but definitely-working release APK.
             minifyEnabled false
-            shrinkResources false
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                     'proguard-rules.pro'
 
