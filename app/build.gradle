@@ -2,9 +2,6 @@ plugins {
     id 'com.android.application'
 }
 
-// Signing credentials are supplied by CI via environment variables.
-// When they are absent (local builds, Codespaces without secrets), release
-// builds fall back to unsigned instead of failing the configuration phase.
 def spoonKeystoreFile     = System.getenv("SPOON_KEYSTORE_FILE")
 def spoonKeystorePassword = System.getenv("SPOON_KEYSTORE_PASSWORD")
 def spoonKeyAlias         = System.getenv("SPOON_KEY_ALIAS")
@@ -52,26 +49,15 @@ android {
                 signingConfig signingConfigs.release
             }
 
-            // --- Size reduction ----------------------------------------------------
-            // minifyEnabled strips Java/Kotlin code R8 proves unreachable.
-            // shrinkResources removes resources no longer referenced.
-            // See proguard-rules.pro for the GeckoView keep rules that keep R8
-            // from stripping JNI-reachable classes.
-            //
-            // If the app misbehaves after enabling these, set both to false and
-            // rebuild — you get a much larger but definitely-working release APK.
-            minifyEnabled true
-            shrinkResources true
+            // R8 / shrinkResources OFF per your testing: they don't help against
+            // native library weight, and shrinkResources alone breaks GeckoView.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                     'proguard-rules.pro'
 
-            // --- Native symbol stripping ------------------------------------------
-            // The single biggest size win. GeckoView ships libxul.so and friends
-            // WITH debug symbols (they're needed for Mozilla-side crash symbolication).
-            // Stripping them here has zero runtime impact — symbols are only used
-            // by NDK debuggers. Saves roughly 50-70 MB on the release APK.
             ndk {
-                debugSymbolLevel 'none'
+                debugSymbolLevel 'none'    // strip native symbols on release
             }
         }
     }
@@ -83,7 +69,13 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            // THIS IS THE BIG ONE.
+            // false = .so files stored UNCOMPRESSED in the APK (mmap-friendly,
+            //         fast install, ~200 MB APK for GeckoView).
+            // true  = .so files COMPRESSED inside the APK (smaller download,
+            //         a few hundred ms extra on first install while Android
+            //         extracts them to /data).
+            useLegacyPackaging = true
         }
         resources {
             excludes += [
@@ -103,5 +95,7 @@ android {
 }
 
 dependencies {
-    implementation 'org.mozilla.geckoview:geckoview:157.0.20261005135250'
+    // ABI-specific artifact — guarantees only arm64-v8a native libs are on the
+    // classpath, independent of abiFilters behaviour.
+    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:157.0.20261005135250'
 }
