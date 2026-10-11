@@ -51,9 +51,28 @@ android {
             if (hasSigning) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled false
-            shrinkResources false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // --- Size reduction ----------------------------------------------------
+            // minifyEnabled strips Java/Kotlin code R8 proves unreachable.
+            // shrinkResources removes resources no longer referenced.
+            // See proguard-rules.pro for the GeckoView keep rules that keep R8
+            // from stripping JNI-reachable classes.
+            //
+            // If the app misbehaves after enabling these, set both to false and
+            // rebuild — you get a much larger but definitely-working release APK.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
+
+            // --- Native symbol stripping ------------------------------------------
+            // The single biggest size win. GeckoView ships libxul.so and friends
+            // WITH debug symbols (they're needed for Mozilla-side crash symbolication).
+            // Stripping them here has zero runtime impact — symbols are only used
+            // by NDK debuggers. Saves roughly 50-70 MB on the release APK.
+            ndk {
+                debugSymbolLevel 'none'
+            }
         }
     }
 
