@@ -12,8 +12,7 @@ android {
     compileSdk 37
     buildToolsVersion "37.0.0"
 
-    defaultConfig {
-    
+    defaultConfig {    
         applicationId "com.spoongecko.app"    
         minSdk 26    
         targetSdk 35
