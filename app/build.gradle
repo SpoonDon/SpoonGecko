@@ -12,16 +12,16 @@ android {
     compileSdk 37
     buildToolsVersion "37.0.0"
 
-    defaultConfig {    
-        applicationId "com.spoongecko.app"    
-        minSdk 26    
+    defaultConfig {
+        applicationId "com.spoongecko.app"
+        minSdk 26
         targetSdk 35
-    
-        versionCode 1    
+        versionCode 1
         versionName "1.0.0"
-    
-        ndk {        
-            abiFilters 'arm64-v8a'    
+
+        // Use ONLY this filter for a single-ABI APK. Do NOT combine with splits.
+        ndk {
+            abiFilters 'arm64-v8a'
         }
     }
 
@@ -43,8 +43,8 @@ android {
         }
         release {
             debuggable false
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled true          // Enables R8 code shrinking
+            shrinkResources true        // Enables resource shrinking (requires minifyEnabled)
             if (keystorePath != null && !keystorePath.isEmpty()) {
                 signingConfig signingConfigs.release
             }
@@ -61,11 +61,10 @@ android {
         buildConfig true
     }
 
-    packaging {        
-        jniLibs {        
+    packaging {
+        jniLibs {
+            // This must be false to compress native libraries in the APK.
             useLegacyPackaging = false
-        // Exclude debug symbols from the final AP       
-            doNotStrip "**/libxul.so"    
         }
     }
 }
