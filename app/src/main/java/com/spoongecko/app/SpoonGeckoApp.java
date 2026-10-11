@@ -9,7 +9,9 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -38,11 +40,25 @@ public class SpoonGeckoApp extends Application {
         log("Application.onCreate: enter");
 
         try {
-            log("Creating GeckoRuntime with software WebRender...");
+            // Copy the GeckoView config YAML from assets to app files dir
+            File configFile = new File(getFilesDir(), "geckoview-config.yaml");
+            if (!configFile.exists()) {
+                InputStream is = getAssets().open("geckoview-config.yaml");
+                FileOutputStream fos = new FileOutputStream(configFile);
+                byte[] buf = new byte[4096];
+                int len;
+                while ((len = is.read(buf)) > 0) {
+                    fos.write(buf, 0, len);
+                }
+                fos.close();
+                is.close();
+            }
+            log("Config file path: " + configFile.getAbsolutePath());
+
+            log("Creating GeckoRuntime with config file...");
             GeckoRuntimeSettings.Builder builder = new GeckoRuntimeSettings.Builder();
             builder.consoleOutput(true);
-            builder.preferences().setBoolean("gfx.webrender.force-disabled", true);
-            builder.preferences().setBoolean("gfx.webrender.software", true);
+            builder.configFilePath(configFile.getAbsolutePath());
             sRuntime = GeckoRuntime.create(getApplicationContext(), builder.build());
             log("GeckoRuntime created OK");
         } catch (Throwable t) {
@@ -55,11 +71,9 @@ public class SpoonGeckoApp extends Application {
 
     public static synchronized GeckoRuntime getRuntime(Context context) {
         if (sRuntime == null) {
-            log("getRuntime: creating fallback with software WebRender");
+            log("getRuntime: creating fallback");
             GeckoRuntimeSettings.Builder builder = new GeckoRuntimeSettings.Builder();
             builder.consoleOutput(true);
-            builder.preferences().setBoolean("gfx.webrender.force-disabled", true);
-            builder.preferences().setBoolean("gfx.webrender.software", true);
             sRuntime = GeckoRuntime.create(context.getApplicationContext(), builder.build());
         }
         return sRuntime;
