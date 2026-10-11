@@ -39,17 +39,11 @@ public class SpoonGeckoApp extends Application {
 
         try {
             log("Creating GeckoRuntime with software WebRender...");
-            sRuntime = GeckoRuntime.create(
-                getApplicationContext(),
-                new GeckoRuntimeSettings.Builder()
-                    .consoleOutput(true)
-                    // ---- Force software WebRender ----
-                    // Disables hardware WebRender entirely.
-                    .preference("gfx.webrender.force-disabled", true)
-                    // Uses the software compositor instead of the GPU.
-                    .preference("gfx.webrender.software", true)
-                    .build()
-            );
+            GeckoRuntimeSettings.Builder builder = new GeckoRuntimeSettings.Builder();
+            builder.consoleOutput(true);
+            builder.preferences().setBoolean("gfx.webrender.force-disabled", true);
+            builder.preferences().setBoolean("gfx.webrender.software", true);
+            sRuntime = GeckoRuntime.create(getApplicationContext(), builder.build());
             log("GeckoRuntime created OK");
         } catch (Throwable t) {
             log("GeckoRuntime FAILED: " + t);
@@ -62,14 +56,11 @@ public class SpoonGeckoApp extends Application {
     public static synchronized GeckoRuntime getRuntime(Context context) {
         if (sRuntime == null) {
             log("getRuntime: creating fallback with software WebRender");
-            sRuntime = GeckoRuntime.create(
-                context.getApplicationContext(),
-                new GeckoRuntimeSettings.Builder()
-                    .consoleOutput(true)
-                    .preference("gfx.webrender.force-disabled", true)
-                    .preference("gfx.webrender.software", true)
-                    .build()
-            );
+            GeckoRuntimeSettings.Builder builder = new GeckoRuntimeSettings.Builder();
+            builder.consoleOutput(true);
+            builder.preferences().setBoolean("gfx.webrender.force-disabled", true);
+            builder.preferences().setBoolean("gfx.webrender.software", true);
+            sRuntime = GeckoRuntime.create(context.getApplicationContext(), builder.build());
         }
         return sRuntime;
     }
