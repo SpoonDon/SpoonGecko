@@ -2,6 +2,20 @@ plugins {
     id 'com.android.application'
 }
 
+// Signing credentials are supplied by CI via environment variables.
+// When they are absent (local builds, Codespaces without secrets), release
+// builds fall back to unsigned instead of failing the configuration phase.
+def spoonKeystoreFile     = System.getenv("SPOON_KEYSTORE_FILE")
+def spoonKeystorePassword = System.getenv("SPOON_KEYSTORE_PASSWORD")
+def spoonKeyAlias         = System.getenv("SPOON_KEY_ALIAS")
+def spoonKeyPassword      = System.getenv("SPOON_KEY_PASSWORD")
+
+def hasSigning = spoonKeystoreFile != null
+        && new File(spoonKeystoreFile).exists()
+        && spoonKeystorePassword != null
+        && spoonKeyAlias != null
+        && spoonKeyPassword != null
+
 android {
     namespace 'com.spoongecko.browser'
     compileSdk 37
@@ -18,11 +32,25 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasSigning) {
+            release {
+                storeFile new File(spoonKeystoreFile)
+                storePassword spoonKeystorePassword
+                keyAlias spoonKeyAlias
+                keyPassword spoonKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             minifyEnabled false
         }
         release {
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
