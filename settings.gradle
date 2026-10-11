@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SpoonGecko"
-include ":app"
+rootProject.name = 'SpoonGecko'
+include ':app'
