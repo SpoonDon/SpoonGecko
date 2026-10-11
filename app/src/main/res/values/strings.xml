@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SpoonGecko</string>
+
+    <string name="url_hint">Search or enter address</string>
+    <string name="btn_back">Back</string>
+    <string name="btn_forward">Forward</string>
+    <string name="btn_reload">Reload</string>
+    <string name="btn_menu">Menu</string>
+
+    <string name="menu_home">Home</string>
+    <string name="menu_share">Share link</string>
+    <string name="menu_copy">Copy link</string>
+    <string name="menu_battery">Battery optimization</string>
+    <string name="menu_autostart">Autostart settings</string>
+    <string name="menu_about">About</string>
+    <string name="menu_exit">Exit</string>
+
+    <string name="about_title">About SpoonGecko</string>
+    <string name="about_message">Version %1$s\n\nA GeckoView based browser.\nEngine: GeckoView 157\nABI: arm64-v8a</string>
+
+    <string name="battery_title">Keep SpoonGecko alive</string>
+    <string name="battery_message">Android may clear SpoonGecko from memory while it is in the background. Allowing SpoonGecko to ignore battery optimizations greatly reduces the chance of that happening.</string>
+    <string name="battery_allow">Allow</string>
+    <string name="battery_later">Not now</string>
+
+    <string name="keepalive_channel_name">Background service</string>
+    <string name="keepalive_channel_desc">Keeps the browser resident in the background.</string>
+    <string name="keepalive_title">SpoonGecko is running</string>
+    <string name="keepalive_text">Tap to return to your tabs.</string>
+
+    <string name="copied">Link copied</string>
+    <string name="error_runtime">Could not start the GeckoView engine.</string>
+</resources>
