@@ -1,259 +1,109 @@
 package com.spoongecko.app;
 
 import android.os.Bundle;
-import android.util.Log;
-import android.view.KeyEvent;
-import android.view.inputmethod.EditorInfo;
-import android.widget.EditText;
-import android.widget.ImageButton;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.WebRequestError;
-
-import java.io.File;
-import java.io.FileWriter;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
-
-    private static final String TAG = "SpoonGecko";
 
     private GeckoView geckoView;
     private GeckoSession session;
     private GeckoRuntime runtime;
-    private EditText urlBar;
-    private boolean canGoBack = false;
-    private boolean canGoForward = false;
+    private TextView heartbeat;
+    private int tick = 0;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable heartbeatTask = new Runnable() {
+        @Override
+        public void run() {
+            tick++;
+            if (heartbeat != null) {
+                heartbeat.setText("Alive: " + tick + "s");
+            }
+            SpoonGeckoApp.log("Heartbeat tick " + tick);
+            handler.postDelayed(this, 1000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.d(TAG, "onCreate: enter");
+        SpoonGeckoApp.log("MainActivity.onCreate: enter");
 
-        // Set the global exception handler first
-        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-            @Override
-            public void uncaughtException(Thread thread, Throwable throwable) {
-                writeCrashLog(throwable);
-                // Let the system handle the crash (kills the process)
-                System.exit(1);
-            }
+        // Set crash handler BEFORE anything else
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            SpoonGeckoApp.log("UNCAUGHT: " + throwable);
+            java.io.StringWriter sw = new java.io.StringWriter();
+            throwable.printStackTrace(new java.io.PrintWriter(sw));
+            SpoonGeckoApp.log(sw.toString());
+            android.os.Process.killProcess(android.os.Process.myPid());
         });
 
         setContentView(R.layout.activity_main);
-        Log.d(TAG, "onCreate: layout inflated");
+        SpoonGeckoApp.log("MainActivity: layout inflated");
 
         geckoView = findViewById(R.id.geckoView);
-        urlBar = findViewById(R.id.urlBar);
-        ImageButton btnBack = findViewById(R.id.btnBack);
-        ImageButton btnForward = findViewById(R.id.btnForward);
-        ImageButton btnReload = findViewById(R.id.btnReload);
-        Log.d(TAG, "onCreate: views bound");
+        heartbeat = findViewById(R.id.heartbeat);
+        SpoonGeckoApp.log("MainActivity: views bound");
+
+        // Start heartbeat
+        handler.post(heartbeatTask);
+        SpoonGeckoApp.log("MainActivity: heartbeat started");
 
         try {
             runtime = SpoonGeckoApp.getRuntime(this);
-            Log.d(TAG, "onCreate: runtime obtained");
+            SpoonGeckoApp.log("MainActivity: runtime obtained");
         } catch (Throwable t) {
-            Log.e(TAG, "onCreate: runtime failed", t);
+            SpoonGeckoApp.log("MainActivity: runtime FAILED: " + t);
             return;
         }
 
         try {
-            BrowserKeepAliveService.start(this);
-            Log.d(TAG, "onCreate: keep-alive started");
-        } catch (Throwable t) {
-            Log.e(TAG, "onCreate: keep-alive failed", t);
-        }
+            session = new GeckoSession();
+            SpoonGeckoApp.log("MainActivity: session created");
 
-        createSession();
-
-        btnBack.setOnClickListener(v -> { if (canGoBack) session.goBack(); });
-        btnForward.setOnClickListener(v -> { if (canGoForward) session.goForward(); });
-        btnReload.setOnClickListener(v -> session.reload());
-
-        urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            boolean enter = event != null
-                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
-                    && event.getAction() == KeyEvent.ACTION_DOWN;
-            if (actionId == EditorInfo.IME_ACTION_GO
-                    || actionId == EditorInfo.IME_ACTION_DONE
-                    || enter) {
-                navigate(urlBar.getText().toString());
-                urlBar.clearFocus();
-                return true;
-            }
-            return false;
-        });
-
-        Log.d(TAG, "onCreate: exit");
-    }
-
-    private void writeCrashLog(Throwable throwable) {
-        try {
-            File file = new File(getExternalFilesDir(null), "crash.log");
-            FileWriter writer = new FileWriter(file, true);
-            String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-                    .format(new Date());
-            writer.write("=== CRASH " + timestamp + " ===\n");
-            StringWriter sw = new StringWriter();
-            throwable.printStackTrace(new PrintWriter(sw));
-            writer.write(sw.toString());
-            writer.write("\n\n");
-            writer.flush();
-            writer.close();
-            Log.e(TAG, "Crash log written to: " + file.getAbsolutePath(), throwable);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to write crash log", e);
-        }
-    }
-
-    private void createSession() {
-        Log.d(TAG, "createSession: enter");
-        session = new GeckoSession();
-
-        session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
-            public void onLocationChange(GeckoSession s, String url,
-                                         List<GeckoSession.PermissionDelegate.ContentPermission> perms,
-                                         Boolean hasUserGesture) {
-                Log.d(TAG, "onLocationChange: " + url);
-                if (url != null && !urlBar.hasFocus()) {
-                    urlBar.setText(url);
-                }
-            }
-            @Override
-            public GeckoResult<String> onLoadError(GeckoSession s, String url, WebRequestError error) {
-                Log.e(TAG, "onLoadError: " + url + " err=" + error);
-                return null;
-            }
-            @Override
-            public GeckoResult<GeckoSession> onNewSession(GeckoSession s, String uri) {
-                Log.d(TAG, "onNewSession: " + uri);
-                GeckoSession newSession = new GeckoSession();
-                newSession.setNavigationDelegate(this);
-                geckoView.setSession(newSession);
-                return GeckoResult.fromValue(newSession);
-            }
-        });
-
-        session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            @Override
-            public void onPageStart(GeckoSession s, String url) {
-                Log.d(TAG, "onPageStart: " + url);
-            }
-            @Override
-            public void onPageStop(GeckoSession s, boolean success) {
-                Log.d(TAG, "onPageStop: success=" + success);
-            }
-        });
-
-        session.setContentDelegate(new GeckoSession.ContentDelegate() {
-            @Override
-            public void onCrash(GeckoSession s) {
-                Log.e(TAG, "ContentDelegate.onCrash: content process crashed");
-            }
-            @Override
-            public void onFirstComposite(GeckoSession s) {
-                Log.d(TAG, "ContentDelegate.onFirstComposite: first frame drawn");
-            }
-        });
-
-        session.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
-            @Override
-            public void onHistoryStateChange(GeckoSession s,
-                                             GeckoSession.HistoryDelegate.HistoryList historyList) {
-                int current = historyList.getCurrentIndex();
-                canGoBack = current > 0;
-                canGoForward = current < historyList.size() - 1;
-            }
-        });
-
-        Log.d(TAG, "createSession: opening session");
-        try {
             session.open(runtime);
-            Log.d(TAG, "createSession: session opened");
-        } catch (Throwable t) {
-            Log.e(TAG, "createSession: session.open failed", t);
-            return;
-        }
+            SpoonGeckoApp.log("MainActivity: session opened");
 
-        geckoView.setSession(session);
-        Log.d(TAG, "createSession: geckoView.setSession done");
+            geckoView.setSession(session);
+            SpoonGeckoApp.log("MainActivity: geckoView.setSession done");
 
-        // Clear stale asset cache
-        try {
-            File cacheDir = new File(getCacheDir(), "android_asset");
-            if (cacheDir.exists()) {
-                deleteRecursive(cacheDir);
-                Log.d(TAG, "createSession: cache cleared");
-            }
-        } catch (Throwable t) {
-            Log.e(TAG, "createSession: cache clear failed", t);
-        }
+            // Load about:blank first to verify basic rendering works
+            session.loadUri("about:blank");
+            SpoonGeckoApp.log("MainActivity: loaded about:blank");
 
-        Log.d(TAG, "createSession: loading home.html");
-        session.loadUri("resource://android/assets/home.html");
-    }
-
-    private void navigate(String input) {
-        if (input == null || input.trim().isEmpty()) return;
-        String url = input.trim();
-        if (!url.startsWith("http") && !url.contains("://")) {
-            if (url.contains(" ") || !url.contains(".")) {
-                url = "https://duckduckgo.com/?q=" + url;
-            } else {
-                url = "https://" + url;
-            }
-        }
-        Log.d(TAG, "navigate: " + url);
-        session.loadUri(url);
-    }
-
-    private static void deleteRecursive(File fileOrDirectory) {
-        if (fileOrDirectory.isDirectory()) {
-            File[] children = fileOrDirectory.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteRecursive(child);
+            // After 2 seconds, try loading the real home page
+            handler.postDelayed(() -> {
+                SpoonGeckoApp.log("MainActivity: now loading home.html");
+                try {
+                    session.loadUri("resource://android/assets/home.html");
+                    SpoonGeckoApp.log("MainActivity: home.html load requested");
+                } catch (Throwable t) {
+                    SpoonGeckoApp.log("MainActivity: home.html load FAILED: " + t);
                 }
-            }
+            }, 2000);
+
+        } catch (Throwable t) {
+            SpoonGeckoApp.log("MainActivity: GeckoView setup FAILED: " + t);
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            SpoonGeckoApp.log(sw.toString());
         }
-        fileOrDirectory.delete();
-    }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        Log.d(TAG, "onResume");
-        if (session != null) session.setActive(true);
-    }
-
-    @Override
-    protected void onPause() {
-        Log.d(TAG, "onPause");
-        if (session != null) session.setActive(false);
-        super.onPause();
+        SpoonGeckoApp.log("MainActivity.onCreate: exit");
     }
 
     @Override
     protected void onDestroy() {
-        Log.d(TAG, "onDestroy");
-        if (geckoView != null) {
-            try { geckoView.releaseSession(); } catch (Throwable ignored) {}
-        }
-        if (session != null) {
-            try { session.close(); } catch (Throwable ignored) {}
-        }
+        handler.removeCallbacks(heartbeatTask);
+        SpoonGeckoApp.log("MainActivity.onDestroy");
         super.onDestroy();
     }
 }
