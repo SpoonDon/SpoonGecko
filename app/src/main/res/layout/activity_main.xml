@@ -5,57 +5,15 @@
     android:background="#050505"
     android:orientation="vertical">
 
-    <LinearLayout
+    <TextView
+        android:id="@+id/heartbeat"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="wrap_content"
         android:background="#0F0F0F"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <ImageButton
-            android:id="@+id/btnBack"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Back"
-            android:src="@android:drawable/ic_media_previous"
-            android:tint="#FFFFFF" />
-
-        <ImageButton
-            android:id="@+id/btnForward"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Forward"
-            android:src="@android:drawable/ic_media_next"
-            android:tint="#FFFFFF" />
-
-        <EditText
-            android:id="@+id/urlBar"
-            android:layout_width="0dp"
-            android:layout_height="42dp"
-            android:layout_marginStart="6dp"
-            android:layout_marginEnd="6dp"
-            android:layout_weight="1"
-            android:background="#181818"
-            android:hint="Search or enter address"
-            android:imeOptions="actionGo"
-            android:inputType="textUri"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#8A8A8A" />
-
-        <ImageButton
-            android:id="@+id/btnReload"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Reload"
-            android:src="@android:drawable/ic_popup_sync"
-            android:tint="#FFFFFF" />
-    </LinearLayout>
+        android:padding="12dp"
+        android:text="Starting..."
+        android:textColor="#5EE07E"
+        android:textSize="14sp" />
 
     <org.mozilla.geckoview.GeckoView
         android:id="@+id/geckoView"
