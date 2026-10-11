@@ -2,47 +2,61 @@ package com.spoongecko.app;
 
 import android.app.Application;
 import android.content.Context;
+import android.os.Environment;
 import android.util.Log;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 public class SpoonGeckoApp extends Application {
-    private static final String TAG = "SpoonGeckoApp";
+
+    private static final String TAG = "SpoonGecko";
     private static GeckoRuntime sRuntime;
-    private static final String BLOCKER_ID = "blocker@spoongecko.app";
-    private static final String BLOCKER_URI = "resource://android/assets/extensions/blocker/";
+    public static File LOG_FILE;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "onCreate: enter");
+
+        // Create a publicly accessible log file in /sdcard/Download/
         try {
-            GeckoRuntime rt = getRuntime(this);
-            Log.d(TAG, "onCreate: runtime created");
-            installBuiltInExtensions(rt);
-            Log.d(TAG, "onCreate: extensions installed");
+            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            LOG_FILE = new File(dir, "spoongecko_debug.txt");
+            FileWriter w = new FileWriter(LOG_FILE, false);
+            w.write("=== SpoonGecko Debug Log ===\n");
+            w.close();
         } catch (Throwable t) {
-            Log.e(TAG, "onCreate: GeckoRuntime creation FAILED", t);
-            // Write this to the crash log as well
-            try {
-                java.io.File file = new java.io.File(getExternalFilesDir(null), "crash.log");
-                java.io.FileWriter writer = new java.io.FileWriter(file, true);
-                writer.write("=== RUNTIME CRASH ===\n");
-                java.io.StringWriter sw = new java.io.StringWriter();
-                t.printStackTrace(new java.io.PrintWriter(sw));
-                writer.write(sw.toString());
-                writer.write("\n\n");
-                writer.close();
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to write runtime crash log", e);
-            }
+            Log.e(TAG, "Cannot create public log file", t);
         }
-        Log.d(TAG, "onCreate: exit");
+
+        log("Application.onCreate: enter");
+
+        try {
+            log("Creating GeckoRuntime...");
+            sRuntime = GeckoRuntime.create(
+                getApplicationContext(),
+                new GeckoRuntimeSettings.Builder()
+                    .consoleOutput(true)
+                    .build()
+            );
+            log("GeckoRuntime created OK");
+        } catch (Throwable t) {
+            log("GeckoRuntime FAILED: " + t);
+            t.printStackTrace();
+        }
+
+        log("Application.onCreate: exit");
     }
 
     public static synchronized GeckoRuntime getRuntime(Context context) {
         if (sRuntime == null) {
+            log("getRuntime: creating (fallback)");
             sRuntime = GeckoRuntime.create(
                 context.getApplicationContext(),
                 new GeckoRuntimeSettings.Builder().build()
@@ -51,12 +65,16 @@ public class SpoonGeckoApp extends Application {
         return sRuntime;
     }
 
-    private void installBuiltInExtensions(GeckoRuntime rt) {
-        rt.getWebExtensionController()
-          .ensureBuiltIn(BLOCKER_URI, BLOCKER_ID)
-          .accept(
-              ext -> Log.d(TAG, "Extension ready: " + ext.id),
-              err -> Log.e(TAG, "Extension install failed", err)
-          );
+    public static void log(String msg) {
+        Log.d(TAG, msg);
+        if (LOG_FILE == null) return;
+        try {
+            FileWriter w = new FileWriter(LOG_FILE, true);
+            String ts = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date());
+            w.write(ts + "  " + msg + "\n");
+            w.flush();
+            w.close();
+        } catch (Throwable ignored) {
+        }
     }
 }
