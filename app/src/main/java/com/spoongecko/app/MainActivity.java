@@ -129,4 +129,16 @@ session.loadUri("resource://android/assets/home.html");
         }
         session.loadUri(url);
     }
+
+    private static void deleteRecursive(File fileOrDirectory) {    
+        if (fileOrDirectory.isDirectory()) {        
+            File[] children = fileOrDirectory.listFiles();        
+            if (children != null) {            
+                for (File child : children) {                
+                    deleteRecursive(child);            
+                }        
+            }    
+        }    
+        fileOrDirectory.delete();
+    }
 }
