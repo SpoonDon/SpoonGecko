@@ -38,11 +38,16 @@ public class SpoonGeckoApp extends Application {
         log("Application.onCreate: enter");
 
         try {
-            log("Creating GeckoRuntime...");
+            log("Creating GeckoRuntime with software WebRender...");
             sRuntime = GeckoRuntime.create(
                 getApplicationContext(),
                 new GeckoRuntimeSettings.Builder()
                     .consoleOutput(true)
+                    // ---- Force software WebRender ----
+                    // Disables hardware WebRender entirely.
+                    .preference("gfx.webrender.force-disabled", true)
+                    // Uses the software compositor instead of the GPU.
+                    .preference("gfx.webrender.software", true)
                     .build()
             );
             log("GeckoRuntime created OK");
@@ -56,10 +61,14 @@ public class SpoonGeckoApp extends Application {
 
     public static synchronized GeckoRuntime getRuntime(Context context) {
         if (sRuntime == null) {
-            log("getRuntime: creating (fallback)");
+            log("getRuntime: creating fallback with software WebRender");
             sRuntime = GeckoRuntime.create(
                 context.getApplicationContext(),
-                new GeckoRuntimeSettings.Builder().build()
+                new GeckoRuntimeSettings.Builder()
+                    .consoleOutput(true)
+                    .preference("gfx.webrender.force-disabled", true)
+                    .preference("gfx.webrender.software", true)
+                    .build()
             );
         }
         return sRuntime;
