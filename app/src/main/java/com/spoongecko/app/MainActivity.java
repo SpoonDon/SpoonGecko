@@ -76,15 +76,14 @@ public class MainActivity extends AppCompatActivity {
             SpoonGeckoApp.log("MainActivity: geckoView.setSession done");
 
             // Load about:blank first to verify basic rendering works
-            session.loadUri("about:blank");
-            SpoonGeckoApp.log("MainActivity: loaded about:blank");
+            SpoonGeckoApp.log("MainActivity: skipping about:blank");
 
             // After 2 seconds, try loading the real home page
             handler.postDelayed(() -> {
                 SpoonGeckoApp.log("MainActivity: now loading home.html");
                 try {
                     session.loadUri("resource://android/assets/home.html");
-                    SpoonGeckoApp.log("MainActivity: home.html load requested");
+                    SpoonGeckoApp.log("MainActivity: simple home.html load requested");
                 } catch (Throwable t) {
                     SpoonGeckoApp.log("MainActivity: home.html load FAILED: " + t);
                 }
