@@ -2,6 +2,31 @@ plugins {
     id 'com.android.application'
 }
 
+// ---------------------------------------------------------------------------
+// App version
+//
+// versionName comes from CI (git tag) via -PappVersionName=..., with a static
+// fallback for local / non-tag builds. Tag "v0.0.1" -> versionName "0.0.1".
+// The About screen reads this through PackageInfo.versionName.
+//
+// versionCode must be a monotonically increasing integer; we derive it from
+// the semver so installing a newer tag over an older one works without an
+// uninstall. Examples: 0.0.1 -> 1, 0.0.3 -> 3, 1.2.5 -> 10205.
+// ---------------------------------------------------------------------------
+def appVersionName = project.findProperty("appVersionName") ?: "0.1.0"
+
+def computeVersionCode(String name) {
+    def parts = name.split("[.-]")
+    def major = 0, minor = 0, patch = 0
+    if (parts.length > 0 && parts[0].isInteger()) major = parts[0] as int
+    if (parts.length > 1 && parts[1].isInteger()) minor = parts[1] as int
+    if (parts.length > 2 && parts[2].isInteger()) patch = parts[2] as int
+    return major * 10000 + minor * 100 + patch
+}
+
+// ---------------------------------------------------------------------------
+// Signing (release builds on CI, no-op on local dev unless env vars are set)
+// ---------------------------------------------------------------------------
 def spoonKeystoreFile     = System.getenv("SPOON_KEYSTORE_FILE")
 def spoonKeystorePassword = System.getenv("SPOON_KEYSTORE_PASSWORD")
 def spoonKeyAlias         = System.getenv("SPOON_KEY_ALIAS")
@@ -21,8 +46,8 @@ android {
         applicationId "com.spoongecko.browser"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode computeVersionCode(appVersionName)
+        versionName appVersionName
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -69,7 +94,6 @@ android {
 
     packaging {
         jniLibs {
-            // THIS IS THE BIG ONE.
             // false = .so files stored UNCOMPRESSED in the APK (mmap-friendly,
             //         fast install, ~200 MB APK for GeckoView).
             // true  = .so files COMPRESSED inside the APK (smaller download,
