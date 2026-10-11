@@ -307,24 +307,22 @@ public class MainActivity extends Activity {
                  * and scroll all stop responding — the GeckoView equivalent of
                  * the WebView "phantom loading" bug.
                  *
-                 * AllowOrDeny is nested inside NavigationDelegate. Because
-                 * javac does not always see the simple name inside an anonymous
-                 * subclass of a large interface, we fully qualify every use.
+                 * AllowOrDeny lives in the top-level org.mozilla.geckoview
+                 * package (not nested in NavigationDelegate), so we import it
+                 * at the top of the file and reference it unqualified here.
                  */
                 @Override
-                public GeckoResult<GeckoSession.NavigationDelegate.AllowOrDeny> onLoadRequest(
+                public GeckoResult<AllowOrDeny> onLoadRequest(
                         GeckoSession s, LoadRequest request) {
 
                     if (request == null || request.uri == null) {
-                        return GeckoResult.fromValue(
-                                GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
+                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
                     }
 
                     Uri uri = Uri.parse(request.uri);
                     String scheme = uri.getScheme();
                     if (scheme == null) {
-                        return GeckoResult.fromValue(
-                                GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
+                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
                     }
 
                     String lower = scheme.toLowerCase();
@@ -335,22 +333,19 @@ public class MainActivity extends Activity {
                         case "data":
                         case "blob":
                         case "file":
-                            return GeckoResult.fromValue(
-                                    GeckoSession.NavigationDelegate.AllowOrDeny.ALLOW);
+                            return GeckoResult.fromValue(AllowOrDeny.ALLOW);
 
                         case "javascript":
                             // Never let a page run javascript: through the loader;
                             // that's not a navigation, that's an injection vector.
-                            return GeckoResult.fromValue(
-                                    GeckoSession.NavigationDelegate.AllowOrDeny.DENY);
+                            return GeckoResult.fromValue(AllowOrDeny.DENY);
 
                         default:
                             // magnet:, tel:, mailto:, market:, intent:, sms:,
                             // custom-app schemes — hand off to the OS, then
                             // explicitly DENY so the engine doesn't stall.
                             LinkSchemeHelper.dispatch(MainActivity.this, uri);
-                            return GeckoResult.fromValue(
-                                    GeckoSession.NavigationDelegate.AllowOrDeny.DENY);
+                            return GeckoResult.fromValue(AllowOrDeny.DENY);
                     }
                 }
 
