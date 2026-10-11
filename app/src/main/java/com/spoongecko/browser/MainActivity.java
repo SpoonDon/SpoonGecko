@@ -28,6 +28,7 @@ import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.GeckoSessionSettings;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -168,27 +169,28 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ session
-
-    private boolean createSession() {
-        GeckoRuntime runtime = GeckoApp.getRuntime();
-        if (runtime == null) {
-            Toast.makeText(this, R.string.error_runtime, Toast.LENGTH_LONG).show();
-            finish();
-            return false;
+    private boolean createSession() {    
+        GeckoRuntime runtime = GeckoApp.getRuntime();    
+        if (runtime == null) {        
+            Toast.makeText(this, R.string.error_runtime, Toast.LENGTH_LONG).show();        
+            finish();        
+            return false;    
         }
-
-        CrashLogger.breadcrumb(this, "session.new");
-        session = new GeckoSession();
-        session.setProgressDelegate(progressDelegate);
-        session.setNavigationDelegate(navigationDelegate);
+    // Session-level hardening: pause media when this tab is backgrounded so
+    // it can't keep the CPU warm behind another tab. Private mode stays off
+    // so cookies persist across restarts (session restore expects that).    
+        GeckoSessionSettings sessionSettings = new GeckoSessionSettings.Builder()            
+            .usePrivateMode(false)            
+            .suspendMediaWhenInactive(true)
+            .build();
+    
+        session = new GeckoSession(sessionSettings);    
+        session.setProgressDelegate(progressDelegate);    
+        session.setNavigationDelegate(navigationDelegate);    
         session.setContentDelegate(contentDelegate);
-
-        CrashLogger.breadcrumb(this, "session.open begin");
-        session.open(runtime);
-        CrashLogger.breadcrumb(this, "session.open ok");
-
-        geckoView.setSession(session);
-        CrashLogger.breadcrumb(this, "session.attached");
+    
+        session.open(runtime);    
+        geckoView.setSession(session);    
         return true;
     }
 
