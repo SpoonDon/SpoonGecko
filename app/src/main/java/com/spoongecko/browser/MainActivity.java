@@ -8,6 +8,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -27,6 +28,9 @@ import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+
+import java.io.File;
+import java.io.FileInputStream;
 
 public class MainActivity extends Activity {
 
@@ -49,10 +53,11 @@ public class MainActivity extends Activity {
     private String currentUrl = HOME_URL;
     private boolean canGoBack = false;
 
-    // ---------------------------------------------------------------- lifecycle
+    // -------------------------------------------------------------- lifecycle
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        CrashLogger.breadcrumb(this, "activity.onCreate begin");
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -72,13 +77,26 @@ public class MainActivity extends Activity {
 
         String restored = SessionStore.load(this);
         currentUrl = TextUtils.isEmpty(restored) ? HOME_URL : restored;
-
         urlBar.setText(currentUrl);
-        session.loadUri(currentUrl);
 
-        // Survival machinery.
+        CrashLogger.breadcrumb(this, "session.loadUri begin");
+        session.loadUri(currentUrl);
+        CrashLogger.breadcrumb(this, "session.loadUri issued");
+
+        CrashLogger.breadcrumb(this, "keepalive.start begin");
         KeepAliveService.start(this);
+        CrashLogger.breadcrumb(this, "keepalive.start issued");
+
         requestNotificationPermissionIfNeeded();
+        CrashLogger.breadcrumb(this, "activity.onCreate done");
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        CrashLogger.breadcrumb(this, "activity.onPostResume");
+        // Deferred to onPostResume so the dialog does not compete with
+        // GeckoView's first paint or the POST_NOTIFICATIONS prompt.
         maybeOfferBatteryExemption();
     }
 
@@ -86,39 +104,41 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) {
-            return;
-        }
+        CrashLogger.breadcrumb(this, "activity.onNewIntent");
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri data = intent.getData();
-        if (data == null) {
-            return;
-        }
+        if (data == null) return;
         String url = data.toString();
         currentUrl = url;
         urlBar.setText(url);
-        if (session != null) {
-            session.loadUri(url);
-        }
+        if (session != null) session.loadUri(url);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        CrashLogger.breadcrumb(this, "activity.onResume");
     }
 
     @Override
     protected void onPause() {
+        CrashLogger.breadcrumb(this, "activity.onPause");
         super.onPause();
         SessionStore.save(this, currentUrl);
     }
 
     @Override
     protected void onStop() {
+        CrashLogger.breadcrumb(this, "activity.onStop");
         super.onStop();
         SessionStore.save(this, currentUrl);
     }
 
     @Override
     protected void onDestroy() {
+        CrashLogger.breadcrumb(this, "activity.onDestroy finishing=" + isFinishing());
         if (isFinishing()) {
-            if (geckoView != null) {
-                geckoView.releaseSession();
-            }
+            if (geckoView != null) geckoView.releaseSession();
             if (session != null) {
                 session.close();
                 session = null;
@@ -132,8 +152,18 @@ public class MainActivity extends Activity {
         if (session != null && canGoBack) {
             session.goBack();
         } else {
-            // Keep the process (and the foreground service) alive.
             moveTaskToBack(true);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_NOTIFICATIONS) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            CrashLogger.breadcrumb(this, "notifications granted=" + granted);
         }
     }
 
@@ -147,23 +177,26 @@ public class MainActivity extends Activity {
             return false;
         }
 
+        CrashLogger.breadcrumb(this, "session.new");
         session = new GeckoSession();
         session.setProgressDelegate(progressDelegate);
         session.setNavigationDelegate(navigationDelegate);
         session.setContentDelegate(contentDelegate);
 
-        // Order matters: open the session against the runtime first, then hand it
-        // to the GeckoView, then navigate.
+        CrashLogger.breadcrumb(this, "session.open begin");
         session.open(runtime);
+        CrashLogger.breadcrumb(this, "session.open ok");
+
         geckoView.setSession(session);
+        CrashLogger.breadcrumb(this, "session.attached");
         return true;
     }
 
     private final GeckoSession.ProgressDelegate progressDelegate =
             new GeckoSession.ProgressDelegate() {
-
                 @Override
                 public void onPageStart(GeckoSession s, String url) {
+                    CrashLogger.breadcrumb(MainActivity.this, "page.start " + url);
                     currentUrl = url;
                     urlBar.setText(url);
                     progressBar.setVisibility(View.VISIBLE);
@@ -171,6 +204,8 @@ public class MainActivity extends Activity {
 
                 @Override
                 public void onPageStop(GeckoSession s, boolean success) {
+                    CrashLogger.breadcrumb(MainActivity.this,
+                            "page.stop ok=" + success);
                     progressBar.setVisibility(View.GONE);
                     SessionStore.save(MainActivity.this, currentUrl);
                 }
@@ -183,7 +218,6 @@ public class MainActivity extends Activity {
 
     private final GeckoSession.NavigationDelegate navigationDelegate =
             new GeckoSession.NavigationDelegate() {
-
                 @Override
                 public void onCanGoBack(GeckoSession s, boolean value) {
                     canGoBack = value;
@@ -199,8 +233,6 @@ public class MainActivity extends Activity {
 
                 @Override
                 public GeckoResult<GeckoSession> onNewSession(GeckoSession s, String uri) {
-                    // Single-session build: reuse the current session for the popup
-                    // target, and deny the request for a separate GeckoSession.
                     s.loadUri(uri);
                     return GeckoResult.fromValue(null);
                 }
@@ -208,92 +240,60 @@ public class MainActivity extends Activity {
 
     private final GeckoSession.ContentDelegate contentDelegate =
             new GeckoSession.ContentDelegate() {
-
                 @Override
                 public void onTitleChange(GeckoSession s, String title) {
-                    setTitle(TextUtils.isEmpty(title) ? getString(R.string.app_name) : title);
+                    setTitle(TextUtils.isEmpty(title)
+                            ? getString(R.string.app_name) : title);
                 }
             };
 
     // ------------------------------------------------------------------ toolbar
 
     private void wireToolbar() {
-        backButton.setOnClickListener(v -> {
-            if (session != null) {
-                session.goBack();
-            }
-        });
-        forwardButton.setOnClickListener(v -> {
-            if (session != null) {
-                session.goForward();
-            }
-        });
-        reloadButton.setOnClickListener(v -> {
-            if (session != null) {
-                session.reload();
-            }
-        });
+        backButton.setOnClickListener(v -> { if (session != null) session.goBack(); });
+        forwardButton.setOnClickListener(v -> { if (session != null) session.goForward(); });
+        reloadButton.setOnClickListener(v -> { if (session != null) session.reload(); });
         menuButton.setOnClickListener(this::showMenu);
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
+            if (actionId == EditorInfo.IME_ACTION_GO
+                    || actionId == EditorInfo.IME_ACTION_DONE) {
                 navigate(urlBar.getText().toString());
                 return true;
             }
             return false;
         });
 
-        backButton.setEnabled(false);
-        backButton.setAlpha(0.35f);
-        forwardButton.setEnabled(false);
-        forwardButton.setAlpha(0.35f);
+        backButton.setEnabled(false); backButton.setAlpha(0.35f);
+        forwardButton.setEnabled(false); forwardButton.setAlpha(0.35f);
     }
 
     private void navigate(String raw) {
-        if (TextUtils.isEmpty(raw) || session == null) {
-            return;
-        }
+        if (TextUtils.isEmpty(raw) || session == null) return;
         hideKeyboard();
         urlBar.clearFocus();
         session.loadUri(normalize(raw));
     }
 
-    /**
-     * Turns whatever the user typed into a URL.
-     * Anything that is obviously not a URL becomes a DuckDuckGo search.
-     */
     private String normalize(String raw) {
         String input = raw.trim();
-        if (input.isEmpty()) {
-            return HOME_URL;
-        }
-
+        if (input.isEmpty()) return HOME_URL;
         String lower = input.toLowerCase();
-        if (lower.startsWith("http://")
-                || lower.startsWith("https://")
-                || lower.startsWith("about:")
-                || lower.startsWith("data:")
+        if (lower.startsWith("http://") || lower.startsWith("https://")
+                || lower.startsWith("about:") || lower.startsWith("data:")
                 || lower.startsWith("file:")) {
             return input;
         }
-
         boolean looksLikeHost = !input.contains(" ")
-                && input.contains(".")
-                && !input.endsWith(".");
-
-        if (looksLikeHost) {
-            return "https://" + input;
-        }
-
+                && input.contains(".") && !input.endsWith(".");
+        if (looksLikeHost) return "https://" + input;
         return "https://duckduckgo.com/?q=" + Uri.encode(input);
     }
 
     private void hideKeyboard() {
         InputMethodManager imm =
                 (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) {
-            imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
-        }
+        if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
     }
 
     // --------------------------------------------------------------------- menu
@@ -306,38 +306,23 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 4, 3, R.string.menu_battery);
         popup.getMenu().add(0, 5, 4, R.string.menu_autostart);
         popup.getMenu().add(0, 6, 5, R.string.menu_about);
-        popup.getMenu().add(0, 7, 6, R.string.menu_exit);
+        popup.getMenu().add(0, 7, 6, "Show crash log");
+        popup.getMenu().add(0, 8, 7, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
 
     private boolean onMenuClick(MenuItem item) {
         switch (item.getItemId()) {
-            case 1:
-                if (session != null) {
-                    session.loadUri(HOME_URL);
-                }
-                return true;
-            case 2:
-                shareCurrent();
-                return true;
-            case 3:
-                copyCurrent();
-                return true;
-            case 4:
-                OemHelper.requestIgnoreBatteryOptimizations(this);
-                return true;
-            case 5:
-                OemHelper.openAutostartSettings(this);
-                return true;
-            case 6:
-                showAbout();
-                return true;
-            case 7:
-                exitApp();
-                return true;
-            default:
-                return false;
+            case 1: if (session != null) session.loadUri(HOME_URL); return true;
+            case 2: shareCurrent(); return true;
+            case 3: copyCurrent(); return true;
+            case 4: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
+            case 5: OemHelper.openAutostartSettings(this); return true;
+            case 6: showAbout(); return true;
+            case 7: showCrashLog(); return true;
+            case 8: exitApp(); return true;
+            default: return false;
         }
     }
 
@@ -349,8 +334,7 @@ public class MainActivity extends Activity {
     }
 
     private void copyCurrent() {
-        ClipboardManager cm =
-                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
             cm.setPrimaryClip(ClipData.newPlainText("url", currentUrl));
             Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
@@ -365,6 +349,42 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private void showCrashLog() {
+        File f = CrashLogger.latestReportFile(this);
+        if (f == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Crash log")
+                    .setMessage("No crash report yet.")
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            return;
+        }
+        String text;
+        try {
+            byte[] data = new byte[(int) f.length()];
+            try (FileInputStream in = new FileInputStream(f)) {
+                int read = in.read(data);
+                text = new String(data, 0, Math.max(read, 0), "UTF-8");
+            }
+        } catch (Exception e) {
+            text = "Could not read " + f.getName() + ": " + e;
+        }
+        final String content = text;
+        new AlertDialog.Builder(this)
+                .setTitle(f.getName())
+                .setMessage(content)
+                .setPositiveButton("Copy", (d, w) -> {
+                    ClipboardManager cm =
+                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("crash", content));
+                        Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
     private void exitApp() {
         SessionStore.save(this, currentUrl);
         KeepAliveService.stop(this);
@@ -373,35 +393,34 @@ public class MainActivity extends Activity {
 
     private String versionName() {
         try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            PackageInfo info;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                info = getPackageManager().getPackageInfo(
+                        getPackageName(), PackageManager.PackageInfoFlags.of(0));
+            } else {
+                info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            }
+            return info.versionName;
         } catch (Exception e) {
             return "";
         }
     }
 
-    // ------------------------------------------------------------- survival UX
+    // -------------------------------------------------------------- survival UX
 
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return;
-        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
                     REQ_NOTIFICATIONS);
         }
     }
 
     private void maybeOfferBatteryExemption() {
-        if (OemHelper.isIgnoringBatteryOptimizations(this)) {
-            return;
-        }
-
+        if (OemHelper.isIgnoringBatteryOptimizations(this)) return;
         SharedPreferences flags = getSharedPreferences(FLAGS_PREFS, MODE_PRIVATE);
-        if (flags.getBoolean(KEY_ASKED_BATTERY, false)) {
-            return;
-        }
+        if (flags.getBoolean(KEY_ASKED_BATTERY, false)) return;
         flags.edit().putBoolean(KEY_ASKED_BATTERY, true).apply();
 
         new AlertDialog.Builder(this)
