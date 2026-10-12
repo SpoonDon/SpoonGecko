@@ -297,16 +297,44 @@ public class MainActivity extends Activity {
         tabManager.loadUrlInCurrentTab(normalized);
     }
 
+    /**
+     * Turns whatever the user typed into a URL.
+     *
+     * Rejects (with a toast) schemes that GeckoView can't load and that
+     * would otherwise leave the user staring at a blank page with no
+     * explanation:
+     *   - file:// / content:// — GeckoView blocks these (we don't have a
+     *     file-access delegate wired), so we tell the user instead.
+     *   - data: — a phishing vector when pasted into a URL bar; also
+     *     GeckoView blocks top-level data: navigation by default.
+     *
+     * Handles local-network hosts (routers, gateways, mDNS names) by
+     * defaulting them to http:// since almost none serve a valid HTTPS
+     * certificate.
+     */
     private String normalize(String raw) {
         String input = raw.trim();
         if (input.isEmpty()) return null;
         String lower = input.toLowerCase();
 
         if (lower.startsWith("http://") || lower.startsWith("https://")
-                || lower.startsWith("about:") || lower.startsWith("data:")
-                || lower.startsWith("file:")) {
+                || lower.startsWith("about:")) {
             return input;
         }
+
+        if (lower.startsWith("file:") || lower.startsWith("content:")) {
+            Toast.makeText(this,
+                    "Local files aren't supported",
+                    Toast.LENGTH_SHORT).show();
+            return null;
+        }
+        if (lower.startsWith("data:")) {
+            Toast.makeText(this,
+                    "data: URLs aren't supported",
+                    Toast.LENGTH_SHORT).show();
+            return null;
+        }
+
         if (lower.startsWith("magnet:") || lower.startsWith("tel:")
                 || lower.startsWith("mailto:") || lower.startsWith("market:")
                 || lower.startsWith("intent:")) {
