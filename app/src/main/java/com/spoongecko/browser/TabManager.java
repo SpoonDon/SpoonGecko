@@ -123,9 +123,15 @@ public class TabManager {
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
 
-        session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
-            @Override public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
-                tab.atTop = scrollY <= 0;
+        session.setScrollDelegate(new GeckoSession.ScrollDelegate() {    
+            @Override            
+            public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
+        // GeckoView reports CSS-pixel offsets and, on some pages, a
+        // tiny positive value even at the top (subpixel layout,
+        // sticky headers, dynamic viewport). Treat <= 2 as "at top"
+        // so pull-to-refresh does not get permanently disabled.        
+                tab.scrollY = scrollY;        
+                tab.atTop = scrollY <= 2;    
             }
         });
 
