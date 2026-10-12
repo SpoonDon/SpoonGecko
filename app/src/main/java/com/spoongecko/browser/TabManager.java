@@ -22,17 +22,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Owns the tab list and drives a single shared GeckoView.
- *
- * Delegates installed per session:
- *   - ProgressDelegate   : url bar updates, progress bar, session save triggers
- *   - ContentDelegate    : page titles
- *   - ScrollDelegate     : gates pull-to-refresh on real page top
- *   - NavigationDelegate : scheme gating, UA swap for local hosts, error pages,
- *                          new-tab routing, spoongecko:// action scheme
- *   - PromptDelegate     : HTTP Basic Auth dialog (routers, ISP modems, etc.)
- */
 public class TabManager {
 
     public static final String HOME_URL = "https://duckduckgo.com/";
@@ -132,7 +121,6 @@ public class TabManager {
             }
         });
 
-        // HTTP Basic Auth dialog for routers, ISP modems, corporate proxies.
         session.setPromptDelegate(new AuthPromptHandler(activity));
 
         session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
@@ -159,13 +147,23 @@ public class TabManager {
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
 
+                // ===== EXTENSION SUPPORT =====
+                // AMO serves signed WebExtension packages at URLs ending in .xpi.
+                // Hand these to GeckoView's installer instead of trying to
+                // navigate to them as pages. installFromUrl() must run on the
+                // UI thread, hence the mainHandler.post.
+                if ("https".equalsIgnoreCase(scheme)
+                        && request.uri.endsWith(".xpi")) {
+                    final String xpiUrl = request.uri;
+                    mainHandler.post(() ->
+                            ExtensionManager.getInstance().installFromUrl(xpiUrl));
+                    return GeckoResult.fromValue(AllowOrDeny.DENY);
+                }
+                // ===== END EXTENSION SUPPORT =====
+
                 switch (scheme.toLowerCase()) {
                     case "http": case "https": case "about":
                     case "data": case "blob":   case "file": {
-                        // Belt-and-suspenders UA swap for redirect chains.
-                        // The critical swap already happened in loadUri via
-                        // applyUaForUrl(). This one handles the case where a
-                        // public page redirects to a local URL or vice versa.
                         String target = request.uri;
                         String desired = WebViewUserAgent.isLocalTarget(target)
                                 ? WebViewUserAgent.VALUE
@@ -179,9 +177,6 @@ public class TabManager {
                     case "javascript":
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
                     case "spoongecko": {
-                        // Internal action scheme used by our error page to
-                        // offer "Try over HTTP". Format:
-                        //   spoongecko://retry-http?url=http%3A%2F%2F1.2.3.4
                         String host = uri.getHost();
                         if ("retry-http".equals(host)) {
                             String innerUrl = uri.getQueryParameter("url");
@@ -267,9 +262,6 @@ public class TabManager {
                         ? categoryLabel
                         : categoryLabel + " - " + codeLabel;
 
-                // "Try over HTTP" fallback for private HTTPS targets that
-                // fail on a bad cert. Many routers serve their admin UI on
-                // plain HTTP too and only redirect by default.
                 String httpButton = "";
                 boolean certFail = (code == WebRequestError.ERROR_SECURITY_BAD_CERT
                         || code == WebRequestError.ERROR_SECURITY_SSL);
@@ -440,18 +432,6 @@ public class TabManager {
 
     // ------------------------------------------------------------- helpers
 
-    /**
-     * Sets the session User-Agent BEFORE a load. Local/private targets get
-     * the WebView UA (routers serve HTTP when they see it). All other targets
-     * get null, which resets to GeckoView's default Firefox UA.
-     *
-     * Must be called before session.loadUri(). UA swaps that only happen in
-     * onLoadRequest are too late: the first request of a navigation is
-     * dispatched immediately, and routers decide HTTP vs HTTPS based on the
-     * UA of that very first request. If the first request carries a Firefox
-     * UA, the router commits to an HTTPS redirect and the cert fails before
-     * our onLoadRequest swap can take effect.
-     */
     private static void applyUaForUrl(GeckoSession session, String url) {
         String desired = WebViewUserAgent.isLocalTarget(url)
                 ? WebViewUserAgent.VALUE
@@ -461,7 +441,6 @@ public class TabManager {
         }
     }
 
-    /** True when the URL targets a private-network host. */
     private static boolean isPrivateHost(String url) {
         try {
             String host = Uri.parse(url).getHost();
