@@ -110,6 +110,10 @@ public class GeckoApp extends Application {
         return sRuntime;
     }
 
+    private static Context sAppContext;
+
+    public static Context getAppContext() { return sAppContext; }
+
     private void createNotificationChannel() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
