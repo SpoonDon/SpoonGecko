@@ -85,6 +85,10 @@ public class MainActivity extends Activity {
             return;
         }
 
+        // ===== EXTENSION SUPPORT =====
+        ExtensionManager.getInstance().init(this, runtime);
+        // ===== END EXTENSION SUPPORT =====
+
         tabManager = new TabManager(this, geckoView, runtime, tabListener);
 
         wireToolbar();
@@ -297,21 +301,6 @@ public class MainActivity extends Activity {
         tabManager.loadUrlInCurrentTab(normalized);
     }
 
-    /**
-     * Turns whatever the user typed into a URL.
-     *
-     * Rejects (with a toast) schemes that GeckoView can't load and that
-     * would otherwise leave the user staring at a blank page with no
-     * explanation:
-     *   - file:// / content:// — GeckoView blocks these (we don't have a
-     *     file-access delegate wired), so we tell the user instead.
-     *   - data: — a phishing vector when pasted into a URL bar; also
-     *     GeckoView blocks top-level data: navigation by default.
-     *
-     * Handles local-network hosts (routers, gateways, mDNS names) by
-     * defaulting them to http:// since almost none serve a valid HTTPS
-     * certificate.
-     */
     private String normalize(String raw) {
         String input = raw.trim();
         if (input.isEmpty()) return null;
@@ -323,14 +312,12 @@ public class MainActivity extends Activity {
         }
 
         if (lower.startsWith("file:") || lower.startsWith("content:")) {
-            Toast.makeText(this,
-                    "Local files aren't supported",
+            Toast.makeText(this, "Local files aren't supported",
                     Toast.LENGTH_SHORT).show();
             return null;
         }
         if (lower.startsWith("data:")) {
-            Toast.makeText(this,
-                    "data: URLs aren't supported",
+            Toast.makeText(this, "data: URLs aren't supported",
                     Toast.LENGTH_SHORT).show();
             return null;
         }
@@ -342,46 +329,23 @@ public class MainActivity extends Activity {
             return null;
         }
 
-        // Any bare IPv4 literal (with optional :port and /path) — HTTP first.
-        // Routers, ISP modems and local devices serve plain HTTP on port 80,
-        // so defaulting to https:// guarantees a "connection refused" blank page.
-        if (isIpv4Literal(input)) {
-            return "http://" + input;
-        }
-
-        // Bracketed IPv6 literal — same reasoning.
-        if (input.startsWith("[") && input.indexOf(']') > 1) {
-            return "http://" + input;
-        }
+        if (isIpv4Literal(input)) return "http://" + input;
+        if (input.startsWith("[") && input.indexOf(']') > 1) return "http://" + input;
 
         boolean looksLikeHost = !input.contains(" ")
                 && input.contains(".") && !input.endsWith(".");
         if (looksLikeHost) {
             String host = extractHost(input);
-            if (LocalHostPolicy.isLocalHost(host)) {
-                return "http://" + input;
-            }
+            if (LocalHostPolicy.isLocalHost(host)) return "http://" + input;
             return "https://" + input;
         }
         return "https://duckduckgo.com/?q=" + Uri.encode(input);
     }
 
-    /**
-     * True if input starts with an IPv4 literal, optionally followed by
-     * ":port" and/or "/path". Examples:
-     *   192.168.1.1              -> true
-     *   192.168.1.1:8080         -> true
-     *   192.168.1.1/admin        -> true
-     *   49.36.100.5              -> true  (public IP — still HTTP-first)
-     *   example.com              -> false
-     *   192.168.1                -> false (not a full 4-octet address)
-     */
     private static boolean isIpv4Literal(String input) {
         if (input.isEmpty()) return false;
-        // Isolate the authority portion (strip path).
         int slash = input.indexOf('/');
         String authority = slash >= 0 ? input.substring(0, slash) : input;
-        // Strip :port if present.
         int colon = authority.indexOf(':');
         String host = colon >= 0 ? authority.substring(0, colon) : authority;
         String[] parts = host.split("\\.", -1);
@@ -397,7 +361,6 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    /** Strips scheme, userinfo, port and path from an authority-like input. */
     private static String extractHost(String input) {
         int schemeIdx = input.indexOf("://");
         String h = schemeIdx >= 0 ? input.substring(schemeIdx + 3) : input;
@@ -457,9 +420,12 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 6, 5, R.string.menu_share);
         popup.getMenu().add(0, 7, 6, R.string.menu_copy);
         popup.getMenu().add(0, 8, 7, "History");
-        popup.getMenu().add(0, 9, 8, "Settings");
-        popup.getMenu().add(0, 10, 9, R.string.menu_about);
-        popup.getMenu().add(0, 11, 10, R.string.menu_exit);
+        // ===== EXTENSION SUPPORT =====
+        popup.getMenu().add(0, 12, 8, "Extensions");
+        // ===== END EXTENSION SUPPORT =====
+        popup.getMenu().add(0, 9, 9, "Settings");
+        popup.getMenu().add(0, 10, 10, R.string.menu_about);
+        popup.getMenu().add(0, 11, 11, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
@@ -479,12 +445,24 @@ public class MainActivity extends Activity {
             case 6: shareCurrent(); return true;
             case 7: copyCurrent(); return true;
             case 8: openHistory(); return true;
+            // ===== EXTENSION SUPPORT =====
+            case 12: openExtensions(); return true;
+            // ===== END EXTENSION SUPPORT =====
             case 9: SettingsDialog.show(this); return true;
             case 10: showAbout(); return true;
             case 11: exitApp(); return true;
             default: return false;
         }
     }
+
+    // ===== EXTENSION SUPPORT =====
+    private void openExtensions() {
+        ExtensionsDialog.show(this, () -> {
+            Tab t = tabManager.createTab("https://addons.mozilla.org/android/");
+            tabManager.switchTo(tabManager.getTabs().indexOf(t));
+        });
+    }
+    // ===== END EXTENSION SUPPORT =====
 
     private void openHistory() {
         HistoryDialog.show(this, new HistoryDialog.Callbacks() {
