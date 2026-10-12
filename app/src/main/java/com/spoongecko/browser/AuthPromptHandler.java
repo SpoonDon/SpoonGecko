@@ -15,40 +15,18 @@ import org.mozilla.geckoview.GeckoSession.PromptDelegate;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.AuthPrompt;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse;
 
-import java.net.URI;
-import java.util.HashSet;
-import java.util.Set;
-
 /**
- * PromptDelegate for GeckoSession. Currently handles only HTTP Basic Auth
- * (onAuthPrompt), which is the prompt that routers, ISP modems, corporate
- * proxies and self-hosted admin panels rely on.
+ * PromptDelegate implementation modelled directly on Mozilla's own
+ * BasicGeckoViewPrompt.java from the geckoview_example app.
  *
- * Without a PromptDelegate, GeckoView cancels the auth prompt and renders a
- * blank white page: the request reached the server, the server replied
- * 401 Unauthorized, and the browser has nowhere to show the credential
- * fields. Setting this delegate on every new session fixes it.
- *
- * API reference (GeckoView 157):
- *   onAuthPrompt(session, prompt)
- *   prompt.message          -> realm / message text (nullable)
- *   prompt.title            -> optional title (nullable, inherited)
- *   prompt.authOptions.uri  -> request URI (nullable)
- *   prompt.authOptions.username -> prefill, or null if password-only
- *   prompt.authOptions.password -> prefill (nullable)
- *   prompt.confirm(password)                 -> PromptResponse
- *   prompt.confirm(username, password)       -> PromptResponse
- *   prompt.dismiss()                         -> PromptResponse
- *
- * Other prompt types (alerts, file pickers, geolocation, etc.) fall through
- * to GeckoView's default dismissal, matching pre-existing behaviour. They
- * can be added incrementally on top of this class.
+ * Without this delegate, GeckoView auto-dismisses every auth challenge
+ * (HTTP 401) and the page renders blank. Routers, ISP modems and
+ * corporate proxies all use HTTP Basic Auth, so this is not optional.
  */
 public class AuthPromptHandler implements PromptDelegate {
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Set<String> seenRealms = new HashSet<>();
 
     public AuthPromptHandler(Context context) {
         this.context = context;
@@ -63,37 +41,31 @@ public class AuthPromptHandler implements PromptDelegate {
         return result;
     }
 
-    // ------------------------------------------------------------------ dialog
-
     private void showDialog(AuthPrompt prompt,
                             GeckoResult<PromptResponse> result) {
         try {
             final AuthPrompt.AuthOptions opts = prompt.authOptions;
-            final String realm = prompt.message == null ? "" : prompt.message;
-            final String uriStr = opts == null ? null : opts.uri;
-            final String prefillUser = opts == null ? null : opts.username;
-            final String prefillPass = opts == null ? null : opts.password;
-            final boolean passwordOnly = prefillUser == null;
-
-            // If we have seen this realm before, the previous attempt failed.
-            // GeckoView does not expose a "previous failed" flag in 157.
-            final boolean retry = !realm.isEmpty() && !seenRealms.add(realm);
+            final int flags = (opts == null) ? 0 : opts.flags;
+            final boolean onlyPassword =
+                    (flags & AuthPrompt.AuthOptions.Flags.ONLY_PASSWORD) != 0;
+            final String prefillUser = (opts == null) ? null : opts.username;
+            final String prefillPass = (opts == null) ? null : opts.password;
 
             int pad = dp(20);
             LinearLayout container = new LinearLayout(context);
             container.setOrientation(LinearLayout.VERTICAL);
             container.setPadding(pad, dp(4), pad, 0);
 
-            if (!realm.isEmpty()) {
-                TextView realmView = new TextView(context);
-                realmView.setText(realm);
-                realmView.setTextSize(13f);
-                realmView.setAlpha(0.7f);
-                container.addView(realmView);
+            if (prompt.message != null && !prompt.message.isEmpty()) {
+                TextView msg = new TextView(context);
+                msg.setText(prompt.message);
+                msg.setTextSize(13f);
+                msg.setAlpha(0.7f);
+                container.addView(msg);
             }
 
             final EditText userField;
-            if (!passwordOnly) {
+            if (!onlyPassword) {
                 userField = new EditText(context);
                 userField.setHint("Username");
                 userField.setSingleLine(true);
@@ -117,46 +89,32 @@ public class AuthPromptHandler implements PromptDelegate {
             }
             container.addView(passField);
 
-            String title = retry ? "Sign in (previous attempt failed)" : "Sign in";
-            String host = hostOf(uriStr);
+            String title = (prompt.title == null || prompt.title.isEmpty())
+                    ? "Sign in" : prompt.title;
 
             AlertDialog.Builder b = new AlertDialog.Builder(context);
             b.setTitle(title);
-            if (!host.isEmpty()) b.setMessage(host);
             b.setView(container);
 
             final EditText userFinal = userField;
             final EditText passFinal = passField;
-            b.setPositiveButton("Sign in", (d, w) -> {
-                String user = userFinal == null ? "" : userFinal.getText().toString();
+            b.setPositiveButton(android.R.string.ok, (d, w) -> {
                 String pass = passFinal.getText().toString();
                 PromptResponse response;
                 if (userFinal == null) {
                     response = prompt.confirm(pass);
                 } else {
-                    response = prompt.confirm(user, pass);
+                    response = prompt.confirm(userFinal.getText().toString(), pass);
                 }
                 result.complete(response);
             });
-            b.setNegativeButton("Cancel", (d, w) ->
+            b.setNegativeButton(android.R.string.cancel, (d, w) ->
                     result.complete(prompt.dismiss()));
             b.setOnCancelListener(d ->
                     result.complete(prompt.dismiss()));
             b.show();
         } catch (Throwable t) {
-            try {
-                result.complete(prompt.dismiss());
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    private static String hostOf(String url) {
-        if (url == null || url.isEmpty()) return "";
-        try {
-            String h = new URI(url).getHost();
-            return h == null ? "" : h;
-        } catch (Exception e) {
-            return "";
+            try { result.complete(prompt.dismiss()); } catch (Throwable ignored) {}
         }
     }
 
