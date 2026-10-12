@@ -3,6 +3,7 @@ package com.spoongecko.browser;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
@@ -15,11 +16,13 @@ import java.util.Map;
  *
  * API note (GeckoView 157):
  *   - WebExtension is no longer constructed manually. Use
- *     WebExtensionController.ensureBuiltIn(String uri, String id) or
- *     installBuiltIn(String uri) to register the bundled extension.
+ *     WebExtensionController.ensureBuiltIn(String uri, String id) to
+ *     register the bundled extension.
  *   - GeckoSession no longer has setMessageDelegate(MessageDelegate, String).
- *     Instead use session.getWebExtensionController()
+ *     Use session.getWebExtensionController()
  *         .setMessageDelegate(WebExtension, MessageDelegate, String).
+ *   - WebExtension.MessageDelegate.onMessage(void) was removed in 157; the
+ *     current method is onMessageDelegate(...) returning GeckoResult<Object>.
  *   - The content script must be authorized to send native messages via
  *     the "nativeMessagingFromContent" permission in manifest.json.
  */
@@ -72,9 +75,23 @@ public final class ScrollExtension {
 
         Delegate(Tab tab) { this.tab = tab; }
 
+        /**
+         * Current (GeckoView 157) entry point for sendNativeMessage.
+         * Returning null means "fire and forget" — the content script
+         * does not await a reply, it just wants the side-effect of
+         * updating our cached scroll state.
+         */
         @Override
-        public void onMessage(@NonNull WebExtension.MessageSender sender,
-                              @Nullable Object message) {
+        @Nullable
+        public GeckoResult<Object> onMessageDelegate(
+                @NonNull WebExtension.MessageSender sender,
+                @NonNull Object message,
+                @NonNull WebExtension.MessageDelegate delegate) {
+            applyMessage(message);
+            return null;
+        }
+
+        private void applyMessage(@Nullable Object message) {
             if (!(message instanceof Map)) return;
             Map<?, ?> m = (Map<?, ?>) message;
 
