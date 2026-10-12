@@ -18,6 +18,8 @@ import java.util.List;
  *   - WebExtensionController.install(String, String) is the current API
  *     (the single-arg overload is deprecated).
  *   - onInstallPrompt was removed in v134; use onInstallPromptRequest.
+ *   - Built-in extensions are registered via ensureBuiltIn / installBuiltIn,
+ *     not via the (now removed) WebExtension constructor + registerBuiltIn.
  */
 public final class ExtensionManager {
 
@@ -27,7 +29,13 @@ public final class ExtensionManager {
     private WebExtensionController mController;
     private final List<WebExtension> mExtensions = new ArrayList<>();
     private ExtensionListListener mListener;
-    private boolean mBuiltInsRegistered = false;
+
+    /**
+     * The bundled scroll-reporter extension, resolved once after
+     * ensureBuiltIn completes. {@link TabManager} uses this reference when
+     * attaching a per-session message delegate.
+     */
+    private volatile WebExtension mScrollExtension;
 
     public interface ExtensionListListener {
         void onExtensionsChanged(List<WebExtension> extensions);
@@ -54,16 +62,24 @@ public final class ExtensionManager {
         mController.setPromptDelegate(new ExtensionPromptDelegate(activity));
         mController.setAddonManagerDelegate(new ExtensionAddonManagerDelegate(this));
 
-        if (!mBuiltInsRegistered) {
+        if (mScrollExtension == null) {
             try {
-                ScrollExtension.register(mController);
-                mBuiltInsRegistered = true;
+                // Async: captures the WebExtension once it's ready.
+                ScrollExtension.install(mController, extension -> {
+                    mScrollExtension = extension;
+                    Log.i(TAG, "scroll extension available: " + extension.id);
+                });
             } catch (Throwable t) {
                 Log.e(TAG, "failed to register built-in extensions", t);
             }
         }
 
         refresh();
+    }
+
+    /** Returns the scroll-reporter extension, or null if not yet installed. */
+    public WebExtension getScrollExtension() {
+        return mScrollExtension;
     }
 
     public void setListener(ExtensionListListener listener) {
