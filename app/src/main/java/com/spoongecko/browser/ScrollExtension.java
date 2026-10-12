@@ -1,148 +1,103 @@
 package com.spoongecko.browser;
 
-import org.mozilla.geckoview.GeckoResult;
-import org.mozilla.geckoview.GeckoRuntime;
-import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.WebExtension;
-import org.mozilla.geckoview.WebExtensionController;
-
-import java.util.Map;
+import android.net.Uri;
 
 /**
- * Bridges the bundled "SpoonGecko Scroll Hook" WebExtension to per-tab
- * scroll state.
+ * Inject-and-report scroll hook.
  *
- * GeckoView 157 removed MessageSender.getSession() — the sender object no
- * longer carries a back-reference to the originating GeckoSession. Because
- * our single shared GeckoView only renders the active tab, and the content
- * script only reports on user interaction (which can't happen on a
- * background tab), we track the *current* tab's atTop flag instead of
- * looking up the session that sent the message.
+ * Replaces the earlier WebExtension approach, which depended on
+ * content_scripts running reliably in GeckoView 157 and on
+ * browser.runtime.sendNativeMessage being reachable from a content script
+ * context. That path failed silently — the delegate never fired, so
+ * Tab.atTop stayed at its default (true) and pull-to-refresh was allowed
+ * even on scrolled pages.
  *
- * TabManager hands us a TabProvider on construction so we can resolve
- * "the current tab" at message time without holding a hard reference back
- * to the manager.
+ * New approach: TabManager calls injectScript() from onPageStop, and the
+ * returned JavaScript installs a scroll listener. When the at-top state
+ * flips, the script loads a hidden iframe with a custom URL scheme
+ * (spoon-scroll://report?atTop=N). TabManager's NavigationDelegate
+ * intercepts that scheme, updates the tab flag, and denies the navigation
+ * so nothing actually loads and no history entry is created.
  */
 public final class ScrollExtension {
 
-    private static final String NATIVE_APP = "SpoonScroll";
-    private static final String EXTENSION_URI = "resource://android/assets/scroll_hook/";
-
-    private static volatile ScrollExtension INSTANCE;
-
-    /**
-     * Supplies the currently-visible tab. TabManager implements this by
-     * returning getCurrentTab(). Called on the WebExtension message thread,
-     * not the UI thread.
-     */
-    public interface TabProvider {
-        Tab getCurrentTab();
-    }
-
-    private volatile WebExtension extension;
-    private volatile TabProvider tabProvider;
+    public static final String SCHEME = "spoon-scroll";
+    private static final String PREFIX = SCHEME + ":";
 
     private ScrollExtension() {}
 
-    public static ScrollExtension getOrCreate(GeckoRuntime runtime) {
-        ScrollExtension local = INSTANCE;
-        if (local != null) return local;
-        synchronized (ScrollExtension.class) {
-            if (INSTANCE == null) {
-                ScrollExtension se = new ScrollExtension();
-                se.install(runtime);
-                INSTANCE = se;
-            }
-            return INSTANCE;
-        }
+    public static boolean isScrollUrl(String url) {
+        return url != null && url.startsWith(PREFIX);
     }
 
-    /** Called by TabManager once in its constructor. */
-    public void setTabProvider(TabProvider provider) {
-        this.tabProvider = provider;
-    }
-
-    private void install(GeckoRuntime runtime) {
+    /** Returns the atTop value reported by a scroll URL, or null if malformed. */
+    public static Boolean parseAtTop(String url) {
+        if (!isScrollUrl(url)) return null;
         try {
-            WebExtensionController controller = runtime.getWebExtensionController();
-            controller.install(EXTENSION_URI).accept(
-                    ext -> {
-                        extension = ext;
-                        attachDelegate(ext);
-                    },
-                    err -> extension = null);
-        } catch (Exception ignored) {
-            extension = null;
-        }
-    }
-
-    /**
-     * One-time delegate registration. GeckoView 157 signature:
-     *   GeckoResult<Object> onMessage(String nativeApp,
-     *                                 Object message,
-     *                                 MessageSender sender)
-     */
-    private void attachDelegate(WebExtension ext) {
-        try {
-            ext.setMessageDelegate(new WebExtension.MessageDelegate() {
-                @Override
-                public GeckoResult<Object> onMessage(String nativeApp,
-                                                     Object message,
-                                                     WebExtension.MessageSender sender) {
-                    Boolean atTop = extractAtTop(message);
-                    if (atTop != null) {
-                        TabProvider p = tabProvider;
-                        if (p != null) {
-                            Tab t = p.getCurrentTab();
-                            if (t != null) t.atTop = atTop;
-                        }
-                    }
-                    return null;
-                }
-            }, NATIVE_APP);
-        } catch (Exception ignored) {
-            // If registration fails, tabs stay at atTop = true (permissive).
-        }
-    }
-
-    /**
-     * Retained for source-compatibility with TabManager. This class no
-     * longer tracks sessions by reference, so these are no-ops.
-     */
-    public void bind(GeckoSession session, Tab tab) {}
-    public void unbind(GeckoSession session) {}
-
-    /**
-     * Message payload is { atTop: bool }. GeckoView hands us the deserialised
-     * object as one of: Boolean, Map, Bundle, or a JSON-ish string, depending
-     * on build. Try the fast cases first, then fall back to a string scan that
-     * reads the token immediately after "atTop:" so it can't be fooled by
-     * other boolean fields in the same payload.
-     */
-    private static Boolean extractAtTop(Object message) {
-        if (message == null) return null;
-        if (message instanceof Boolean) return (Boolean) message;
-        try {
-            if (message instanceof Map) {
-                Object v = ((Map<?, ?>) message).get("atTop");
-                if (v instanceof Boolean) return (Boolean) v;
-            }
-            if (message instanceof android.os.Bundle) {
-                android.os.Bundle b = (android.os.Bundle) message;
-                if (b.containsKey("atTop")) return b.getBoolean("atTop");
-            }
-            String s = message.toString();
-            int idx = s.indexOf("atTop");
-            if (idx >= 0) {
-                String tail = s.substring(idx);
-                int colon = tail.indexOf(':');
-                if (colon >= 0) {
-                    String v = tail.substring(colon + 1).trim();
-                    if (v.startsWith("true"))  return Boolean.TRUE;
-                    if (v.startsWith("false")) return Boolean.FALSE;
-                }
-            }
+            Uri u = Uri.parse(url);
+            String v = u.getQueryParameter("atTop");
+            if ("1".equals(v) || "true".equalsIgnoreCase(v)) return Boolean.TRUE;
+            if ("0".equals(v) || "false".equalsIgnoreCase(v)) return Boolean.FALSE;
         } catch (Exception ignored) {}
         return null;
+    }
+
+    /**
+     * JavaScript to run after each page load. Idempotent: guarded by a
+     * window flag so re-injection on the same document is a no-op.
+     */
+    public static String buildInjectScript() {
+        return
+            "(function(){" +
+            "if(window.__sgScrollHooked)return;window.__sgScrollHooked=true;" +
+            "var last=null,pending=false;" +
+            "function findScroller(el){" +
+              "var c=el;" +
+              "while(c&&c.nodeType===1){" +
+                "var s=null;try{s=getComputedStyle(c);}catch(e){s=null;}" +
+                "if(s&&(s.overflowY==='auto'||s.overflowY==='scroll')&&" +
+                  "c.scrollHeight-c.clientHeight>4){return c;}" +
+                "c=c.parentElement;" +
+              "}" +
+              "return document.scrollingElement||document.documentElement;" +
+            "}" +
+            "function compute(ev){" +
+              "var t=null;" +
+              "if(ev){" +
+                "if(ev.composedPath&&ev.composedPath().length){t=ev.composedPath()[0];}" +
+                "else{t=ev.target;}" +
+              "}" +
+              "if(!t||t.nodeType!==1){t=document.body||document.documentElement;}" +
+              "var inner=findScroller(t);" +
+              "var root=document.scrollingElement||document.documentElement;" +
+              "return (inner.scrollTop<=1)&&(root.scrollTop<=1);" +
+            "}" +
+            "function send(atTop){" +
+              "if(atTop===last)return;last=atTop;" +
+              "try{" +
+                "var f=document.createElement('iframe');" +
+                "f.style.display='none';f.style.width='0';f.style.height='0';" +
+                "f.setAttribute('aria-hidden','true');" +
+                "f.src='spoon-scroll://report?atTop='+(atTop?1:0);" +
+                "(document.documentElement||document.body).appendChild(f);" +
+                "setTimeout(function(){try{f.parentNode.removeChild(f);}catch(e){}},0);" +
+              "}catch(e){}" +
+            "}" +
+            "function report(ev){" +
+              "if(pending)return;pending=true;var t=ev;" +
+              "requestAnimationFrame(function(){" +
+                "pending=false;" +
+                "try{send(compute(t));}catch(e){}" +
+              "});" +
+            "}" +
+            "document.addEventListener('scroll',report,{capture:true,passive:true});" +
+            "window.addEventListener('scroll',report,{capture:true,passive:true});" +
+            "document.addEventListener('touchstart',report,{capture:true,passive:true});" +
+            "document.addEventListener('touchmove',report,{capture:true,passive:true});" +
+            "window.addEventListener('resize',report,{capture:true,passive:true});" +
+            "document.addEventListener('DOMContentLoaded',function(){report(null);});" +
+            "window.addEventListener('load',function(){report(null);});" +
+            "report(null);" +
+            "})();";
     }
 }
