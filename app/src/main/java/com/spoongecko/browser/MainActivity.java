@@ -92,7 +92,6 @@ public class MainActivity extends Activity {
 
         List<PersistedTab> persisted = SessionStore.loadTabs(this);
         if (persisted.isEmpty()) {
-            // createTab() fires onCurrentTabChanged, which calls showHome(true).
             tabManager.createTab(null);
         } else {
             tabManager.restoreFrom(persisted, SessionStore.loadCurrentIndex(this));
@@ -122,17 +121,8 @@ public class MainActivity extends Activity {
         tabManager.switchTo(tabManager.getTabs().indexOf(t));
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        saveSession();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        saveSession();
-    }
+    @Override protected void onPause()   { super.onPause();   saveSession(); }
+    @Override protected void onStop()    { super.onStop();    saveSession(); }
 
     @Override
     protected void onDestroy() {
@@ -201,7 +191,7 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.GONE);
             if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
             if (success && isHttpOrHttps(tab.url)) {
-                VisitStore.record(MainActivity.this, tab.title, tab.url);
+                HistoryStore.record(MainActivity.this, tab.url, tab.title);
             }
             saveSession();
         }
@@ -227,7 +217,6 @@ public class MainActivity extends Activity {
             hideHome();
             tabManager.loadUrlInCurrentTab(url);
         }
-
         @Override public void onSearch(String query) {
             if (TextUtils.isEmpty(query)) return;
             onNavigate("https://duckduckgo.com/?q=" + Uri.encode(query));
@@ -312,6 +301,7 @@ public class MainActivity extends Activity {
         String input = raw.trim();
         if (input.isEmpty()) return null;
         String lower = input.toLowerCase();
+
         if (lower.startsWith("http://") || lower.startsWith("https://")
                 || lower.startsWith("about:") || lower.startsWith("data:")
                 || lower.startsWith("file:")) {
@@ -323,10 +313,30 @@ public class MainActivity extends Activity {
             LinkSchemeHelper.dispatch(this, Uri.parse(input));
             return null;
         }
+
         boolean looksLikeHost = !input.contains(" ")
                 && input.contains(".") && !input.endsWith(".");
-        if (looksLikeHost) return "https://" + input;
+        if (looksLikeHost) {
+            String host = extractHost(input);
+            if (LocalHostPolicy.isLocalHost(host)) {
+                return "http://" + input;
+            }
+            return "https://" + input;
+        }
         return "https://duckduckgo.com/?q=" + Uri.encode(input);
+    }
+
+    /** Strips scheme, userinfo, port and path from an authority-like input. */
+    private static String extractHost(String input) {
+        int schemeIdx = input.indexOf("://");
+        String h = schemeIdx >= 0 ? input.substring(schemeIdx + 3) : input;
+        int at = h.indexOf('@');
+        if (at >= 0) h = h.substring(at + 1);
+        int slash = h.indexOf('/');
+        if (slash >= 0) h = h.substring(0, slash);
+        int colon = h.indexOf(':');
+        if (colon >= 0) h = h.substring(0, colon);
+        return h;
     }
 
     private static boolean isHttpOrHttps(String url) {
@@ -346,9 +356,6 @@ public class MainActivity extends Activity {
     private void wirePullToRefresh() {
         try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
 
-        // Returning true means "child can scroll up" → SwipeRefreshLayout
-        // won't steal the touch. So refresh is enabled only when the JS hook
-        // reports the page is at the top.
         swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
             if (homeContainer.getVisibility() == View.VISIBLE) return true;
             if (tabManager == null) return true;
@@ -378,10 +385,10 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 5, 4, R.string.menu_home);
         popup.getMenu().add(0, 6, 5, R.string.menu_share);
         popup.getMenu().add(0, 7, 6, R.string.menu_copy);
-        popup.getMenu().add(0, 8, 7, R.string.menu_battery);
-        popup.getMenu().add(0, 9, 8, R.string.menu_autostart);
+        popup.getMenu().add(0, 8, 7, "History");
+        popup.getMenu().add(0, 9, 8, "Settings");
         popup.getMenu().add(0, 10, 9, R.string.menu_about);
-        popup.getMenu().add(0, 12, 10, R.string.menu_exit);
+        popup.getMenu().add(0, 11, 10, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
@@ -400,12 +407,25 @@ public class MainActivity extends Activity {
             case 5: showHome(); return true;
             case 6: shareCurrent(); return true;
             case 7: copyCurrent(); return true;
-            case 8: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
-            case 9: OemHelper.openAutostartSettings(this); return true;
+            case 8: openHistory(); return true;
+            case 9: SettingsDialog.show(this); return true;
             case 10: showAbout(); return true;
-            case 12: exitApp(); return true;
+            case 11: exitApp(); return true;
             default: return false;
         }
+    }
+
+    private void openHistory() {
+        HistoryDialog.show(this, new HistoryDialog.Callbacks() {
+            @Override public void onNavigate(String url) {
+                hideHome();
+                tabManager.loadUrlInCurrentTab(url);
+            }
+            @Override public void onOpenInNewTab(String url) {
+                Tab t = tabManager.createTab(url);
+                tabManager.switchTo(tabManager.getTabs().indexOf(t));
+            }
+        });
     }
 
     private void shareCurrent() {
