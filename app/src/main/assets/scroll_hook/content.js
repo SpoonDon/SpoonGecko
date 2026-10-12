@@ -3,6 +3,9 @@
 //
 // Called from every frame of every page. Debounced with requestAnimationFrame
 // so we don't spam the native side on every scroll pixel.
+//
+// Messages are relayed via the background script (see background.js) because
+// sendNativeMessage is not reliably exposed to content scripts in GeckoView.
 (function () {
   if (window.__sgScrollHooked) return;
   window.__sgScrollHooked = true;
@@ -50,10 +53,10 @@
     if (atTop === lastSent) return;
     lastSent = atTop;
     try {
-      var p = browser.runtime.sendNativeMessage('SpoonScroll', { atTop: atTop });
+      var p = browser.runtime.sendMessage({ atTop: atTop });
       if (p && p.catch) p.catch(function () {});
     } catch (e) {
-      // Older GeckoView may not have nativeMessaging on content scripts.
+      // Background page not up yet, or extension not fully loaded.
       // Swallow and move on — the flag stays at its last value.
     }
   }
