@@ -27,6 +27,7 @@ public class GeckoApp extends Application {
 
     @Override
     public void onCreate() {
+        sAppContext = getApplicationContext();
         super.onCreate();
         CrashLogger.install(this);
 
