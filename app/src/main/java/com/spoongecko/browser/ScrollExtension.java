@@ -17,11 +17,13 @@ import java.util.Map;
  * scroll state.
  *
  * The extension's content script sends { atTop: bool } native messages on
- * scroll events. GeckoView routes each message to the session-scoped
- * MessageDelegate, so tab A's messages only touch tab A's flag.
+ * scroll events. GeckoView routes those messages to the session-scoped
+ * WebExtensionController's MessageDelegate, so tab A's messages only touch
+ * tab A's flag.
  *
- * Everything version-sensitive is centralized here so that if GeckoView's
- * WebExtension API changes shape, only this file needs adjusting.
+ * All version-sensitive GeckoView surface is centralized here. If
+ * setMessageDelegate or install changes shape in a future GeckoView, only
+ * this file needs adjusting.
  */
 public final class ScrollExtension {
 
@@ -31,7 +33,6 @@ public final class ScrollExtension {
     private static volatile ScrollExtension INSTANCE;
 
     private volatile WebExtension extension;
-    private final List<Runnable> pendingBindings = new ArrayList<>();
 
     /** Session + Tab pair awaiting extension readiness. */
     private static final class Pending {
@@ -95,9 +96,21 @@ public final class ScrollExtension {
         attach(session, tab, ext);
     }
 
+    /**
+     * Session-scoped message delegation. GeckoView 157 exposes this on
+     * GeckoSession.getWebExtensionController() — NOT on GeckoSession
+     * directly (the earlier compile failure).
+     *
+     * The session-scoped controller returns null until the session has been
+     * opened via session.open(runtime). TabManager opens the session before
+     * calling bind(), so this should never be null in practice; the null
+     * check is defensive.
+     */
     private void attach(GeckoSession session, Tab tab, WebExtension ext) {
         try {
-            session.setMessageDelegate(ext, (nativeApp, message, sender) -> {
+            WebExtensionController controller = session.getWebExtensionController();
+            if (controller == null) return;
+            controller.setMessageDelegate(ext, (nativeApp, message, sender) -> {
                 Boolean atTop = extractAtTop(message);
                 if (atTop != null) tab.atTop = atTop;
                 return null;
