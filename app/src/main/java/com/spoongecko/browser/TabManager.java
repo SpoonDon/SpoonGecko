@@ -169,6 +169,9 @@ public class TabManager {
                 // ===== END EXTENSION SUPPORT =====
 
                 switch (scheme.toLowerCase()) {
+                    case "moz-extension":
+                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                        
                     case "http": case "https": case "about":
                     case "data": case "blob":   case "file": {
                         String target = request.uri;
