@@ -390,10 +390,11 @@ public class MainActivity extends Activity {
     private void wirePullToRefresh() {
         try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
 
-        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
-            if (homeContainer.getVisibility() == View.VISIBLE) return true;
-            if (tabManager == null) return true;
-            return !tabManager.isCurrentTabAtTop();
+        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {    
+            if (homeContainer.getVisibility() == View.VISIBLE) return true;    
+            if (tabManager == null) return true;    
+            Tab t = tabManager.getCurrentTab();    
+            return t == null || !t.atTop;
         });
 
         swipeRefresh.setOnRefreshListener(() -> {
