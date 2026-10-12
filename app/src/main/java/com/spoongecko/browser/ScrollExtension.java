@@ -13,18 +13,6 @@ import java.util.Map;
  * Bundled built-in WebExtension that reports the page's root-scroller
  * position to the Java side.
  *
- * Why this exists: GeckoSession.ScrollDelegate fires only for the root
- * scroller of the visual viewport, and in practice stops firing on many
- * pages (SPA app shells with overflow:auto, sticky headers, CSS
- * transforms). The old code relied on it alone and got stuck with
- * atTop == true mid-page, which caused SwipeRefreshLayout to trigger a
- * reload from anywhere in the document.
- *
- * The injected content script (assets/scroll/scroll.js) reads the real
- * document.scrollingElement.scrollTop on every scroll event and posts it
- * via browser.runtime.sendNativeMessage("spoongeckoScroll", ...). The
- * Java side attaches a WebExtension.MessageDelegate per session.
- *
  * API note (GeckoView 157):
  *   - WebExtension is no longer constructed manually. Use
  *     WebExtensionController.ensureBuiltIn(String uri, String id) or
@@ -45,24 +33,22 @@ public final class ScrollExtension {
 
     private ScrollExtension() {}
 
+    /** Callback invoked once the scroll extension is available. */
+    public interface InstallCallback {
+        void onInstalled(@NonNull WebExtension extension);
+    }
+
     /**
-     * Registers the built-in with the runtime. Call exactly once.
-     *
-     * ensureBuiltIn only installs if the extension is not already present
-     * with the same version, so calling this at every startup is safe
-     * (though installBuiltIn would also work, it re-installs each time).
+     * Registers the built-in and delivers the resolved WebExtension via
+     * {@code callback}. Safe to call at every startup: ensureBuiltIn only
+     * installs when the extension is missing or has a different version.
      */
-    public static void register(@NonNull WebExtensionController controller) {
+    public static void install(@NonNull WebExtensionController controller,
+                               @NonNull InstallCallback callback) {
         controller.ensureBuiltIn(MANIFEST_URI, EXTENSION_ID)
-                .accept(
-                        extension -> {
-                            android.util.Log.i("ScrollExtension",
-                                    "scroll extension ready: " + extension.id);
-                        },
-                        throwable -> {
-                            android.util.Log.e("ScrollExtension",
-                                    "failed to register scroll extension", throwable);
-                        });
+                .accept(callback::onInstalled,
+                        throwable -> android.util.Log.e("ScrollExtension",
+                                "failed to register scroll extension", throwable));
     }
 
     /**
