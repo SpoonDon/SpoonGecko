@@ -12,6 +12,7 @@
   },
   "permissions": [
     "nativeMessaging",
+    "nativeMessagingFromContent",
     "geckoViewAddons"
   ],
   "content_scripts": [
