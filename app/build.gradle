@@ -122,4 +122,5 @@ dependencies {
     // ABI-specific artifact — guarantees only arm64-v8a native libs are on the
     // classpath, independent of abiFilters behaviour.
     implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:157.0.20261005135250'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
