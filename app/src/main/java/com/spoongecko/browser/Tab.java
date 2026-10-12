@@ -31,6 +31,16 @@ public class Tab {
      * and read from the main thread in SwipeRefreshLayout's scroll callback.
      */
     public volatile boolean atTop = true;
+// Add:
+    public volatile int scrollY = 0;
+/** Called from TabManager after a session is (re)attached to the GeckoView. */
+    public void resetScrollState() {
+    // Freshly attached sessions start at the top of the document;
+    // ScrollDelegate will correct this if the page restores a
+    // scroll position, but we must not leave a stale `false` here.
+        this.scrollY = 0;
+        this.atTop = true;
+    }
 
     /** Small preview bitmap for the tab switcher; may be null. */
     public Bitmap thumbnail = null;
