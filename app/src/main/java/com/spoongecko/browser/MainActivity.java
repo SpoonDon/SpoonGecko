@@ -31,6 +31,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebExtension;
 
 import java.util.List;
 
