@@ -8,7 +8,7 @@ import android.net.Uri;
  *
  * Why this exists: many routers and ISP modems do User-Agent sniffing. When
  * they see a WebView UA (contains "; wv" or "Version/4.0"), they serve their
- * admin UI over plain HTTP because they know mobile app WebViews often fail
+ * admin UI over plain HTTP because they know mobile WebView apps often fail
  * on self-signed certificates. When they see a desktop-class Firefox or
  * Chrome UA, they force an HTTPS redirect with a self-signed cert — which
  * GeckoView has no public API to bypass (unlike Android WebView, which
@@ -22,12 +22,18 @@ import android.net.Uri;
 public final class WebViewUserAgent {
 
     /**
-     * Conservative WebView 4.0 UA. Matches the shape Android WebView sends
-     * by default: includes "; wv" and "Version/4.0" markers, and looks like
-     * Chrome to UA-sniffing middleware.
+     * Conservative Android WebView 4.0 UA.
+     *
+     * Contains the two markers routers sniff for:
+     *   - "; wv"          -> signals "this is an embedded WebView"
+     *   - "Version/4.0"   -> the legacy Android WebView version token
+     *
+     * Looks enough like Chrome to pass generic UA checks, but carries the
+     * WebView markers so vendor middleware treats it as an app view rather
+     * than a desktop browser.
      */
     public static final String VALUE =
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +
+            "Mozilla/5.0 (Linux; Android 10; K; wv) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 " +
             "Mobile Safari/537.36";
 
@@ -64,7 +70,7 @@ public final class WebViewUserAgent {
                 "router.asus.com", "asusrouter.com",
                 "dlinkrouter.local", "dlinkrouter",
                 "tendawifi.com", "mwlogin.net",
-                "miwifi.com", "pi.hole", "local"
+                "miwifi.com", "pi.hole"
         };
         for (String v : vendorHosts) {
             if (host.equals(v) || host.endsWith("." + v)) return true;
@@ -73,7 +79,7 @@ public final class WebViewUserAgent {
         // .local mDNS names ----------------------------------------------
         if (host.endsWith(".local")) return true;
 
-        // IPv4 private / link-local / loopback ---------------------------
+        // IPv4 private / link-local / loopback / CGNAT -------------------
         String[] parts = host.split("\\.");
         if (parts.length == 4) {
             try {
