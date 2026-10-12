@@ -47,11 +47,15 @@ public class KeepAliveService extends Service {
         }
     }
 
+    /**
+     * Uses stopService() rather than startService(ACTION_STOP). On Android 8+
+     * startService() throws IllegalStateException when the caller is not in
+     * the foreground, and exitApp() can be reached from a re-entrant state.
+     * stopService() is always safe.
+     */
     public static void stop(Context context) {
-        Intent intent = new Intent(context, KeepAliveService.class);
-        intent.setAction(ACTION_STOP);
         try {
-            context.startService(intent);
+            context.stopService(new Intent(context, KeepAliveService.class));
         } catch (Throwable t) {
             Log.w(TAG, "stop service failed", t);
         }
@@ -68,6 +72,8 @@ public class KeepAliveService extends Service {
         final String action = intent != null ? intent.getAction() : "(null)";
         CrashLogger.breadcrumb(this, "service.onStartCommand action=" + action);
 
+        // ACTION_STOP is no longer sent by us (see stop() above), but the
+        // branch stays for defence in depth against a stale intent.
         if (ACTION_STOP.equals(action)) {
             try { stopForeground(true); } catch (Throwable ignored) {}
             stopSelf();
