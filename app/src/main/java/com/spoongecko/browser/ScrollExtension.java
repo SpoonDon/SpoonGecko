@@ -21,8 +21,9 @@ import java.util.Map;
  *   - GeckoSession no longer has setMessageDelegate(MessageDelegate, String).
  *     Use session.getWebExtensionController()
  *         .setMessageDelegate(WebExtension, MessageDelegate, String).
- *   - WebExtension.MessageDelegate.onMessage(void) was removed in 157; the
- *     current method is onMessageDelegate(...) returning GeckoResult<Object>.
+ *   - WebExtension.MessageDelegate.onMessage now takes three arguments:
+ *       onMessage(String nativeApp, Object message, MessageSender sender)
+ *     and returns GeckoResult<Object>.
  *   - The content script must be authorized to send native messages via
  *     the "nativeMessagingFromContent" permission in manifest.json.
  */
@@ -76,23 +77,17 @@ public final class ScrollExtension {
         Delegate(Tab tab) { this.tab = tab; }
 
         /**
-         * Current (GeckoView 157) entry point for sendNativeMessage.
+         * GeckoView 157 signature: nativeApp, message, sender.
          * Returning null means "fire and forget" — the content script
          * does not await a reply, it just wants the side-effect of
          * updating our cached scroll state.
          */
         @Override
         @Nullable
-        public GeckoResult<Object> onMessageDelegate(
-                @NonNull WebExtension.MessageSender sender,
-                @NonNull Object message,
-                @NonNull WebExtension.MessageDelegate delegate) {
-            applyMessage(message);
-            return null;
-        }
-
-        private void applyMessage(@Nullable Object message) {
-            if (!(message instanceof Map)) return;
+        public GeckoResult<Object> onMessage(@NonNull String nativeApp,
+                                             @NonNull Object message,
+                                             @NonNull WebExtension.MessageSender sender) {
+            if (!(message instanceof Map)) return null;
             Map<?, ?> m = (Map<?, ?>) message;
 
             Object atTopObj   = m.get("atTop");
@@ -104,6 +99,7 @@ public final class ScrollExtension {
             if (scrollYObj instanceof Number) {
                 tab.scrollY = ((Number) scrollYObj).intValue();
             }
+            return null;
         }
     }
 }
