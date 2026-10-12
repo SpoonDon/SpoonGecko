@@ -327,17 +327,18 @@ public class TabManager {
     // ------------------------------------------------------------------ switch
 
     public void switchTo(int index) {
-        if (index < 0 || index >= tabs.size()) return;
-        if (index == currentIndex) return;
+    if (index < 0 || index >= tabs.size()) return;
+    if (index == currentIndex) return;
 
-        Tab outgoing = getCurrentTab();
-        if (outgoing != null) captureThumbnail(outgoing);
+    Tab outgoing = getCurrentTab();
+    if (outgoing != null) captureThumbnail(outgoing);
 
-        currentIndex = index;
-        Tab next = tabs.get(index);
-        geckoView.setSession(next.session);
-        listener.onCurrentTabChanged(next);
-        listener.onCanGoForward(next, next.canGoForward);
+    currentIndex = index;
+    Tab next = tabs.get(index);
+    next.resetScrollState();          // <— new
+    geckoView.setSession(next.session);
+    listener.onCurrentTabChanged(next);
+    listener.onCanGoForward(next, next.canGoForward);
     }
 
     // ------------------------------------------------------------------ close
