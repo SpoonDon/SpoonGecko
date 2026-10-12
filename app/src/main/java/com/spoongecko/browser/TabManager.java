@@ -314,8 +314,28 @@ public class TabManager {
         }
 
         // Attach the scroll reporter before opening the session so the
-        // content script's first message is never missed.
-        ScrollExtension.attach(session, tab);
+// content script's first message is never missed.
+// The built-in extension may not have resolved yet (ensureBuiltIn is
+// async), so guard against a null reference and retry on first load.
+WebExtension scrollExt = ExtensionManager.getInstance().getScrollExtension();
+if (scrollExt != null) {
+    ScrollExtension.attach(session, scrollExt, tab);
+} else {
+    // Fallback: attach on the first page-start callback, by which
+    // time ensureBuiltIn has almost certainly completed.
+    final Tab fTab = tab;
+    session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+        @Override
+        public void onPageStart(GeckoSession s, String url) {
+            GeckoSession.ProgressDelegate.super.onPageStart(s, url);
+            WebExtension ext = ExtensionManager.getInstance()
+                    .getScrollExtension();
+            if (ext != null) {
+                ScrollExtension.attach(s, ext, fTab);
+            }
+        }
+    });
+}
 
         session.open(runtime);
         if (!isBlank(url)) {
