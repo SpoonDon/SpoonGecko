@@ -101,7 +101,8 @@ public class TabManager {
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
             }
 
-            @Override public void onPageStop(GeckoSession s, boolean success) {
+            @Override public void onPageStop(GeckoSession s, boolean success) {    
+                if (success) tab.resetScrollState();   // <— reset, ScrollDelegate will correct if needed    
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
             }
 
