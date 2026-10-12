@@ -190,6 +190,35 @@ public class TabManager {
                 });
                 return GeckoResult.fromValue(null);
             }
+                        
+            @Override            
+            public GeckoResult<String> onLoadError(GeckoSession s,
+                                                   String uri,
+                                                   org.mozilla.geckoview.WebRequestError error) {
+                String msg = (error == null || error.category == null)
+                        ? "Unknown error"
+                        : error.category;
+                String safeUri = (uri == null || uri.isEmpty()) ? "" : uri;
+                String html =
+                        "<!DOCTYPE html><html><head>" +
+                        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                        "<style>" +
+                        "body{font-family:sans-serif;margin:0;padding:24px;" +
+                        "background:#ffffff;color:#0d0d0d;}" +
+                        "h1{font-size:20px;margin:0 0 12px 0;}" +
+                        "p{font-size:14px;line-height:1.5;color:#555;}" +
+                        "code{background:#f2f2f2;padding:2px 6px;border-radius:4px;" +
+                        "font-size:12px;word-break:break-all;}" +
+                        "</style></head><body>" +
+                        "<h1>Could not load page</h1>" +
+                        "<p>" + msg + "</p>" +
+                        "<p><code>" + safeUri + "</code></p>" +
+                        "</body></html>";
+                String encoded = android.util.Base64.encodeToString(
+                        html.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        android.util.Base64.NO_WRAP);
+                return GeckoResult.fromValue("data:text/html;base64," + encoded);
+            }            
         });
 
         session.open(runtime);
