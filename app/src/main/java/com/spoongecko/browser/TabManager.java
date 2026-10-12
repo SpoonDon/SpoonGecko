@@ -191,13 +191,34 @@ public class TabManager {
                 return GeckoResult.fromValue(null);
             }
                         
-            @Override            
-            public GeckoResult<String> onLoadError(GeckoSession s,
-                                                   String uri,
+            @Override
+            public GeckoResult<String> onLoadError(GeckoSession s, String uri,
                                                    org.mozilla.geckoview.WebRequestError error) {
-                String msg = (error == null || error.category == null)
-                        ? "Unknown error"
-                        : error.category;
+                int category = (error == null) ? 0 : error.category;
+                String msg;
+                switch (category) {
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.SECURITY:
+                        msg = "Security error (TLS/certificate)";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.NETWORK:
+                        msg = "Network error (connection failed)";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.CONTENT:
+                        msg = "Content error";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.URI:
+                        msg = "Invalid address";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.PROXY:
+                        msg = "Proxy error";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.SAFEBROWSING:
+                        msg = "Blocked by safe browsing";
+                        break;
+                    default:
+                        msg = "Could not load page";
+                        break;
+                }
                 String safeUri = (uri == null || uri.isEmpty()) ? "" : uri;
                 String html =
                         "<!DOCTYPE html><html><head>" +
