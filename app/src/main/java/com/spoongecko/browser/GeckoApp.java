@@ -37,12 +37,16 @@ public class GeckoApp extends Application {
         CrashLogger.breadcrumb(this,
                 "app.onCreate pid=" + pid + " proc=" + process + " main=" + mainProcess);
 
-        createNotificationChannel();
-
+        // Helper processes (crashhelper_, gpu_, tab_disable_art_image_*) never
+        // show notifications and never run KeepAliveService. Bail before we
+        // touch NotificationManager, which on some OEM ROMs logs a warning
+        // when a content process registers a channel.
         if (!mainProcess) {
             CrashLogger.breadcrumb(this, "app.onCreate helper — runtime skipped");
             return;
         }
+
+        createNotificationChannel();
 
         try {
             CrashLogger.breadcrumb(this, "runtime.create begin");
