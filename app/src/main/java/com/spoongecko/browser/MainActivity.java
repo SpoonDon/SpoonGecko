@@ -26,28 +26,25 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
-import org.mozilla.geckoview.AllowOrDeny;
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
-import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.GeckoSessionSettings;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.List;
 
 public class MainActivity extends Activity {
 
-    private static final String HOME_URL = "https://duckduckgo.com/";
     private static final int REQ_NOTIFICATIONS = 1001;
 
     private static final String FLAGS_PREFS = "spoongecko_flags";
     private static final String KEY_ASKED_BATTERY = "asked_battery";
 
     private GeckoView geckoView;
-    private GeckoSession session;
+    private TabManager tabManager;
 
     private FrameLayout homeContainer;
     private HomeView homeView;
@@ -58,14 +55,7 @@ public class MainActivity extends Activity {
     private ImageButton forwardButton;
     private ImageButton reloadButton;
     private ImageButton menuButton;
-
-    private String currentUrl = HOME_URL;
-    private boolean canGoBack = false;
-
-    // Latest page title reported by ContentDelegate.onTitleChange. GeckoSession
-    // itself does not expose getTitle(), so we cache the value here and read it
-    // when recording a visit in ProgressDelegate.onPageStop.
-    private String currentTitle = "";
+    private TextView tabCountView;
 
     // -------------------------------------------------------------- lifecycle
 
@@ -83,40 +73,34 @@ public class MainActivity extends Activity {
         forwardButton = findViewById(R.id.btn_forward);
         reloadButton = findViewById(R.id.btn_reload);
         menuButton = findViewById(R.id.btn_menu);
+        tabCountView = findViewById(R.id.tab_count);
 
-        // Home page is a native View layered over GeckoView; the container is
-        // toggled on/off rather than re-created, so state (search field text)
-        // survives navigation away and back.
         homeView = new HomeView(this, homeCallbacks);
         homeContainer.addView(homeView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
-        wireToolbar();
-
-        if (!createSession()) {
+        GeckoRuntime runtime = GeckoApp.getRuntime();
+        if (runtime == null) {
+            Toast.makeText(this, R.string.error_runtime, Toast.LENGTH_LONG).show();
+            finish();
             return;
         }
 
-        String restored = SessionStore.load(this);
-        if (TextUtils.isEmpty(restored)) {
-            // First launch, or last session ended on home — show home without
-            // loading anything into the GeckoSession. loadUri is deferred until
-            // the user actually picks a destination.
+        tabManager = new TabManager(this, geckoView, runtime, tabListener);
+
+        wireToolbar();
+
+        List<PersistedTab> persisted = SessionStore.loadTabs(this);
+        if (persisted.isEmpty()) {
+            tabManager.createTab(null);
             showHome();
         } else {
-            currentUrl = restored;
-            urlBar.setText(restored);
-            hideHome();
-            CrashLogger.breadcrumb(this, "session.loadUri begin");
-            session.loadUri(restored);
-            CrashLogger.breadcrumb(this, "session.loadUri issued");
+            tabManager.restoreFrom(persisted, SessionStore.loadCurrentIndex(this));
         }
 
-        CrashLogger.breadcrumb(this, "keepalive.start begin");
+        updateTabCount();
         KeepAliveService.start(this);
-        CrashLogger.breadcrumb(this, "keepalive.start issued");
-
         requestNotificationPermissionIfNeeded();
         CrashLogger.breadcrumb(this, "activity.onCreate done");
     }
@@ -124,9 +108,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onPostResume() {
         super.onPostResume();
-        CrashLogger.breadcrumb(this, "activity.onPostResume");
-        // Deferred to onPostResume so the dialog does not compete with
-        // GeckoView's first paint or the POST_NOTIFICATIONS prompt.
         maybeOfferBatteryExemption();
     }
 
@@ -134,33 +115,23 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        CrashLogger.breadcrumb(this, "activity.onNewIntent");
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri data = intent.getData();
         if (data == null) return;
         String url = data.toString();
-        currentUrl = url;
-        urlBar.setText(url);
-        hideHome();
-        if (session != null) session.loadUri(url);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        CrashLogger.breadcrumb(this, "activity.onResume");
+        // External intents open in a fresh tab so we don't clobber what's on screen.
+        Tab t = tabManager.createTab(url);
+        tabManager.switchTo(tabManager.getTabs().indexOf(t));
     }
 
     @Override
     protected void onPause() {
-        CrashLogger.breadcrumb(this, "activity.onPause");
         super.onPause();
         saveSession();
     }
 
     @Override
     protected void onStop() {
-        CrashLogger.breadcrumb(this, "activity.onStop");
         super.onStop();
         saveSession();
     }
@@ -168,28 +139,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         CrashLogger.breadcrumb(this, "activity.onDestroy finishing=" + isFinishing());
-        if (isFinishing()) {
-            if (geckoView != null) geckoView.releaseSession();
-            if (session != null) {
-                session.close();
-                session = null;
-            }
+        if (isFinishing() && tabManager != null) {
+            tabManager.closeAll();
         }
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
-        if (session != null && canGoBack) {
-            session.goBack();
-        } else if (homeContainer != null
-                && homeContainer.getVisibility() != View.VISIBLE) {
-            // We're on a page with no back history — return to the home screen
-            // rather than dropping the user out of the app.
-            showHome();
-        } else {
-            moveTaskToBack(true);
+        Tab t = tabManager.getCurrentTab();
+        if (t != null && t.canGoBack) {
+            t.session.goBack();
+            return;
         }
+        boolean onHome = homeContainer != null
+                && homeContainer.getVisibility() == View.VISIBLE;
+        if (!onHome) {
+            showHome();
+            return;
+        }
+        moveTaskToBack(true);
     }
 
     @Override
@@ -203,187 +172,79 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * Persist the last real URL, or an empty string if the user is on the home
-     * screen — so the next cold start lands on home instead of reloading the
-     * previous page just because it was still in memory.
-     */
     private void saveSession() {
-        boolean onHome = homeContainer != null
-                && homeContainer.getVisibility() == View.VISIBLE;
-        SessionStore.save(this, onHome ? "" : currentUrl);
+        if (tabManager == null) return;
+        SessionStore.save(this,
+                tabManager.snapshot(),
+                Math.max(0, tabManager.getCurrentIndex()));
     }
 
-    // ------------------------------------------------------------------ session
+    // ---------------------------------------------------------- Tab listener
 
-    private boolean createSession() {
-        GeckoRuntime runtime = GeckoApp.getRuntime();
-        if (runtime == null) {
-            Toast.makeText(this, R.string.error_runtime, Toast.LENGTH_LONG).show();
-            finish();
-            return false;
+    private final TabManager.Listener tabListener = new TabManager.Listener() {
+        @Override public void onTabListChanged() { updateTabCount(); }
+
+        @Override public void onCurrentTabChanged(Tab tab) {
+            progressBar.setVisibility(View.GONE);
+            if (tab == null || tab.url == null || tab.url.isEmpty()) {
+                showHome();
+            } else {
+                hideHome();
+                urlBar.setText(tab.url);
+            }
         }
-        // Session-level hardening: pause media when this tab is backgrounded so
-        // it can't keep the CPU warm behind another tab. Private mode stays off
-        // so cookies persist across restarts (session restore expects that).
-        GeckoSessionSettings sessionSettings = new GeckoSessionSettings.Builder()
-                .usePrivateMode(false)
-                .suspendMediaWhenInactive(true)
-                .build();
 
-        session = new GeckoSession(sessionSettings);
-        session.setProgressDelegate(progressDelegate);
-        session.setNavigationDelegate(navigationDelegate);
-        session.setContentDelegate(contentDelegate);
-
-        session.open(runtime);
-        geckoView.setSession(session);
-        return true;
-    }
-
-    private final GeckoSession.ProgressDelegate progressDelegate =
-            new GeckoSession.ProgressDelegate() {
-                @Override
-                public void onPageStart(GeckoSession s, String url) {
-                    CrashLogger.breadcrumb(MainActivity.this, "page.start " + url);
-                    currentUrl = url;
-                    urlBar.setText(url);
-                    hideHome();
-                    progressBar.setVisibility(View.VISIBLE);
-                }
-
-                @Override
-                public void onPageStop(GeckoSession s, boolean success) {
-                    CrashLogger.breadcrumb(MainActivity.this,
-                            "page.stop ok=" + success);
-                    progressBar.setVisibility(View.GONE);
-                    if (success && isHttpOrHttps(currentUrl)) {
-                        // Title is not exposed on GeckoSession; ContentDelegate
-                        // caches it into currentTitle on every onTitleChange.
-                        VisitStore.record(MainActivity.this, currentTitle, currentUrl);
-                    }
-                    SessionStore.save(MainActivity.this, currentUrl);
-                }
-
-                @Override
-                public void onProgressChange(GeckoSession s, int progress) {
-                    progressBar.setProgress(progress);
-                }
-            };
-
-    private final GeckoSession.ContentDelegate contentDelegate =
-            new GeckoSession.ContentDelegate() {
-                @Override
-                public void onTitleChange(GeckoSession s, String title) {
-                    currentTitle = title == null ? "" : title;
-                    setTitle(TextUtils.isEmpty(title)
-                            ? getString(R.string.app_name) : title);
-                }
-            };
-
-    private final GeckoSession.NavigationDelegate navigationDelegate =
-            new GeckoSession.NavigationDelegate() {
-
-                @Override
-                public void onCanGoBack(GeckoSession s, boolean value) {
-                    canGoBack = value;
-                    backButton.setEnabled(value);
-                    backButton.setAlpha(value ? 1f : 0.35f);
-                }
-
-                @Override
-                public void onCanGoForward(GeckoSession s, boolean value) {
-                    forwardButton.setEnabled(value);
-                    forwardButton.setAlpha(value ? 1f : 0.35f);
-                }
-
-                /**
-                 * Single funnel for every navigation the engine wants to make.
-                 *
-                 * Freeze fix: non-web schemes (magnet:, tel:, mailto:, market:,
-                 * intent:, custom app links) are handed off to the OS and then
-                 * immediately DENIED to the GeckoSession. Without the DENY the
-                 * engine sits in a half-loaded state where back/forward/reload
-                 * and scroll all stop responding — the GeckoView equivalent of
-                 * the WebView "phantom loading" bug.
-                 *
-                 * AllowOrDeny lives in the top-level org.mozilla.geckoview
-                 * package (not nested in NavigationDelegate), so we import it
-                 * at the top of the file and reference it unqualified here.
-                 */
-                @Override
-                public GeckoResult<AllowOrDeny> onLoadRequest(
-                        GeckoSession s, LoadRequest request) {
-
-                    if (request == null || request.uri == null) {
-                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-                    }
-
-                    Uri uri = Uri.parse(request.uri);
-                    String scheme = uri.getScheme();
-                    if (scheme == null) {
-                        return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-                    }
-
-                    String lower = scheme.toLowerCase();
-                    switch (lower) {
-                        case "http":
-                        case "https":
-                        case "about":
-                        case "data":
-                        case "blob":
-                        case "file":
-                            return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-
-                        case "javascript":
-                            // Never let a page run javascript: through the loader;
-                            // that's not a navigation, that's an injection vector.
-                            return GeckoResult.fromValue(AllowOrDeny.DENY);
-
-                        default:
-                            // magnet:, tel:, mailto:, market:, intent:, sms:,
-                            // custom-app schemes — hand off to the OS, then
-                            // explicitly DENY so the engine doesn't stall.
-                            LinkSchemeHelper.dispatch(MainActivity.this, uri);
-                            return GeckoResult.fromValue(AllowOrDeny.DENY);
-                    }
-                }
-
-                @Override
-                public GeckoResult<GeckoSession> onNewSession(GeckoSession s, String uri) {
-                    // Phase 2 is single-tab; a new-window request loads in place.
-                    // When multi-tab lands this becomes a TabManager.newTab call.
-                    s.loadUri(uri);
-                    return GeckoResult.fromValue(null);
-                }
-            };
-
-    // ------------------------------------------------------------------ home
-
-    private final HomeView.Callbacks homeCallbacks = new HomeView.Callbacks() {
-        @Override
-        public void onNavigate(String url) {
-            if (session == null || TextUtils.isEmpty(url)) return;
-            currentUrl = url;
+        @Override public void onPageStart(Tab tab, String url) {
             urlBar.setText(url);
             hideHome();
-            session.loadUri(url);
+            progressBar.setVisibility(View.VISIBLE);
         }
 
-        @Override
-        public void onSearch(String query) {
+        @Override public void onPageStop(Tab tab, boolean success) {
+            progressBar.setVisibility(View.GONE);
+            if (success && isHttpOrHttps(tab.url)) {
+                VisitStore.record(MainActivity.this, tab.title, tab.url);
+            }
+            saveSession();
+        }
+
+        @Override public void onProgress(Tab tab, int progress) {
+            progressBar.setProgress(progress);
+        }
+
+        @Override public void onTitle(Tab tab, String title) {
+            setTitle(TextUtils.isEmpty(title)
+                    ? getString(R.string.app_name) : title);
+        }
+
+        @Override public void onCanGoBack(Tab tab, boolean value) {
+            backButton.setEnabled(value);
+            backButton.setAlpha(value ? 1f : 0.35f);
+        }
+
+        @Override public void onCanGoForward(Tab tab, boolean value) {
+            forwardButton.setEnabled(value);
+            forwardButton.setAlpha(value ? 1f : 0.35f);
+        }
+    };
+
+        // ---------------------------------------------------------------- home
+
+    private final HomeView.Callbacks homeCallbacks = new HomeView.Callbacks() {
+        @Override public void onNavigate(String url) {
+            if (TextUtils.isEmpty(url)) return;
+            hideHome();
+            tabManager.loadUrlInCurrentTab(url);
+        }
+
+        @Override public void onSearch(String query) {
             if (TextUtils.isEmpty(query)) return;
-            String url = "https://duckduckgo.com/?q=" + Uri.encode(query);
-            onNavigate(url);
+            onNavigate("https://duckduckgo.com/?q=" + Uri.encode(query));
         }
 
-        @Override
-        public void onAddQuickLink() {
-            showQuickLinkEditor(null);
-        }
+        @Override public void onAddQuickLink() { showQuickLinkEditor(null); }
 
-        @Override
-        public void onEditQuickLink(HomeStore.QuickLink link) {
+        @Override public void onEditQuickLink(HomeStore.QuickLink link) {
             showQuickLinkEditor(link);
         }
     };
@@ -398,15 +259,12 @@ public class MainActivity extends Activity {
         urlBar.clearFocus();
         urlBar.setText("");
         progressBar.setVisibility(View.GONE);
-        // Back button shouldn't be actionable while on the home screen.
         backButton.setEnabled(false);
         backButton.setAlpha(0.35f);
     }
 
     private void hideHome() {
-        if (homeContainer != null) {
-            homeContainer.setVisibility(View.GONE);
-        }
+        if (homeContainer != null) homeContainer.setVisibility(View.GONE);
     }
 
     private void showQuickLinkEditor(final HomeStore.QuickLink existing) {
@@ -442,9 +300,7 @@ public class MainActivity extends Activity {
                         try { title = Uri.parse(url).getHost(); } catch (Exception ignored) {}
                         if (title == null) title = url;
                     }
-                    if (existing != null) {
-                        HomeStore.removeQuickLink(this, existing.url);
-                    }
+                    if (existing != null) HomeStore.removeQuickLink(this, existing.url);
                     HomeStore.addQuickLink(this, title, url);
                     if (homeView != null) homeView.refresh();
                 })
@@ -459,25 +315,29 @@ public class MainActivity extends Activity {
         b.show();
     }
 
-    // ------------------------------------------------------------------ toolbar
+    // -------------------------------------------------------------- toolbar
 
     private void wireToolbar() {
         backButton.setOnClickListener(v -> {
-            if (session == null) return;
-            if (canGoBack) session.goBack();
+            Tab t = tabManager.getCurrentTab();
+            if (t == null) return;
+            if (t.canGoBack) t.session.goBack();
             else showHome();
         });
-        forwardButton.setOnClickListener(v -> { if (session != null) session.goForward(); });
+        forwardButton.setOnClickListener(v -> {
+            Tab t = tabManager.getCurrentTab();
+            if (t != null) t.session.goForward();
+        });
         reloadButton.setOnClickListener(v -> {
             if (homeContainer != null
                     && homeContainer.getVisibility() == View.VISIBLE) {
-                // Reload on home = re-render the home screen.
                 if (homeView != null) homeView.refresh();
                 return;
             }
-            if (session != null) session.reload();
+            tabManager.reload();
         });
         menuButton.setOnClickListener(this::showMenu);
+        tabCountView.setOnClickListener(v -> openTabSwitcher());
 
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO
@@ -492,34 +352,45 @@ public class MainActivity extends Activity {
         forwardButton.setEnabled(false); forwardButton.setAlpha(0.35f);
     }
 
+    private void updateTabCount() {
+        if (tabCountView == null || tabManager == null) return;
+        int n = tabManager.getTabCount();
+        tabCountView.setText(n >= 100 ? "99+" : String.valueOf(n));
+    }
+
+    private void openTabSwitcher() {
+        if (tabManager == null) return;
+        TabSwitcherDialog.show(this, tabManager);
+    }
+
     private void navigate(String raw) {
-        if (TextUtils.isEmpty(raw) || session == null) return;
+        if (TextUtils.isEmpty(raw)) return;
         hideKeyboard();
         urlBar.clearFocus();
         String normalized = normalize(raw);
-        currentUrl = normalized;
-        urlBar.setText(normalized);
+        if (normalized == null) return;    // non-web scheme was handed off
         hideHome();
-        session.loadUri(normalized);
+        tabManager.loadUrlInCurrentTab(normalized);
     }
 
+    /**
+     * Returns a web URL, or null if the input was a non-web scheme that we
+     * dispatched to the OS instead of loading.
+     */
     private String normalize(String raw) {
         String input = raw.trim();
-        if (input.isEmpty()) return HOME_URL;
+        if (input.isEmpty()) return null;
         String lower = input.toLowerCase();
         if (lower.startsWith("http://") || lower.startsWith("https://")
                 || lower.startsWith("about:") || lower.startsWith("data:")
                 || lower.startsWith("file:")) {
             return input;
         }
-        // Non-web schemes typed manually — hand off to the OS and stay on
-        // whatever page we were on. Prevents the same freeze on typed
-        // magnet:/tel:/intent: URIs that we guard against in onLoadRequest.
         if (lower.startsWith("magnet:") || lower.startsWith("tel:")
                 || lower.startsWith("mailto:") || lower.startsWith("market:")
                 || lower.startsWith("intent:")) {
             LinkSchemeHelper.dispatch(this, Uri.parse(input));
-            return currentUrl;
+            return null;
         }
         boolean looksLikeHost = !input.contains(" ")
                 && input.contains(".") && !input.endsWith(".");
@@ -543,43 +414,58 @@ public class MainActivity extends Activity {
 
     private void showMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add(0, 1, 0, R.string.menu_home);
-        popup.getMenu().add(0, 2, 1, R.string.menu_share);
-        popup.getMenu().add(0, 3, 2, R.string.menu_copy);
-        popup.getMenu().add(0, 4, 3, R.string.menu_battery);
-        popup.getMenu().add(0, 5, 4, R.string.menu_autostart);
-        popup.getMenu().add(0, 6, 5, R.string.menu_about);
-        popup.getMenu().add(0, 7, 6, "Show crash log");
-        popup.getMenu().add(0, 8, 7, R.string.menu_exit);
+        popup.getMenu().add(0, 1, 0, "New tab");
+        popup.getMenu().add(0, 2, 1, "Tabs");
+        popup.getMenu().add(0, 3, 2, "Close tab");
+        popup.getMenu().add(0, 4, 3, R.string.menu_home);
+        popup.getMenu().add(0, 5, 4, R.string.menu_share);
+        popup.getMenu().add(0, 6, 5, R.string.menu_copy);
+        popup.getMenu().add(0, 7, 6, R.string.menu_battery);
+        popup.getMenu().add(0, 8, 7, R.string.menu_autostart);
+        popup.getMenu().add(0, 9, 8, R.string.menu_about);
+        popup.getMenu().add(0, 10, 9, "Show crash log");
+        popup.getMenu().add(0, 11, 10, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
 
     private boolean onMenuClick(MenuItem item) {
         switch (item.getItemId()) {
-            case 1: showHome(); return true;
-            case 2: shareCurrent(); return true;
-            case 3: copyCurrent(); return true;
-            case 4: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
-            case 5: OemHelper.openAutostartSettings(this); return true;
-            case 6: showAbout(); return true;
-            case 7: showCrashLog(); return true;
-            case 8: exitApp(); return true;
+            case 1: {
+                Tab t = tabManager.createTab(null);
+                tabManager.switchTo(tabManager.getTabs().indexOf(t));
+                showHome();
+                return true;
+            }
+            case 2: openTabSwitcher(); return true;
+            case 3: tabManager.closeCurrentTab(); return true;
+            case 4: showHome(); return true;
+            case 5: shareCurrent(); return true;
+            case 6: copyCurrent(); return true;
+            case 7: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
+            case 8: OemHelper.openAutostartSettings(this); return true;
+            case 9: showAbout(); return true;
+            case 10: showCrashLog(); return true;
+            case 11: exitApp(); return true;
             default: return false;
         }
     }
 
     private void shareCurrent() {
+        Tab t = tabManager.getCurrentTab();
+        String url = (t == null) ? "" : t.url;
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT, currentUrl);
+        intent.putExtra(Intent.EXTRA_TEXT, url);
         startActivity(Intent.createChooser(intent, getString(R.string.menu_share)));
     }
 
     private void copyCurrent() {
+        Tab t = tabManager.getCurrentTab();
+        String url = (t == null) ? "" : t.url;
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (cm != null) {
-            cm.setPrimaryClip(ClipData.newPlainText("url", currentUrl));
+            cm.setPrimaryClip(ClipData.newPlainText("url", url));
             Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
         }
     }
