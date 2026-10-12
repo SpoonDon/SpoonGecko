@@ -23,16 +23,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Owns the tab list and drives a single shared GeckoView.
  *
- * Scroll-hook note: an earlier revision tried to run a JS scroll listener
- * via GeckoSession.evaluateJS + setMessageDelegate, but GeckoView 157 does
- * not expose either API. The proper way is a WebExtension with a content
- * script that posts messages via the extension port. Until that lands,
- * isCurrentTabAtTop() returns true unconditionally, which lets
- * SwipeRefreshLayout accept a pull gesture from anywhere on the page.
- *
- * Consequence: on sites with an inner scroller (YouTube feed, manga
- * readers) pulling down mid-page fires pull-to-refresh instead of
- * scrolling the inner content up. This is the known tradeoff.
+ * Scroll state comes from ScrollExtension (a bundled WebExtension). Each
+ * session's native-message delegate updates its own Tab.atTop flag, so
+ * SwipeRefreshLayout can gate pull-to-refresh on the real top of the page
+ * rather than the raw touch Y coordinate.
  */
 public class TabManager {
 
@@ -55,6 +49,7 @@ public class TabManager {
     private final GeckoView geckoView;
     private final GeckoRuntime runtime;
     private final Listener listener;
+    private final ScrollExtension scrollExtension;
 
     private final List<Tab> tabs = new ArrayList<>();
     private final Deque<PersistedTab> closedStack = new ArrayDeque<>();
@@ -69,6 +64,7 @@ public class TabManager {
         this.geckoView = geckoView;
         this.runtime = runtime;
         this.listener = listener;
+        this.scrollExtension = ScrollExtension.getOrCreate(runtime);
     }
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
@@ -82,12 +78,16 @@ public class TabManager {
     }
 
     /**
-     * Placeholder. Real page-level scroll state requires a WebExtension
-     * content script. Returning true lets SwipeRefreshLayout accept a pull
-     * gesture from anywhere on the page.
+     * True when the current tab's deepest scroller and document root are
+     * both at scrollTop 0. SwipeRefreshLayout's onChildScrollUpCallback
+     * returns !this so pull-to-refresh is only allowed at the real top.
+     *
+     * Defaults to true until the extension reports otherwise — matches the
+     * permissive behaviour we had before the extension shipped.
      */
     public boolean isCurrentTabAtTop() {
-        return true;
+        Tab t = getCurrentTab();
+        return t == null || t.atTop;
     }
 
     // ------------------------------------------------------------------ create
@@ -104,6 +104,7 @@ public class TabManager {
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override public void onPageStart(GeckoSession s, String u) {
                 tab.url = u == null ? "" : u;
+                tab.atTop = true;   // optimistic — new page starts at top
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
             }
             @Override public void onPageStop(GeckoSession s, boolean success) {
@@ -160,6 +161,10 @@ public class TabManager {
 
         session.open(runtime);
         if (url != null && !url.isEmpty()) session.loadUri(url);
+
+        // Bind this session to the scroll extension. Queued internally if
+        // the extension is still installing.
+        scrollExtension.bind(session, tab);
 
         tabs.add(tab);
         listener.onTabListChanged();
