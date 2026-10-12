@@ -72,24 +72,24 @@ public final class ScrollExtension {
      * session running the content script. Looks up the sending tab via
      * MessageSender.getSession().
      */
-    private void attachDelegate(WebExtension ext) {    
-        try {        
-            ext.setMessageDelegate(new WebExtension.MessageDelegate() {            
-                @Override            
-                public void onMessage(String nativeApp,                                  
-                                      Object message,                                  
-                                      WebExtension.MessageSender sender) {                
-                    if (sender == null) return;                
-                    GeckoSession senderSession = sender.getSession();                
-                    if (senderSession == null) return;                
-                    Tab tab = sessionToTab.get(senderSession);                
-                    if (tab == null) return;                
-                    Boolean atTop = extractAtTop(message);                
-                    if (atTop != null) tab.atTop = atTop;            
-                }        
-            }, NATIVE_APP);    
-        } catch (Exception ignored) {        
-            // If registration fails, tabs stay at atTop = true (permissive).    
+    private void attachDelegate(WebExtension ext) {
+        try {
+            ext.setMessageDelegate(new WebExtension.MessageDelegate() {
+                @Override
+                public void onMessage(String nativeApp,
+                                      Object message,
+                                      WebExtension.MessageSender sender) {
+                    if (sender == null) return;
+                    GeckoSession senderSession = sender.getSession();
+                    if (senderSession == null) return;
+                    Tab tab = sessionToTab.get(senderSession);
+                    if (tab == null) return;
+                    Boolean atTop = extractAtTop(message);
+                    if (atTop != null) tab.atTop = atTop;
+                }
+            }, NATIVE_APP);
+        } catch (Exception ignored) {
+            // If registration fails, tabs stay at atTop = true (permissive).
         }
     }
 
@@ -105,9 +105,16 @@ public final class ScrollExtension {
         sessionToTab.remove(session);
     }
 
-    /** Message payload is { atTop: bool }. Try the common shapes. */
+    /**
+     * Message payload is { atTop: bool }. GeckoView hands us the deserialised
+     * object as one of: Boolean, Map, Bundle, or a JSON-ish string, depending
+     * on build. Try the fast cases first, then fall back to a string scan that
+     * reads the token immediately after "atTop:" so it can't be fooled by
+     * other boolean fields in the same payload.
+     */
     private static Boolean extractAtTop(Object message) {
         if (message == null) return null;
+        if (message instanceof Boolean) return (Boolean) message;
         try {
             if (message instanceof Map) {
                 Object v = ((Map<?, ?>) message).get("atTop");
@@ -117,13 +124,16 @@ public final class ScrollExtension {
                 Bundle b = (Bundle) message;
                 if (b.containsKey("atTop")) return b.getBoolean("atTop");
             }
-            // Last resort: string-sniff. Matches "atTop":true / "atTop": false.
             String s = message.toString();
             int idx = s.indexOf("atTop");
             if (idx >= 0) {
                 String tail = s.substring(idx);
-                if (tail.contains("false")) return Boolean.FALSE;
-                if (tail.contains("true")) return Boolean.TRUE;
+                int colon = tail.indexOf(':');
+                if (colon >= 0) {
+                    String v = tail.substring(colon + 1).trim();
+                    if (v.startsWith("true"))  return Boolean.TRUE;
+                    if (v.startsWith("false")) return Boolean.FALSE;
+                }
             }
         } catch (Exception ignored) {}
         return null;
