@@ -72,20 +72,24 @@ public final class ScrollExtension {
      * session running the content script. Looks up the sending tab via
      * MessageSender.getSession().
      */
-    private void attachDelegate(WebExtension ext) {
-        try {
-            ext.setMessageDelegate((nativeApp, message, sender) -> {
-                if (sender == null) return null;
-                GeckoSession senderSession = sender.getSession();
-                if (senderSession == null) return null;
-                Tab tab = sessionToTab.get(senderSession);
-                if (tab == null) return null;
-                Boolean atTop = extractAtTop(message);
-                if (atTop != null) tab.atTop = atTop;
-                return null;
-            }, NATIVE_APP);
-        } catch (Exception ignored) {
-            // If registration fails, tabs stay at atTop = true (permissive).
+    private void attachDelegate(WebExtension ext) {    
+        try {        
+            ext.setMessageDelegate(new WebExtension.MessageDelegate() {            
+                @Override            
+                public void onMessage(String nativeApp,                                  
+                                      Object message,                                  
+                                      WebExtension.MessageSender sender) {                
+                    if (sender == null) return;                
+                    GeckoSession senderSession = sender.getSession();                
+                    if (senderSession == null) return;                
+                    Tab tab = sessionToTab.get(senderSession);                
+                    if (tab == null) return;                
+                    Boolean atTop = extractAtTop(message);                
+                    if (atTop != null) tab.atTop = atTop;            
+                }        
+            }, NATIVE_APP);    
+        } catch (Exception ignored) {        
+            // If registration fails, tabs stay at atTop = true (permissive).    
         }
     }
 
