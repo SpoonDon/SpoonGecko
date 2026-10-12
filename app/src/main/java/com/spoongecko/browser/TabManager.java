@@ -142,7 +142,7 @@ public class TabManager {
                 if (tab == getCurrentTab()) listener.onTitle(tab, tab.title);
             }
         });
-
+        session.setPromptDelegate(new AuthPromptHandler(activity));
         // Root-scroller position. Fires whenever the page scrolls. Reported
         // values are in CSS pixels and can be negative during overscroll on
         // some builds, so we clamp to <= 0 rather than == 0.
