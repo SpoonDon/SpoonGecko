@@ -253,6 +253,9 @@ public class TabManager {
 
     public void closeAll() {
         for (Tab t : new ArrayList<>(tabs)) {
+            // Unbind BEFORE closing, otherwise ScrollExtension.sessionToTab
+            // grows without bound across activity restarts.
+            scrollExtension.unbind(t.session);
             try { t.session.close(); } catch (Exception ignored) {}
             t.recycle();
         }
