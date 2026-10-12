@@ -1,26 +1,27 @@
 package com.spoongecko.browser;
 
-import android.os.Bundle;
-
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges the bundled "SpoonGecko Scroll Hook" WebExtension to per-tab
  * scroll state.
  *
- * GeckoView 157 API shape (learned the hard way):
- *   - The message delegate lives on WebExtension, not on GeckoSession or
- *     on WebExtensionController.SessionController.
- *   - One delegate handles messages from ALL sessions. To find out which
- *     tab sent a message, use MessageSender.getSession().
- *   - Therefore: register ONE delegate on install(), and keep a
- *     session -> Tab map that TabManager populates as tabs are created.
+ * GeckoView 157 removed MessageSender.getSession() — the sender object no
+ * longer carries a back-reference to the originating GeckoSession. Because
+ * our single shared GeckoView only renders the active tab, and the content
+ * script only reports on user interaction (which can't happen on a
+ * background tab), we track the *current* tab's atTop flag instead of
+ * looking up the session that sent the message.
+ *
+ * TabManager hands us a TabProvider on construction so we can resolve
+ * "the current tab" at message time without holding a hard reference back
+ * to the manager.
  */
 public final class ScrollExtension {
 
@@ -29,14 +30,17 @@ public final class ScrollExtension {
 
     private static volatile ScrollExtension INSTANCE;
 
-    private volatile WebExtension extension;
-
     /**
-     * Session-scoped lookup. Written from TabManager on the main thread,
-     * read from the WebExtension message thread inside the delegate.
-     * ConcurrentHashMap because the two threads don't coordinate.
+     * Supplies the currently-visible tab. TabManager implements this by
+     * returning getCurrentTab(). Called on the WebExtension message thread,
+     * not the UI thread.
      */
-    private final Map<GeckoSession, Tab> sessionToTab = new ConcurrentHashMap<>();
+    public interface TabProvider {
+        Tab getCurrentTab();
+    }
+
+    private volatile WebExtension extension;
+    private volatile TabProvider tabProvider;
 
     private ScrollExtension() {}
 
@@ -51,6 +55,11 @@ public final class ScrollExtension {
             }
             return INSTANCE;
         }
+    }
+
+    /** Called by TabManager once in its constructor. */
+    public void setTabProvider(TabProvider provider) {
+        this.tabProvider = provider;
     }
 
     private void install(GeckoRuntime runtime) {
@@ -68,24 +77,27 @@ public final class ScrollExtension {
     }
 
     /**
-     * One-time delegate registration. Fires for every message from every
-     * session running the content script. Looks up the sending tab via
-     * MessageSender.getSession().
+     * One-time delegate registration. GeckoView 157 signature:
+     *   GeckoResult<Object> onMessage(String nativeApp,
+     *                                 Object message,
+     *                                 MessageSender sender)
      */
     private void attachDelegate(WebExtension ext) {
         try {
             ext.setMessageDelegate(new WebExtension.MessageDelegate() {
                 @Override
-                public void onMessage(String nativeApp,
-                                      Object message,
-                                      WebExtension.MessageSender sender) {
-                    if (sender == null) return;
-                    GeckoSession senderSession = sender.getSession();
-                    if (senderSession == null) return;
-                    Tab tab = sessionToTab.get(senderSession);
-                    if (tab == null) return;
+                public GeckoResult<Object> onMessage(String nativeApp,
+                                                     Object message,
+                                                     WebExtension.MessageSender sender) {
                     Boolean atTop = extractAtTop(message);
-                    if (atTop != null) tab.atTop = atTop;
+                    if (atTop != null) {
+                        TabProvider p = tabProvider;
+                        if (p != null) {
+                            Tab t = p.getCurrentTab();
+                            if (t != null) t.atTop = atTop;
+                        }
+                    }
+                    return null;
                 }
             }, NATIVE_APP);
         } catch (Exception ignored) {
@@ -93,17 +105,12 @@ public final class ScrollExtension {
         }
     }
 
-    /** Called by TabManager right after a session is opened. */
-    public void bind(GeckoSession session, Tab tab) {
-        if (session == null || tab == null) return;
-        sessionToTab.put(session, tab);
-    }
-
-    /** Called by TabManager when a tab is closed. */
-    public void unbind(GeckoSession session) {
-        if (session == null) return;
-        sessionToTab.remove(session);
-    }
+    /**
+     * Retained for source-compatibility with TabManager. This class no
+     * longer tracks sessions by reference, so these are no-ops.
+     */
+    public void bind(GeckoSession session, Tab tab) {}
+    public void unbind(GeckoSession session) {}
 
     /**
      * Message payload is { atTop: bool }. GeckoView hands us the deserialised
@@ -120,8 +127,8 @@ public final class ScrollExtension {
                 Object v = ((Map<?, ?>) message).get("atTop");
                 if (v instanceof Boolean) return (Boolean) v;
             }
-            if (message instanceof Bundle) {
-                Bundle b = (Bundle) message;
+            if (message instanceof android.os.Bundle) {
+                android.os.Bundle b = (android.os.Bundle) message;
                 if (b.containsKey("atTop")) return b.getBoolean("atTop");
             }
             String s = message.toString();
