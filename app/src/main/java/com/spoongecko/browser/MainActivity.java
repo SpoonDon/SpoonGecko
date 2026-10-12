@@ -228,8 +228,6 @@ public class MainActivity extends Activity {
         }
     };
 
-        // ---------------------------------------------------------------- home
-
     private final HomeView.Callbacks homeCallbacks = new HomeView.Callbacks() {
         @Override public void onNavigate(String url) {
             if (TextUtils.isEmpty(url)) return;
