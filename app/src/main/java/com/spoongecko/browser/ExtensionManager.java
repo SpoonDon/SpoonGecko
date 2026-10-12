@@ -27,6 +27,7 @@ public final class ExtensionManager {
     private WebExtensionController mController;
     private final List<WebExtension> mExtensions = new ArrayList<>();
     private ExtensionListListener mListener;
+    private boolean mBuiltInsRegistered = false;
 
     public interface ExtensionListListener {
         void onExtensionsChanged(List<WebExtension> extensions);
@@ -51,6 +52,17 @@ public final class ExtensionManager {
             return;
         }
         mController.setPromptDelegate(new ExtensionPromptDelegate(activity));
+        mController.setAddonManagerDelegate(new ExtensionAddonManagerDelegate(this));
+
+        if (!mBuiltInsRegistered) {
+            try {
+                ScrollExtension.register(mController);
+                mBuiltInsRegistered = true;
+            } catch (Throwable t) {
+                Log.e(TAG, "failed to register built-in extensions", t);
+            }
+        }
+
         refresh();
     }
 
@@ -65,7 +77,17 @@ public final class ExtensionManager {
         if (mController == null) return;
         mController.list().accept(extensions -> {
             mExtensions.clear();
-            if (extensions != null) mExtensions.addAll(extensions);
+            if (extensions != null) {
+                for (WebExtension ext : extensions) {
+                    // The scroll reporter is internal — never show it in
+                    // the Extensions dialog.
+                    if (ext != null && ext.metaData != null
+                            && ScrollExtension.EXTENSION_ID.equals(ext.id)) {
+                        continue;
+                    }
+                    mExtensions.add(ext);
+                }
+            }
             if (mListener != null) {
                 mListener.onExtensionsChanged(
                         Collections.unmodifiableList(mExtensions));
