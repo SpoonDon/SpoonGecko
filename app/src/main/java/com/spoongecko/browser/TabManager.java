@@ -195,31 +195,78 @@ public class TabManager {
             public GeckoResult<String> onLoadError(GeckoSession s, String uri,
                                                    org.mozilla.geckoview.WebRequestError error) {
                 int category = (error == null) ? 0 : error.category;
-                String msg;
+                int code = (error == null) ? 0 : error.code;
+
+                String categoryLabel;
                 switch (category) {
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.SECURITY:
-                        msg = "Security error (TLS/certificate)";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_SECURITY:
+                        categoryLabel = "Security error";
                         break;
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.NETWORK:
-                        msg = "Network error (connection failed)";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_NETWORK:
+                        categoryLabel = "Network error";
                         break;
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.CONTENT:
-                        msg = "Content error";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_CONTENT:
+                        categoryLabel = "Content error";
                         break;
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.URI:
-                        msg = "Invalid address";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_URI:
+                        categoryLabel = "Invalid address";
                         break;
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.PROXY:
-                        msg = "Proxy error";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_PROXY:
+                        categoryLabel = "Proxy error";
                         break;
-                    case org.mozilla.geckoview.WebRequestError.ErrorCategory.SAFEBROWSING:
-                        msg = "Blocked by safe browsing";
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_SAFEBROWSING:
+                        categoryLabel = "Blocked by safe browsing";
                         break;
                     default:
-                        msg = "Could not load page";
+                        categoryLabel = "Could not load page";
                         break;
                 }
+
+                String codeLabel;
+                switch (code) {
+                    case org.mozilla.geckoview.WebRequestError.ERROR_CONNECTION_REFUSED:
+                        codeLabel = "Connection refused";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_TIMEOUT:
+                        codeLabel = "Connection timed out";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_UNKNOWN_HOST:
+                        codeLabel = "Host not found";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_SECURITY_SSL:
+                        codeLabel = "SSL negotiation failed";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_SECURITY_BAD_CERT:
+                        codeLabel = "Bad certificate";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_OFFLINE:
+                        codeLabel = "Device is offline";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_PORT_BLOCKED:
+                        codeLabel = "Port blocked by system";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_HTTPS_ONLY:
+                        codeLabel = "Blocked: HTTPS-only mode";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_UNKNOWN_PROTOCOL:
+                        codeLabel = "Unknown protocol";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_RESET:
+                        codeLabel = "Connection reset by peer";
+                        break;
+                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_INTERRUPT:
+                        codeLabel = "Connection interrupted";
+                        break;
+                    default:
+                        codeLabel = null;
+                        break;
+                }
+
                 String safeUri = (uri == null || uri.isEmpty()) ? "" : uri;
+                String detail = (codeLabel == null)
+                        ? categoryLabel
+                        : categoryLabel + " — " + codeLabel;
+
                 String html =
                         "<!DOCTYPE html><html><head>" +
                         "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
@@ -232,14 +279,14 @@ public class TabManager {
                         "font-size:12px;word-break:break-all;}" +
                         "</style></head><body>" +
                         "<h1>Could not load page</h1>" +
-                        "<p>" + msg + "</p>" +
+                        "<p>" + detail + "</p>" +
                         "<p><code>" + safeUri + "</code></p>" +
                         "</body></html>";
                 String encoded = android.util.Base64.encodeToString(
                         html.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         android.util.Base64.NO_WRAP);
                 return GeckoResult.fromValue("data:text/html;base64," + encoded);
-            }            
+            }
         });
 
         session.open(runtime);
