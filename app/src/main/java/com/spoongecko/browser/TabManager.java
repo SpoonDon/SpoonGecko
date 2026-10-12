@@ -12,6 +12,7 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.util.ArrayDeque;
@@ -100,6 +101,11 @@ public class TabManager {
                 tab.url = u;
                 tab.resetScrollState();
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
+
+                // Late-attach fallback: if ensureBuiltIn() had not completed
+                // when this tab was created, attach the scroll message
+                // delegate on the first real page start.
+                attachScrollDelegateIfNeeded(s, tab);
             }
 
             @Override public void onPageStop(GeckoSession s, boolean success) {
@@ -125,11 +131,6 @@ public class TabManager {
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
 
-        // Scroll position is reported by the bundled ScrollExtension
-        // content script (see ScrollExtension.attach below). We do NOT
-        // rely on GeckoSession.ScrollDelegate: it fires only for the root
-        // scroller of the visual viewport and stops firing on many pages.
-
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public void onCanGoBack(GeckoSession s, boolean v) {
                 tab.canGoBack = v;
@@ -148,10 +149,6 @@ public class TabManager {
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
 
-                // ---- Extension support ----------------------------------
-                // AMO download URLs carry a query string
-                //   ?src=hp&utm_source=...
-                // so match on the path, not the whole URL.
                 if ("https".equalsIgnoreCase(scheme)) {
                     String path = uri.getPath();
                     if (path != null
@@ -162,12 +159,9 @@ public class TabManager {
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
                     }
                 }
-                // ---- End extension support ------------------------------
 
                 switch (scheme.toLowerCase(Locale.US)) {
                     case "moz-extension":
-                        // Internal WebExtension pages (options, panels).
-                        // These must render in-session, never be handed off.
                         return GeckoResult.fromValue(AllowOrDeny.ALLOW);
 
                     case "http": case "https": case "about":
@@ -313,29 +307,10 @@ public class TabManager {
             applyUaForUrl(session, url);
         }
 
-        // Attach the scroll reporter before opening the session so the
-// content script's first message is never missed.
-// The built-in extension may not have resolved yet (ensureBuiltIn is
-// async), so guard against a null reference and retry on first load.
-WebExtension scrollExt = ExtensionManager.getInstance().getScrollExtension();
-if (scrollExt != null) {
-    ScrollExtension.attach(session, scrollExt, tab);
-} else {
-    // Fallback: attach on the first page-start callback, by which
-    // time ensureBuiltIn has almost certainly completed.
-    final Tab fTab = tab;
-    session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-        @Override
-        public void onPageStart(GeckoSession s, String url) {
-            GeckoSession.ProgressDelegate.super.onPageStart(s, url);
-            WebExtension ext = ExtensionManager.getInstance()
-                    .getScrollExtension();
-            if (ext != null) {
-                ScrollExtension.attach(s, ext, fTab);
-            }
-        }
-    });
-}
+        // Try to attach the scroll reporter now. If the built-in has not
+        // finished installing yet, the ProgressDelegate above will retry
+        // on the next onPageStart().
+        attachScrollDelegateIfNeeded(session, tab);
 
         session.open(runtime);
         if (!isBlank(url)) {
@@ -344,8 +319,6 @@ if (scrollExt != null) {
 
         tabs.add(tab);
 
-        // Notify *after* currentIndex has been corrected so the tab badge
-        // never flashes "0" for a frame on a fresh list.
         if (currentIndex < 0) {
             currentIndex = 0;
             geckoView.setSession(tab.session);
@@ -354,6 +327,17 @@ if (scrollExt != null) {
 
         listener.onTabListChanged();
         return tab;
+    }
+
+    /**
+     * Attaches the scroll-reporter message delegate if the built-in
+     * extension has been resolved. Idempotent: GeckoView overwrites the
+     * previous delegate for the same nativeApp, so a second call is safe.
+     */
+    private void attachScrollDelegateIfNeeded(GeckoSession session, Tab tab) {
+        WebExtension scrollExt = ExtensionManager.getInstance().getScrollExtension();
+        if (scrollExt == null) return;
+        ScrollExtension.attach(session, scrollExt, tab);
     }
 
     // ------------------------------------------------------------------ switch
@@ -391,8 +375,6 @@ if (scrollExt != null) {
 
         if (tabs.isEmpty()) {
             currentIndex = -1;
-            // createTab() fires onTabListChanged / onCurrentTabChanged
-            // itself, so the badge ends up consistent at 1/1.
             createTab(null);
             return;
         }
@@ -405,8 +387,6 @@ if (scrollExt != null) {
             currentIndex--;
         }
 
-        // Fire *after* index math so updateTabBadge() reads a consistent
-        // (current, size) pair. Fixes the "2/1" symptom.
         listener.onTabListChanged();
     }
 
