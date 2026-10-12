@@ -11,16 +11,15 @@ import org.mozilla.geckoview.WebExtensionController;
 import java.lang.ref.WeakReference;
 
 /**
- * Handles extension install prompts.
+ * Handles the install-permission dialog for WebExtensions.
  *
- * <p><b>Critical:</b> {@code onInstallPrompt} was deprecated in GeckoView 133
- * and <b>deleted in 134</b>. This implementation uses the current
- * {@code onInstallPromptRequest} which returns a
- * {@link WebExtension.PermissionPromptResponse}.
+ * onInstallPrompt was deprecated in GeckoView 133 and deleted in 134.
+ * This uses the current onInstallPromptRequest returning a
+ * WebExtension.PermissionPromptResponse.
  */
 public class ExtensionPromptDelegate implements WebExtensionController.PromptDelegate {
 
-    private static final String TAG = "ExtensionPromptDelegate";
+    private static final String TAG = "ExtPromptDelegate";
 
     private final WeakReference<Activity> mActivityRef;
 
@@ -39,29 +38,23 @@ public class ExtensionPromptDelegate implements WebExtensionController.PromptDel
         final Activity activity = mActivityRef.get();
 
         if (activity == null || activity.isFinishing()) {
-            // No live UI — deny by default to be safe.
             result.complete(new WebExtension.PermissionPromptResponse(false, false, false));
             return result;
         }
 
-        final String name = (extension.metaData != null && extension.metaData.name != null)
-                ? extension.metaData.name
-                : "Unknown extension";
+        final String name = (extension != null && extension.metaData != null
+                && extension.metaData.name != null)
+                ? extension.metaData.name : "this extension";
 
-        final StringBuilder msg = new StringBuilder();
-        msg.append("Install \"").append(name).append("\"?\n\n");
-
+        StringBuilder msg = new StringBuilder();
+        msg.append("Install \"").append(name).append("\"?\n");
         if (permissions != null && permissions.length > 0) {
-            msg.append("Permissions:\n");
-            for (String p : permissions) {
-                msg.append("• ").append(p).append('\n');
-            }
+            msg.append("\nPermissions:\n");
+            for (String p : permissions) msg.append("• ").append(p).append('\n');
         }
         if (origins != null && origins.length > 0) {
             msg.append("\nAccess to:\n");
-            for (String o : origins) {
-                msg.append("• ").append(o).append('\n');
-            }
+            for (String o : origins) msg.append("• ").append(o).append('\n');
         }
 
         activity.runOnUiThread(() -> {
@@ -70,15 +63,19 @@ public class ExtensionPromptDelegate implements WebExtensionController.PromptDel
                         .setTitle("Add extension")
                         .setMessage(msg.toString().trim())
                         .setPositiveButton("Allow", (d, w) ->
-                                result.complete(new WebExtension.PermissionPromptResponse(true, false, false)))
+                                result.complete(new WebExtension.PermissionPromptResponse(
+                                        true, false, false)))
                         .setNegativeButton("Deny", (d, w) ->
-                                result.complete(new WebExtension.PermissionPromptResponse(false, false, false)))
+                                result.complete(new WebExtension.PermissionPromptResponse(
+                                        false, false, false)))
                         .setOnCancelListener(d ->
-                                result.complete(new WebExtension.PermissionPromptResponse(false, false, false)))
+                                result.complete(new WebExtension.PermissionPromptResponse(
+                                        false, false, false)))
                         .show();
             } catch (Exception e) {
-                Log.e(TAG, "Failed to show install dialog", e);
-                result.complete(new WebExtension.PermissionPromptResponse(false, false, false));
+                Log.e(TAG, "Dialog failed", e);
+                result.complete(new WebExtension.PermissionPromptResponse(
+                        false, false, false));
             }
         });
 
