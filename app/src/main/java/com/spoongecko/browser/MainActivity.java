@@ -342,6 +342,18 @@ public class MainActivity extends Activity {
             return null;
         }
 
+        // Any bare IPv4 literal (with optional :port and /path) — HTTP first.
+        // Routers, ISP modems and local devices serve plain HTTP on port 80,
+        // so defaulting to https:// guarantees a "connection refused" blank page.
+        if (isIpv4Literal(input)) {
+            return "http://" + input;
+        }
+
+        // Bracketed IPv6 literal — same reasoning.
+        if (input.startsWith("[") && input.indexOf(']') > 1) {
+            return "http://" + input;
+        }
+
         boolean looksLikeHost = !input.contains(" ")
                 && input.contains(".") && !input.endsWith(".");
         if (looksLikeHost) {
@@ -352,6 +364,37 @@ public class MainActivity extends Activity {
             return "https://" + input;
         }
         return "https://duckduckgo.com/?q=" + Uri.encode(input);
+    }
+
+    /**
+     * True if input starts with an IPv4 literal, optionally followed by
+     * ":port" and/or "/path". Examples:
+     *   192.168.1.1              -> true
+     *   192.168.1.1:8080         -> true
+     *   192.168.1.1/admin        -> true
+     *   49.36.100.5              -> true  (public IP — still HTTP-first)
+     *   example.com              -> false
+     *   192.168.1                -> false (not a full 4-octet address)
+     */
+    private static boolean isIpv4Literal(String input) {
+        if (input.isEmpty()) return false;
+        // Isolate the authority portion (strip path).
+        int slash = input.indexOf('/');
+        String authority = slash >= 0 ? input.substring(0, slash) : input;
+        // Strip :port if present.
+        int colon = authority.indexOf(':');
+        String host = colon >= 0 ? authority.substring(0, colon) : authority;
+        String[] parts = host.split("\\.", -1);
+        if (parts.length != 4) return false;
+        for (String p : parts) {
+            if (p.isEmpty() || p.length() > 3) return false;
+            for (int i = 0; i < p.length(); i++) {
+                char c = p.charAt(i);
+                if (c < '0' || c > '9') return false;
+            }
+            if (Integer.parseInt(p) > 255) return false;
+        }
+        return true;
     }
 
     /** Strips scheme, userinfo, port and path from an authority-like input. */
