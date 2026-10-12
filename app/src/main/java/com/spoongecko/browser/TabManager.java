@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -93,16 +94,16 @@ public class TabManager {
             @Override public void onPageStart(GeckoSession s, String u) {
                 if (isBlank(u)) {
                     tab.url = "";
-                    tab.atTop = true;
+                    tab.resetScrollState();
                     return;
                 }
                 tab.url = u;
-                tab.atTop = true;
+                tab.resetScrollState();
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
             }
 
-            @Override public void onPageStop(GeckoSession s, boolean success) {    
-                if (success) tab.resetScrollState();   // <— reset, ScrollDelegate will correct if needed    
+            @Override public void onPageStop(GeckoSession s, boolean success) {
+                if (success) tab.resetScrollState();
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
             }
 
@@ -124,17 +125,10 @@ public class TabManager {
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
 
-        session.setScrollDelegate(new GeckoSession.ScrollDelegate() {    
-            @Override            
-            public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
-        // GeckoView reports CSS-pixel offsets and, on some pages, a
-        // tiny positive value even at the top (subpixel layout,
-        // sticky headers, dynamic viewport). Treat <= 2 as "at top"
-        // so pull-to-refresh does not get permanently disabled.        
-                tab.scrollY = scrollY;        
-                tab.atTop = scrollY <= 2;    
-            }
-        });
+        // Scroll position is reported by the bundled ScrollExtension
+        // content script (see ScrollExtension.attach below). We do NOT
+        // rely on GeckoSession.ScrollDelegate: it fires only for the root
+        // scroller of the visual viewport and stops firing on many pages.
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public void onCanGoBack(GeckoSession s, boolean v) {
@@ -154,24 +148,28 @@ public class TabManager {
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
 
-                // ===== EXTENSION SUPPORT =====
-                // AMO serves signed WebExtension packages at URLs ending in .xpi.
-                // Hand these to GeckoView's installer instead of trying to
-                // navigate to them as pages. installFromUrl() must run on the
-                // UI thread, hence the mainHandler.post.
-                if ("https".equalsIgnoreCase(scheme)
-                        && request.uri.endsWith(".xpi")) {
-                    final String xpiUrl = request.uri;
-                    mainHandler.post(() ->
-                            ExtensionManager.getInstance().installFromUrl(xpiUrl));
-                    return GeckoResult.fromValue(AllowOrDeny.DENY);
+                // ---- Extension support ----------------------------------
+                // AMO download URLs carry a query string
+                //   ?src=hp&utm_source=...
+                // so match on the path, not the whole URL.
+                if ("https".equalsIgnoreCase(scheme)) {
+                    String path = uri.getPath();
+                    if (path != null
+                            && path.toLowerCase(Locale.US).endsWith(".xpi")) {
+                        final String xpiUrl = request.uri;
+                        mainHandler.post(() ->
+                                ExtensionManager.getInstance().installFromUrl(xpiUrl));
+                        return GeckoResult.fromValue(AllowOrDeny.DENY);
+                    }
                 }
-                // ===== END EXTENSION SUPPORT =====
+                // ---- End extension support ------------------------------
 
-                switch (scheme.toLowerCase()) {
+                switch (scheme.toLowerCase(Locale.US)) {
                     case "moz-extension":
+                        // Internal WebExtension pages (options, panels).
+                        // These must render in-session, never be handed off.
                         return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-                        
+
                     case "http": case "https": case "about":
                     case "data": case "blob":   case "file": {
                         String target = request.uri;
@@ -300,8 +298,8 @@ public class TabManager {
                         "font-size:12px;word-break:break-all;}" +
                         "</style></head><body>" +
                         "<h1>Could not load page</h1>" +
-                        "<p>" + detail + "</p>" +
-                        "<p><code>" + safeUri + "</code></p>" +
+                        "<p>" + htmlEscape(detail) + "</p>" +
+                        "<p><code>" + htmlEscape(safeUri) + "</code></p>" +
                         httpButton +
                         "</body></html>";
                 String encodedHtml = android.util.Base64.encodeToString(
@@ -311,78 +309,86 @@ public class TabManager {
             }
         });
 
-        session.open(runtime);
         if (!isBlank(url)) {
             applyUaForUrl(session, url);
+        }
+
+        // Attach the scroll reporter before opening the session so the
+        // content script's first message is never missed.
+        ScrollExtension.attach(session, tab);
+
+        session.open(runtime);
+        if (!isBlank(url)) {
             session.loadUri(url);
         }
 
         tabs.add(tab);
-        listener.onTabListChanged();
 
+        // Notify *after* currentIndex has been corrected so the tab badge
+        // never flashes "0" for a frame on a fresh list.
         if (currentIndex < 0) {
             currentIndex = 0;
             geckoView.setSession(tab.session);
             listener.onCurrentTabChanged(tab);
         }
+
+        listener.onTabListChanged();
         return tab;
     }
 
     // ------------------------------------------------------------------ switch
 
     public void switchTo(int index) {
-    if (index < 0 || index >= tabs.size()) return;
-    if (index == currentIndex) return;
+        if (index < 0 || index >= tabs.size()) return;
+        if (index == currentIndex) return;
 
-    Tab outgoing = getCurrentTab();
-    if (outgoing != null) captureThumbnail(outgoing);
+        Tab outgoing = getCurrentTab();
+        if (outgoing != null) captureThumbnail(outgoing);
 
-    currentIndex = index;
-    Tab next = tabs.get(index);
-    next.resetScrollState();          // <— new
-    geckoView.setSession(next.session);
-    listener.onCurrentTabChanged(next);
-    listener.onCanGoForward(next, next.canGoForward);
+        currentIndex = index;
+        Tab next = tabs.get(index);
+        next.resetScrollState();
+        geckoView.setSession(next.session);
+        listener.onCurrentTabChanged(next);
+        listener.onCanGoForward(next, next.canGoForward);
     }
 
     // ------------------------------------------------------------------ close
 
     public void closeTab(int index) {
-    if (index < 0 || index >= tabs.size()) return;
-    Tab closing = tabs.get(index);
-    boolean wasCurrent = (index == currentIndex);
+        if (index < 0 || index >= tabs.size()) return;
+        Tab closing = tabs.get(index);
+        boolean wasCurrent = (index == currentIndex);
 
-    if (closing.url != null && !closing.url.isEmpty()) {
-        closedStack.offerFirst(new PersistedTab(closing.url, closing.title));
-        while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
+        if (closing.url != null && !closing.url.isEmpty()) {
+            closedStack.offerFirst(new PersistedTab(closing.url, closing.title));
+            while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
+        }
+
+        try { closing.session.close(); } catch (Exception ignored) {}
+        closing.recycle();
+        tabs.remove(index);
+
+        if (tabs.isEmpty()) {
+            currentIndex = -1;
+            // createTab() fires onTabListChanged / onCurrentTabChanged
+            // itself, so the badge ends up consistent at 1/1.
+            createTab(null);
+            return;
+        }
+
+        if (wasCurrent) {
+            if (index >= tabs.size()) index = tabs.size() - 1;
+            currentIndex = -1;
+            switchTo(index);
+        } else if (index < currentIndex) {
+            currentIndex--;
+        }
+
+        // Fire *after* index math so updateTabBadge() reads a consistent
+        // (current, size) pair. Fixes the "2/1" symptom.
+        listener.onTabListChanged();
     }
-
-    try { closing.session.close(); } catch (Exception ignored) {}
-    closing.recycle();
-    tabs.remove(index);
-
-    if (tabs.isEmpty()) {
-        currentIndex = -1;
-        // createTab() will call onTabListChanged() / onCurrentTabChanged()
-        // once the new empty tab exists, so the badge ends up at 1/1.
-        createTab(null);
-        return;
-    }
-
-    if (wasCurrent) {
-        if (index >= tabs.size()) index = tabs.size() - 1;
-        currentIndex = -1;
-        // switchTo() sets currentIndex and notifies onCurrentTabChanged,
-        // which already refreshes the badge.
-        switchTo(index);
-    } else if (index < currentIndex) {
-        currentIndex--;
-    }
-
-    // Notify *after* currentIndex has been corrected, so updateTabBadge()
-    // sees a consistent (current, size) pair.
-    listener.onTabListChanged();
-}
 
     public void closeCurrentTab() { closeTab(currentIndex); }
 
@@ -460,11 +466,20 @@ public class TabManager {
         }
     }
 
+    private static String htmlEscape(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
     private static boolean isPrivateHost(String url) {
         try {
             String host = Uri.parse(url).getHost();
             if (host == null) return false;
-            host = host.toLowerCase();
+            host = host.toLowerCase(Locale.US);
             if (host.equals("localhost") || host.equals("127.0.0.1")) return true;
             String[] parts = host.split("\\.");
             if (parts.length != 4) return false;
