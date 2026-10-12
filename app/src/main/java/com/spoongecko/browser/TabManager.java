@@ -345,33 +345,41 @@ public class TabManager {
     // ------------------------------------------------------------------ close
 
     public void closeTab(int index) {
-        if (index < 0 || index >= tabs.size()) return;
-        Tab closing = tabs.get(index);
-        boolean wasCurrent = (index == currentIndex);
+    if (index < 0 || index >= tabs.size()) return;
+    Tab closing = tabs.get(index);
+    boolean wasCurrent = (index == currentIndex);
 
-        if (closing.url != null && !closing.url.isEmpty()) {
-            closedStack.offerFirst(new PersistedTab(closing.url, closing.title));
-            while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
-        }
-
-        try { closing.session.close(); } catch (Exception ignored) {}
-        closing.recycle();
-        tabs.remove(index);
-        listener.onTabListChanged();
-
-        if (tabs.isEmpty()) {
-            currentIndex = -1;
-            createTab(null);
-            return;
-        }
-        if (wasCurrent) {
-            if (index >= tabs.size()) index = tabs.size() - 1;
-            currentIndex = -1;
-            switchTo(index);
-        } else if (index < currentIndex) {
-            currentIndex--;
-        }
+    if (closing.url != null && !closing.url.isEmpty()) {
+        closedStack.offerFirst(new PersistedTab(closing.url, closing.title));
+        while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
     }
+
+    try { closing.session.close(); } catch (Exception ignored) {}
+    closing.recycle();
+    tabs.remove(index);
+
+    if (tabs.isEmpty()) {
+        currentIndex = -1;
+        // createTab() will call onTabListChanged() / onCurrentTabChanged()
+        // once the new empty tab exists, so the badge ends up at 1/1.
+        createTab(null);
+        return;
+    }
+
+    if (wasCurrent) {
+        if (index >= tabs.size()) index = tabs.size() - 1;
+        currentIndex = -1;
+        // switchTo() sets currentIndex and notifies onCurrentTabChanged,
+        // which already refreshes the badge.
+        switchTo(index);
+    } else if (index < currentIndex) {
+        currentIndex--;
+    }
+
+    // Notify *after* currentIndex has been corrected, so updateTabBadge()
+    // sees a consistent (current, size) pair.
+    listener.onTabListChanged();
+}
 
     public void closeCurrentTab() { closeTab(currentIndex); }
 
