@@ -59,13 +59,14 @@ public class TabManager {
     private int currentIndex = -1;
 
     public TabManager(MainActivity activity, GeckoView geckoView,
-                      GeckoRuntime runtime, Listener listener) {
-        this.activity = activity;
-        this.geckoView = geckoView;
-        this.runtime = runtime;
-        this.listener = listener;
-        this.scrollExtension = ScrollExtension.getOrCreate(runtime);
-    }
+                  GeckoRuntime runtime, Listener listener) {
+    this.activity = activity;
+    this.geckoView = geckoView;
+    this.runtime = runtime;
+    this.listener = listener;
+    this.scrollExtension = ScrollExtension.getOrCreate(runtime);
+    this.scrollExtension.setTabProvider(this::getCurrentTab);   // <-- ADD THIS LINE
+}
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
     public int getTabCount() { return tabs.size(); }
