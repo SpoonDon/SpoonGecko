@@ -23,10 +23,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Owns the tab list and drives a single shared GeckoView.
  *
- * Scroll state comes from ScrollExtension (a bundled WebExtension). Each
- * session's native-message delegate updates its own Tab.atTop flag, so
- * SwipeRefreshLayout can gate pull-to-refresh on the real top of the page
- * rather than the raw touch Y coordinate.
+ * Scroll state comes from a JS hook injected on every page load (see
+ * ScrollExtension). The hook reports back through a custom URL scheme that
+ * NavigationDelegate.onLoadRequest intercepts. SwipeRefreshLayout gates
+ * pull-to-refresh on the resulting Tab.atTop flag.
  */
 public class TabManager {
 
@@ -49,7 +49,6 @@ public class TabManager {
     private final GeckoView geckoView;
     private final GeckoRuntime runtime;
     private final Listener listener;
-    private final ScrollExtension scrollExtension;
 
     private final List<Tab> tabs = new ArrayList<>();
     private final Deque<PersistedTab> closedStack = new ArrayDeque<>();
@@ -59,14 +58,12 @@ public class TabManager {
     private int currentIndex = -1;
 
     public TabManager(MainActivity activity, GeckoView geckoView,
-                  GeckoRuntime runtime, Listener listener) {
-    this.activity = activity;
-    this.geckoView = geckoView;
-    this.runtime = runtime;
-    this.listener = listener;
-    this.scrollExtension = ScrollExtension.getOrCreate(runtime);
-    this.scrollExtension.setTabProvider(this::getCurrentTab);   // <-- ADD THIS LINE
-}
+                      GeckoRuntime runtime, Listener listener) {
+        this.activity = activity;
+        this.geckoView = geckoView;
+        this.runtime = runtime;
+        this.listener = listener;
+    }
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
     public int getTabCount() { return tabs.size(); }
@@ -83,12 +80,17 @@ public class TabManager {
      * both at scrollTop 0. SwipeRefreshLayout's onChildScrollUpCallback
      * returns !this so pull-to-refresh is only allowed at the real top.
      *
-     * Defaults to true until the extension reports otherwise — matches the
-     * permissive behaviour we had before the extension shipped.
+     * Defaults to true until the JS hook reports otherwise — matches the
+     * permissive behaviour we had before the hook shipped.
      */
     public boolean isCurrentTabAtTop() {
         Tab t = getCurrentTab();
         return t == null || t.atTop;
+    }
+
+    /** True for empty / about:blank URLs that should be treated as a home tab. */
+    private static boolean isBlank(String url) {
+        return url == null || url.isEmpty() || "about:blank".equals(url);
     }
 
     // ------------------------------------------------------------------ create
@@ -100,17 +102,36 @@ public class TabManager {
                 .build();
         GeckoSession session = new GeckoSession(settings);
         final Tab tab = new Tab(nextId.getAndIncrement(), session);
-        tab.url = url == null ? "" : url;
+        tab.url = isBlank(url) ? "" : url;
 
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override public void onPageStart(GeckoSession s, String u) {
-                tab.url = u == null ? "" : u;
-                tab.atTop = true;   // optimistic — new page starts at top
+                // GeckoView fires onPageStart with "about:blank" the first
+                // time a freshly-opened session is attached. Treat that as
+                // a home tab: keep tab.url empty and don't touch the URL bar.
+                if (isBlank(u)) {
+                    tab.url = "";
+                    tab.atTop = true;
+                    return;
+                }
+                tab.url = u;
+                tab.atTop = true;
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
             }
+
             @Override public void onPageStop(GeckoSession s, boolean success) {
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
+
+                // Install the scroll hook on every completed page load.
+                // Idempotent — a second injection on the same document is a
+                // no-op thanks to the window.__sgScrollHooked guard.
+                if (success && isHttpOrHttps(tab.url)) {
+                    try {
+                        s.evaluateJS(ScrollExtension.buildInjectScript());
+                    } catch (Throwable ignored) {}
+                }
             }
+
             @Override public void onProgressChange(GeckoSession s, int progress) {
                 if (tab == getCurrentTab()) listener.onProgress(tab, progress);
             }
@@ -118,7 +139,12 @@ public class TabManager {
 
         session.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override public void onTitleChange(GeckoSession s, String title) {
-                tab.title = title == null ? "" : title;
+                // Suppress the "about:blank" title for home tabs.
+                if (isBlank(tab.url) || "about:blank".equals(title)) {
+                    tab.title = "";
+                } else {
+                    tab.title = title == null ? "" : title;
+                }
                 if (tab == getCurrentTab()) listener.onTitle(tab, tab.title);
             }
         });
@@ -131,10 +157,20 @@ public class TabManager {
                 tab.canGoForward = v;
                 if (tab == getCurrentTab()) listener.onCanGoForward(tab, v);
             }
+
             @Override public GeckoResult<AllowOrDeny> onLoadRequest(
                     GeckoSession s, LoadRequest request) {
                 if (request == null || request.uri == null)
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+
+                // Scroll-hook report — update the tab's atTop flag and stop
+                // the navigation before it goes anywhere.
+                if (ScrollExtension.isScrollUrl(request.uri)) {
+                    Boolean atTop = ScrollExtension.parseAtTop(request.uri);
+                    if (atTop != null) tab.atTop = atTop;
+                    return GeckoResult.fromValue(AllowOrDeny.DENY);
+                }
+
                 Uri uri = Uri.parse(request.uri);
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
@@ -149,6 +185,7 @@ public class TabManager {
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
                 }
             }
+
             @Override public GeckoResult<GeckoSession> onNewSession(
                     GeckoSession s, String uri) {
                 final String target = uri;
@@ -161,11 +198,7 @@ public class TabManager {
         });
 
         session.open(runtime);
-        if (url != null && !url.isEmpty()) session.loadUri(url);
-
-        // Bind this session to the scroll extension. Queued internally if
-        // the extension is still installing.
-        scrollExtension.bind(session, tab);
+        if (!isBlank(url)) session.loadUri(url);
 
         tabs.add(tab);
         listener.onTabListChanged();
@@ -176,6 +209,12 @@ public class TabManager {
             listener.onCurrentTabChanged(tab);
         }
         return tab;
+    }
+
+    private static boolean isHttpOrHttps(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 
     // ------------------------------------------------------------------ switch
@@ -206,7 +245,6 @@ public class TabManager {
             while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
         }
 
-        scrollExtension.unbind(closing.session);
         try { closing.session.close(); } catch (Exception ignored) {}
         closing.recycle();
         tabs.remove(index);
@@ -254,9 +292,6 @@ public class TabManager {
 
     public void closeAll() {
         for (Tab t : new ArrayList<>(tabs)) {
-            // Unbind BEFORE closing, otherwise ScrollExtension.sessionToTab
-            // grows without bound across activity restarts.
-            scrollExtension.unbind(t.session);
             try { t.session.close(); } catch (Exception ignored) {}
             t.recycle();
         }
