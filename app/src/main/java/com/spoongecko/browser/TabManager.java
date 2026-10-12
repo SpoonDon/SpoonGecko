@@ -205,6 +205,7 @@ public class TabManager {
             while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
         }
 
+        scrollExtension.unbind(closing.session);
         try { closing.session.close(); } catch (Exception ignored) {}
         closing.recycle();
         tabs.remove(index);
