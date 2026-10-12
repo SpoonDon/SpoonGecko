@@ -23,10 +23,16 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Owns the tab list and drives a single shared GeckoView.
  *
- * Scroll state comes from a JS hook injected on every page load (see
- * ScrollExtension). The hook reports back through a custom URL scheme that
- * NavigationDelegate.onLoadRequest intercepts. SwipeRefreshLayout gates
- * pull-to-refresh on the resulting Tab.atTop flag.
+ * Scroll state comes from GeckoSession.ScrollDelegate — GeckoView fires
+ * onScrollChanged(session, scrollX, scrollY) on every main-frame scroll,
+ * so we can gate pull-to-refresh on the real top of the page instead of the
+ * raw touch coordinate. No WebExtension, no JS injection.
+ *
+ * Limitation: the delegate reports the root scroller. Pages that scroll
+ * exclusively via a nested overflow:auto container (some SPA feeds) will
+ * report scrollY == 0 while scrolled, which permits pull-to-refresh there.
+ * That's an acceptable trade-off — the alternative (JS hook) needs a
+ * WebExtension round-trip that has proven unreliable in this build.
  */
 public class TabManager {
 
@@ -76,12 +82,9 @@ public class TabManager {
     }
 
     /**
-     * True when the current tab's deepest scroller and document root are
-     * both at scrollTop 0. SwipeRefreshLayout's onChildScrollUpCallback
-     * returns !this so pull-to-refresh is only allowed at the real top.
-     *
-     * Defaults to true until the JS hook reports otherwise — matches the
-     * permissive behaviour we had before the hook shipped.
+     * True when the current tab's root scroller is at scrollY == 0.
+     * SwipeRefreshLayout's onChildScrollUpCallback returns !this so
+     * pull-to-refresh only fires at the real top.
      */
     public boolean isCurrentTabAtTop() {
         Tab t = getCurrentTab();
@@ -121,15 +124,6 @@ public class TabManager {
 
             @Override public void onPageStop(GeckoSession s, boolean success) {
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
-
-                // Install the scroll hook on every completed page load.
-                // Idempotent — a second injection on the same document is a
-                // no-op thanks to the window.__sgScrollHooked guard.
-                if (success && isHttpOrHttps(tab.url)) {
-                    try {
-                        s.evaluateJS(ScrollExtension.buildInjectScript());
-                    } catch (Throwable ignored) {}
-                }
             }
 
             @Override public void onProgressChange(GeckoSession s, int progress) {
@@ -149,6 +143,15 @@ public class TabManager {
             }
         });
 
+        // Root-scroller position. Fires whenever the page scrolls. Reported
+        // values are in CSS pixels and can be negative during overscroll on
+        // some builds, so we clamp to <= 0 rather than == 0.
+        session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
+            @Override public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
+                tab.atTop = scrollY <= 0;
+            }
+        });
+
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public void onCanGoBack(GeckoSession s, boolean v) {
                 tab.canGoBack = v;
@@ -162,14 +165,6 @@ public class TabManager {
                     GeckoSession s, LoadRequest request) {
                 if (request == null || request.uri == null)
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-
-                // Scroll-hook report — update the tab's atTop flag and stop
-                // the navigation before it goes anywhere.
-                if (ScrollExtension.isScrollUrl(request.uri)) {
-                    Boolean atTop = ScrollExtension.parseAtTop(request.uri);
-                    if (atTop != null) tab.atTop = atTop;
-                    return GeckoResult.fromValue(AllowOrDeny.DENY);
-                }
 
                 Uri uri = Uri.parse(request.uri);
                 String scheme = uri.getScheme();
