@@ -9,32 +9,46 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import org.mozilla.geckoview.AuthPrompt;
-import org.mozilla.geckoview.AuthPromptResponse;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.PromptResponse;
+import org.mozilla.geckoview.GeckoSession.PromptDelegate;
+import org.mozilla.geckoview.GeckoSession.PromptDelegate.AuthPrompt;
+import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse;
 
 import java.net.URI;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * PromptDelegate for GeckoSession. Currently handles only HTTP Basic Auth
- * (onAuthPrompt), which is the single prompt that routers, ISP modems,
- * corporate proxies and self-hosted admin panels rely on.
+ * (onAuthPrompt), which is the prompt that routers, ISP modems, corporate
+ * proxies and self-hosted admin panels rely on.
  *
- * Without a PromptDelegate, GeckoView cancels the auth prompt and renders
- * a blank white page: the request succeeded at TCP level, the server
- * replied 401 Unauthorized, and the browser has nowhere to show the
- * credential fields. Setting this delegate on every new session fixes it.
+ * Without a PromptDelegate, GeckoView cancels the auth prompt and renders a
+ * blank white page: the request reached the server, the server replied
+ * 401 Unauthorized, and the browser has nowhere to show the credential
+ * fields. Setting this delegate on every new session fixes it.
  *
- * Other prompt types (permissions, file picker, geolocation, notifications)
- * fall through to GeckoView's default dismissal, which matches the
- * behaviour before this class existed. They can be added incrementally.
+ * API reference (GeckoView 157):
+ *   onAuthPrompt(session, prompt)
+ *   prompt.message          -> realm / message text (nullable)
+ *   prompt.title            -> optional title (nullable, inherited)
+ *   prompt.authOptions.uri  -> request URI (nullable)
+ *   prompt.authOptions.username -> prefill, or null if password-only
+ *   prompt.authOptions.password -> prefill (nullable)
+ *   prompt.confirm(password)                 -> PromptResponse
+ *   prompt.confirm(username, password)       -> PromptResponse
+ *   prompt.dismiss()                         -> PromptResponse
+ *
+ * Other prompt types (alerts, file pickers, geolocation, etc.) fall through
+ * to GeckoView's default dismissal, matching pre-existing behaviour. They
+ * can be added incrementally on top of this class.
  */
-public class AuthPromptHandler implements GeckoSession.PromptDelegate {
+public class AuthPromptHandler implements PromptDelegate {
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Set<String> seenRealms = new HashSet<>();
 
     public AuthPromptHandler(Context context) {
         this.context = context;
@@ -42,24 +56,28 @@ public class AuthPromptHandler implements GeckoSession.PromptDelegate {
 
     @Override
     public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession session,
-                                                    String uri,
                                                     AuthPrompt prompt) {
-        if (prompt == null) {
-            return GeckoResult.fromValue(PromptResponse.createDismiss());
-        }
+        if (prompt == null) return null;
         final GeckoResult<PromptResponse> result = new GeckoResult<>();
-        mainHandler.post(() -> showDialog(uri, prompt, result));
+        mainHandler.post(() -> showDialog(prompt, result));
         return result;
     }
 
     // ------------------------------------------------------------------ dialog
 
-    private void showDialog(String uri, AuthPrompt prompt,
+    private void showDialog(AuthPrompt prompt,
                             GeckoResult<PromptResponse> result) {
         try {
-            final String realm = prompt.realm == null ? "" : prompt.realm;
-            final boolean onlyPassword = prompt.onlyPassword;
-            final boolean retry = prompt.previousFailed;
+            final AuthPrompt.AuthOptions opts = prompt.authOptions;
+            final String realm = prompt.message == null ? "" : prompt.message;
+            final String uriStr = opts == null ? null : opts.uri;
+            final String prefillUser = opts == null ? null : opts.username;
+            final String prefillPass = opts == null ? null : opts.password;
+            final boolean passwordOnly = prefillUser == null;
+
+            // If we have seen this realm before, the previous attempt failed.
+            // GeckoView does not expose a "previous failed" flag in 157.
+            final boolean retry = !realm.isEmpty() && !seenRealms.add(realm);
 
             int pad = dp(20);
             LinearLayout container = new LinearLayout(context);
@@ -75,12 +93,15 @@ public class AuthPromptHandler implements GeckoSession.PromptDelegate {
             }
 
             final EditText userField;
-            if (!onlyPassword) {
+            if (!passwordOnly) {
                 userField = new EditText(context);
                 userField.setHint("Username");
                 userField.setSingleLine(true);
                 userField.setInputType(InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+                if (prefillUser != null && !prefillUser.isEmpty()) {
+                    userField.setText(prefillUser);
+                }
                 container.addView(userField);
             } else {
                 userField = null;
@@ -91,10 +112,13 @@ public class AuthPromptHandler implements GeckoSession.PromptDelegate {
             passField.setSingleLine(true);
             passField.setInputType(InputType.TYPE_CLASS_TEXT
                     | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            if (prefillPass != null && !prefillPass.isEmpty()) {
+                passField.setText(prefillPass);
+            }
             container.addView(passField);
 
             String title = retry ? "Sign in (previous attempt failed)" : "Sign in";
-            String host = hostOf(uri);
+            String host = hostOf(uriStr);
 
             AlertDialog.Builder b = new AlertDialog.Builder(context);
             b.setTitle(title);
@@ -106,16 +130,22 @@ public class AuthPromptHandler implements GeckoSession.PromptDelegate {
             b.setPositiveButton("Sign in", (d, w) -> {
                 String user = userFinal == null ? "" : userFinal.getText().toString();
                 String pass = passFinal.getText().toString();
-                result.complete(AuthPromptResponse.create(prompt, user, pass));
+                PromptResponse response;
+                if (userFinal == null) {
+                    response = prompt.confirm(pass);
+                } else {
+                    response = prompt.confirm(user, pass);
+                }
+                result.complete(response);
             });
             b.setNegativeButton("Cancel", (d, w) ->
-                    result.complete(PromptResponse.createDismiss()));
+                    result.complete(prompt.dismiss()));
             b.setOnCancelListener(d ->
-                    result.complete(PromptResponse.createDismiss()));
+                    result.complete(prompt.dismiss()));
             b.show();
         } catch (Throwable t) {
             try {
-                result.complete(PromptResponse.createDismiss());
+                result.complete(prompt.dismiss());
             } catch (Throwable ignored) {}
         }
     }
