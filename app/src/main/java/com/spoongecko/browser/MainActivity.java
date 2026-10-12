@@ -94,8 +94,9 @@ public class MainActivity extends Activity {
 
         List<PersistedTab> persisted = SessionStore.loadTabs(this);
         if (persisted.isEmpty()) {
+            // createTab() fires onCurrentTabChanged, which calls showHome(true).
+            // No explicit showHome() here — it used to be called twice.
             tabManager.createTab(null);
-            showHome();
         } else {
             tabManager.restoreFrom(persisted, SessionStore.loadCurrentIndex(this));
         }
@@ -116,6 +117,10 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        // If the runtime failed to initialise, onCreate() finished us but a
+        // queued ACTION_VIEW intent can still be delivered. tabManager is null
+        // in that path.
+        if (tabManager == null) return;
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri data = intent.getData();
         if (data == null) return;
@@ -185,7 +190,9 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.GONE);
             updateTabBadge();
             if (tab == null || tab.url == null || tab.url.isEmpty()) {
-                showHome();
+                // An empty tab is a "new tab" state — the user expects the
+                // keyboard ready.
+                showHome(true);
             } else {
                 hideHome();
                 urlBar.setText(tab.url);
@@ -235,12 +242,24 @@ public class MainActivity extends Activity {
         }
     };
 
+    /** Show home without focusing the search bar (Back from a page, menu Home). */
     private void showHome() {
+        showHome(false);
+    }
+
+    /**
+     * Show home, optionally focusing the search bar.
+     *
+     * Focusing the bar pops the soft keyboard. That's the right behaviour when
+     * the user has just created an empty tab, and the wrong behaviour when
+     * they pressed Back out of a loaded page or tapped menu → Home.
+     */
+    private void showHome(boolean focus) {
         if (homeContainer == null) return;
         homeContainer.setVisibility(View.VISIBLE);
         if (homeView != null) {
             homeView.refresh();
-            homeView.focusSearchBar();
+            if (focus) homeView.focusSearchBar();
         }
         urlBar.clearFocus();
         urlBar.setText("");
@@ -395,12 +414,12 @@ public class MainActivity extends Activity {
             case 2: {
                 Tab t = tabManager.createTab(null);
                 tabManager.switchTo(tabManager.getTabs().indexOf(t));
-                showHome();
+                showHome(true);   // new tab → focus the bar
                 return true;
             }
             case 3: openTabSwitcher(); return true;
             case 4: tabManager.closeCurrentTab(); return true;
-            case 5: showHome(); return true;
+            case 5: showHome(); return true;   // menu Home → no focus
             case 6: shareCurrent(); return true;
             case 7: copyCurrent(); return true;
             case 8: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
@@ -520,11 +539,5 @@ public class MainActivity extends Activity {
                         (d, w) -> OemHelper.requestIgnoreBatteryOptimizations(this))
                 .setNegativeButton(R.string.battery_later, null)
                 .show();
-    }
-
-    // --------------------------------------------------------------------- util
-
-    private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
     }
 }
