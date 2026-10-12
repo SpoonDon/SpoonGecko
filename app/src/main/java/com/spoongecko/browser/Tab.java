@@ -21,6 +21,17 @@ public class Tab {
     public boolean canGoBack = false;
     public boolean canGoForward = false;
 
+    /**
+     * Set by the ScrollExtension content script on every scroll event.
+     * True when the deepest scrollable ancestor and the document root are
+     * both at scrollTop 0. Defaults true so pull-to-refresh is allowed
+     * until the first real report arrives.
+     *
+     * Volatile because it's written from the WebExtension message thread
+     * and read from the main thread in SwipeRefreshLayout's scroll callback.
+     */
+    public volatile boolean atTop = true;
+
     /** Small preview bitmap for the tab switcher; may be null. */
     public Bitmap thumbnail = null;
 
