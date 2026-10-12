@@ -12,34 +12,31 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebMessage;
+import org.mozilla.geckoview.WebResponse;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Owns the list of open tabs and drives a single shared GeckoView.
+ * Owns the tab list and drives a single shared GeckoView.
  *
- * Design notes:
- *   - One GeckoView, N GeckoSession objects. Switching tabs calls
- *     GeckoView.setSession(newTab.session). This is the same pattern Firefox
- *     for Android uses and keeps native view memory roughly constant.
- *   - Background tabs keep loading; sessions hold their own cookies,
- *     history, scroll state and DOM. Nothing is destroyed on switch.
- *   - Every session has its own delegates bound to its Tab. Delegates set
- *     cached fields on the Tab (title, url, canGoBack, canGoForward) even
- *     when the tab is not current, and only notify the Listener when the
- *     reporting tab is the current one.
+ * Adds vs. previous version:
+ *   - closed-tab stack (restore-last-closed)
+ *   - JS scroll hook that reports whether the deepest scroller is at top,
+ *     which MainActivity consumes via SwipeRefreshLayout.setOnChildScrollUpCallback
  */
 public class TabManager {
 
     public static final String HOME_URL = "https://duckduckgo.com/";
-
     private static final int THUMB_MAX_W = 480;
     private static final int THUMB_MAX_H = 1000;
+    private static final int CLOSED_STACK_MAX = 20;
 
-    /** All UI-facing events flow through this. Implemented by MainActivity. */
     public interface Listener {
         void onTabListChanged();
         void onCurrentTabChanged(Tab tab);
@@ -47,7 +44,6 @@ public class TabManager {
         void onPageStop(Tab tab, boolean success);
         void onProgress(Tab tab, int progress);
         void onTitle(Tab tab, String title);
-        void onCanGoBack(Tab tab, boolean canGoBack);
         void onCanGoForward(Tab tab, boolean canGoForward);
     }
 
@@ -57,10 +53,39 @@ public class TabManager {
     private final Listener listener;
 
     private final List<Tab> tabs = new ArrayList<>();
+    private final Deque<PersistedTab> closedStack = new ArrayDeque<>();
     private final AtomicLong nextId = new AtomicLong(1L);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private int currentIndex = -1;
+    private boolean currentTabAtTop = true;
+
+    // ------------------------------------------------------------------ JS
+
+    /** Installed once per page load. Reports at-top state changes. */
+    private static final String SCROLL_HOOK_JS =
+            "(function(){if(window.__sgScrollHooked)return;window.__sgScrollHooked=true;var last=null;" +
+            "function findScroller(el){var c=el;while(c&&c.nodeType===1){var s=null;try{s=getComputedStyle(c);}catch(e){}" +
+            "if(s&&(s.overflowY==='auto'||s.overflowY==='scroll')&&c.scrollHeight-c.clientHeight>4)return c;" +
+            "c=c.parentElement;}return document.scrollingElement||document.documentElement;}" +
+            "function compute(ev){var t=null;if(ev){if(ev.composedPath&&ev.composedPath().length)t=ev.composedPath()[0];else t=ev.target;}" +
+            "if(!t||t.nodeType!==1)t=document.body;var inner=findScroller(t);" +
+            "var root=document.scrollingElement||document.documentElement;" +
+            "return (inner.scrollTop<=1)&&(root.scrollTop<=1);}" +
+            "function report(ev){try{var atTop=compute(ev);if(atTop===last)return;last=atTop;" +
+            "try{window.postMessage('sgScroll:'+(atTop?'1':'0'),'*');}catch(e){}}catch(e){}}" +
+            "window.__sgReport=function(ev){last=null;report(ev);};" +
+            "document.addEventListener('scroll',report,{capture:true,passive:true});" +
+            "window.addEventListener('scroll',report,{capture:true,passive:true});" +
+            "document.addEventListener('touchstart',report,{capture:true,passive:true});" +
+            "document.addEventListener('touchmove',report,{capture:true,passive:true});" +
+            "report(null);})();";
+
+    /** Called on tab switch — forces a fresh report without relying on the cache. */
+    private static final String SCROLL_REPORT_JS =
+            "(function(){try{if(window.__sgReport){window.__sgReport(null);return;}}catch(e){}" +
+            "try{var r=document.scrollingElement||document.documentElement;" +
+            "window.postMessage('sgScroll:'+(r.scrollTop<=1?'1':'0'),'*');}catch(e){}})();";
 
     public TabManager(MainActivity activity, GeckoView geckoView,
                       GeckoRuntime runtime, Listener listener) {
@@ -73,6 +98,8 @@ public class TabManager {
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
     public int getTabCount() { return tabs.size(); }
     public int getCurrentIndex() { return currentIndex; }
+    public boolean isCurrentTabAtTop() { return currentTabAtTop; }
+    public boolean hasClosedStack() { return !closedStack.isEmpty(); }
 
     public Tab getCurrentTab() {
         if (currentIndex < 0 || currentIndex >= tabs.size()) return null;
@@ -81,30 +108,25 @@ public class TabManager {
 
     // ------------------------------------------------------------------ create
 
-    /**
-     * Create a new tab. If this is the first tab (currentIndex == -1) it
-     * becomes the current tab immediately; otherwise it is appended without
-     * stealing focus — callers that want to jump to it must call switchTo().
-     *
-     * A null / empty url produces a blank tab (the home screen overlay shows
-     * through the empty GeckoView).
-     */
     public Tab createTab(String url) {
         GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
                 .usePrivateMode(false)
                 .suspendMediaWhenInactive(true)
                 .build();
         GeckoSession session = new GeckoSession(settings);
-
         final Tab tab = new Tab(nextId.getAndIncrement(), session);
         tab.url = url == null ? "" : url;
 
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override public void onPageStart(GeckoSession s, String u) {
                 tab.url = u == null ? "" : u;
-                if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
+                if (tab == getCurrentTab()) {
+                    currentTabAtTop = true;
+                    listener.onPageStart(tab, tab.url);
+                }
             }
             @Override public void onPageStop(GeckoSession s, boolean success) {
+                try { s.evaluateJS(SCROLL_HOOK_JS); } catch (Exception ignored) {}
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
             }
             @Override public void onProgressChange(GeckoSession s, int progress) {
@@ -120,30 +142,21 @@ public class TabManager {
         });
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override public void onCanGoBack(GeckoSession s, boolean value) {
-                tab.canGoBack = value;
-                if (tab == getCurrentTab()) listener.onCanGoBack(tab, value);
+            @Override public void onCanGoBack(GeckoSession s, boolean v) {
+                tab.canGoBack = v;
             }
-            @Override public void onCanGoForward(GeckoSession s, boolean value) {
-                tab.canGoForward = value;
-                if (tab == getCurrentTab()) listener.onCanGoForward(tab, value);
+            @Override public void onCanGoForward(GeckoSession s, boolean v) {
+                tab.canGoForward = v;
+                if (tab == getCurrentTab()) listener.onCanGoForward(tab, v);
             }
-
-            /**
-             * Handles link-scheme freeze fix (magnet:/tel:/intent:/custom) and
-             * web-scheme allow-list. Identical semantics to the previous
-             * single-tab MainActivity, now per-session.
-             */
             @Override public GeckoResult<AllowOrDeny> onLoadRequest(
                     GeckoSession s, LoadRequest request) {
-                if (request == null || request.uri == null) {
+                if (request == null || request.uri == null)
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-                }
                 Uri uri = Uri.parse(request.uri);
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
-                String lower = scheme.toLowerCase();
-                switch (lower) {
+                switch (scheme.toLowerCase()) {
                     case "http": case "https": case "about":
                     case "data": case "blob":   case "file":
                         return GeckoResult.fromValue(AllowOrDeny.ALLOW);
@@ -154,12 +167,6 @@ public class TabManager {
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
                 }
             }
-
-            /**
-             * A page called window.open() / used target=_blank. Open a real
-             * new tab. Posted to main thread so we're not mutating the tab
-             * list from the Gecko thread.
-             */
             @Override public GeckoResult<GeckoSession> onNewSession(
                     GeckoSession s, String uri) {
                 final String target = uri;
@@ -171,10 +178,23 @@ public class TabManager {
             }
         });
 
+        // JS -> native: scroll-hook reports arrive here.
+        session.setMessageDelegate(new GeckoSession.WebMessageDelegate() {
+            @Override
+            public GeckoResult<WebResponse> onMessage(GeckoSession s, WebMessage message) {
+                if (message == null) return null;
+                String data = message.getData();
+                if (data == null || !data.startsWith("sgScroll:")) return null;
+                final boolean atTop = data.endsWith("1");
+                Tab cur = getCurrentTab();
+                if (cur == null || cur.session != s) return null;
+                mainHandler.post(() -> currentTabAtTop = atTop);
+                return null;
+            }
+        });
+
         session.open(runtime);
-        if (url != null && !url.isEmpty()) {
-            session.loadUri(url);
-        }
+        if (url != null && !url.isEmpty()) session.loadUri(url);
 
         tabs.add(tab);
         listener.onTabListChanged();
@@ -200,8 +220,10 @@ public class TabManager {
         Tab next = tabs.get(index);
         geckoView.setSession(next.session);
         listener.onCurrentTabChanged(next);
-        listener.onCanGoBack(next, next.canGoBack);
         listener.onCanGoForward(next, next.canGoForward);
+
+        // Ask the new page to re-report its scroll state.
+        try { next.session.evaluateJS(SCROLL_REPORT_JS); } catch (Exception ignored) {}
     }
 
     // ------------------------------------------------------------------ close
@@ -211,6 +233,12 @@ public class TabManager {
         Tab closing = tabs.get(index);
         boolean wasCurrent = (index == currentIndex);
 
+        // Push to restore stack before closing.
+        if (closing.url != null && !closing.url.isEmpty()) {
+            closedStack.offerFirst(new PersistedTab(closing.url, closing.title));
+            while (closedStack.size() > CLOSED_STACK_MAX) closedStack.pollLast();
+        }
+
         try { closing.session.close(); } catch (Exception ignored) {}
         closing.recycle();
         tabs.remove(index);
@@ -218,22 +246,29 @@ public class TabManager {
 
         if (tabs.isEmpty()) {
             currentIndex = -1;
-            Tab replacement = createTab(null);
-            // createTab auto-promotes the first tab to current.
+            createTab(null);
             return;
         }
-
         if (wasCurrent) {
             if (index >= tabs.size()) index = tabs.size() - 1;
-            currentIndex = -1;              // force switchTo to do real work
+            currentIndex = -1;
             switchTo(index);
         } else if (index < currentIndex) {
             currentIndex--;
         }
     }
 
-    public void closeCurrentTab() {
-        closeTab(currentIndex);
+    public void closeCurrentTab() { closeTab(currentIndex); }
+
+    /** Pops the most recently closed tab back into existence. Returns false if stack empty. */
+    public boolean restoreLastClosed() {
+        PersistedTab p = closedStack.pollFirst();
+        if (p == null) return false;
+        String url = (p.url == null || p.url.isEmpty()) ? null : p.url;
+        Tab t = createTab(url);
+        t.title = p.title == null ? "" : p.title;
+        switchTo(tabs.indexOf(t));
+        return true;
     }
 
     // ------------------------------------------------------------------ misc
@@ -290,22 +325,16 @@ public class TabManager {
 
     // ------------------------------------------------------------- thumbnails
 
-    /**
-     * Best-effort snapshot of the GeckoView for the tab switcher. Silently
-     * no-ops if the view has not been laid out yet (e.g. during restore).
-     */
     private void captureThumbnail(Tab tab) {
         try {
             if (geckoView == null) return;
             int w = geckoView.getWidth();
             int h = geckoView.getHeight();
             if (w <= 0 || h <= 0) return;
-
             int tw = w, th = h;
             if (tw > THUMB_MAX_W || th > THUMB_MAX_H) {
-                float scale = Math.min(
-                        (float) THUMB_MAX_W / tw,
-                        (float) THUMB_MAX_H / th);
+                float scale = Math.min((float) THUMB_MAX_W / tw,
+                                       (float) THUMB_MAX_H / th);
                 tw = Math.max(1, Math.round(tw * scale));
                 th = Math.max(1, Math.round(th * scale));
             }
