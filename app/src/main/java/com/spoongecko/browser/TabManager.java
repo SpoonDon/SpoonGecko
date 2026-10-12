@@ -92,8 +92,6 @@ public class TabManager {
     // ------------------------------------------------------------------ create
 
     public Tab createTab(String url) {
-        // Default UA is GeckoView's native Firefox UA. Per-request we swap to
-        // the WebView UA for local/private hosts in onLoadRequest below.
         GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
                 .usePrivateMode(false)
                 .suspendMediaWhenInactive(true)
@@ -135,8 +133,6 @@ public class TabManager {
         });
 
         // HTTP Basic Auth dialog for routers, ISP modems, corporate proxies.
-        // Without this delegate GeckoView silently cancels the prompt and the
-        // page renders blank.
         session.setPromptDelegate(new AuthPromptHandler(activity));
 
         session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
@@ -166,17 +162,16 @@ public class TabManager {
                 switch (scheme.toLowerCase()) {
                     case "http": case "https": case "about":
                     case "data": case "blob":   case "file": {
-                        // Per-request UA swap for local/private hosts. Many
-                        // routers UA-sniff: WebView UA => serve HTTP admin UI;
-                        // desktop Firefox/Chrome UA => force HTTPS redirect to
-                        // a self-signed cert GeckoView cannot bypass. We send
-                        // the WebView UA only to local hosts so the router
-                        // stops demanding HTTPS.
+                        // Belt-and-suspenders UA swap for redirect chains.
+                        // The critical swap already happened in loadUri via
+                        // applyUaForUrl(). This one handles the case where a
+                        // public page redirects to a local URL or vice versa.
                         String target = request.uri;
                         String desired = WebViewUserAgent.isLocalTarget(target)
                                 ? WebViewUserAgent.VALUE
-                                : null;   // null => GeckoView default (Firefox UA)
-                        if (!Objects.equals(s.getSettings().getUserAgentOverride(), desired)) {
+                                : null;
+                        if (!Objects.equals(
+                                s.getSettings().getUserAgentOverride(), desired)) {
                             s.getSettings().setUserAgentOverride(desired);
                         }
                         return GeckoResult.fromValue(AllowOrDeny.ALLOW);
@@ -192,7 +187,10 @@ public class TabManager {
                             String innerUrl = uri.getQueryParameter("url");
                             if (innerUrl != null && !innerUrl.isEmpty()) {
                                 final String target = innerUrl;
-                                mainHandler.post(() -> s.loadUri(target));
+                                mainHandler.post(() -> {
+                                    applyUaForUrl(s, target);
+                                    s.loadUri(target);
+                                });
                             }
                         }
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
@@ -269,9 +267,9 @@ public class TabManager {
                         ? categoryLabel
                         : categoryLabel + " - " + codeLabel;
 
-                // "Try over HTTP" fallback when a private HTTPS target fails
-                // on a bad cert. Many routers serve their admin UI on plain
-                // HTTP too and only redirect by default.
+                // "Try over HTTP" fallback for private HTTPS targets that
+                // fail on a bad cert. Many routers serve their admin UI on
+                // plain HTTP too and only redirect by default.
                 String httpButton = "";
                 boolean certFail = (code == WebRequestError.ERROR_SECURITY_BAD_CERT
                         || code == WebRequestError.ERROR_SECURITY_SSL);
@@ -312,7 +310,10 @@ public class TabManager {
         });
 
         session.open(runtime);
-        if (!isBlank(url)) session.loadUri(url);
+        if (!isBlank(url)) {
+            applyUaForUrl(session, url);
+            session.loadUri(url);
+        }
 
         tabs.add(tab);
         listener.onTabListChanged();
@@ -323,12 +324,6 @@ public class TabManager {
             listener.onCurrentTabChanged(tab);
         }
         return tab;
-    }
-
-    private static boolean isHttpOrHttps(String url) {
-        if (url == null) return false;
-        String lower = url.toLowerCase();
-        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 
     // ------------------------------------------------------------------ switch
@@ -401,6 +396,7 @@ public class TabManager {
         Tab t = getCurrentTab();
         if (t == null || url == null || url.isEmpty()) return;
         t.url = url;
+        applyUaForUrl(t.session, url);
         t.session.loadUri(url);
     }
 
@@ -443,6 +439,27 @@ public class TabManager {
     }
 
     // ------------------------------------------------------------- helpers
+
+    /**
+     * Sets the session User-Agent BEFORE a load. Local/private targets get
+     * the WebView UA (routers serve HTTP when they see it). All other targets
+     * get null, which resets to GeckoView's default Firefox UA.
+     *
+     * Must be called before session.loadUri(). UA swaps that only happen in
+     * onLoadRequest are too late: the first request of a navigation is
+     * dispatched immediately, and routers decide HTTP vs HTTPS based on the
+     * UA of that very first request. If the first request carries a Firefox
+     * UA, the router commits to an HTTPS redirect and the cert fails before
+     * our onLoadRequest swap can take effect.
+     */
+    private static void applyUaForUrl(GeckoSession session, String url) {
+        String desired = WebViewUserAgent.isLocalTarget(url)
+                ? WebViewUserAgent.VALUE
+                : null;
+        if (!Objects.equals(session.getSettings().getUserAgentOverride(), desired)) {
+            session.getSettings().setUserAgentOverride(desired);
+        }
+    }
 
     /** True when the URL targets a private-network host. */
     private static boolean isPrivateHost(String url) {
