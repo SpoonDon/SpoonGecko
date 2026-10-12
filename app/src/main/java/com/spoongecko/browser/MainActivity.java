@@ -458,11 +458,19 @@ public class MainActivity extends Activity {
 
     // ===== EXTENSION SUPPORT =====
     private void openExtensions() {
-        ExtensionsDialog.show(this, () -> {
+    ExtensionsDialog.show(this, new ExtensionsDialog.Callbacks() {
+        @Override public void onBrowseAmo() {
             Tab t = tabManager.createTab("https://addons.mozilla.org/android/");
             tabManager.switchTo(tabManager.getTabs().indexOf(t));
-        });
-    }
+        }
+
+        @Override
+        public void onOpenExtensionOptions(WebExtension ext, String optionsUrl) {
+            Tab t = tabManager.createTab(optionsUrl);
+            tabManager.switchTo(tabManager.getTabs().indexOf(t));
+        }
+    });
+}
     // ===== END EXTENSION SUPPORT =====
 
     private void openHistory() {
