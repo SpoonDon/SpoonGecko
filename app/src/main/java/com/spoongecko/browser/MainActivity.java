@@ -13,7 +13,6 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.InputType;
 import android.text.TextUtils;
 import android.view.MenuItem;
 import android.view.View;
@@ -23,11 +22,12 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
-import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoView;
@@ -45,15 +45,15 @@ public class MainActivity extends Activity {
 
     private GeckoView geckoView;
     private TabManager tabManager;
+    private SwipeRefreshLayout swipeRefresh;
 
     private FrameLayout homeContainer;
     private HomeView homeView;
 
     private EditText urlBar;
     private ProgressBar progressBar;
-    private ImageButton backButton;
     private ImageButton forwardButton;
-    private ImageButton reloadButton;
+    private ImageButton restoreButton;
     private ImageButton menuButton;
     private TextView tabCountView;
 
@@ -66,12 +66,12 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.gecko_view);
+        swipeRefresh = findViewById(R.id.swipe_refresh);
         homeContainer = findViewById(R.id.home_container);
         urlBar = findViewById(R.id.url_bar);
         progressBar = findViewById(R.id.progress_bar);
-        backButton = findViewById(R.id.btn_back);
         forwardButton = findViewById(R.id.btn_forward);
-        reloadButton = findViewById(R.id.btn_reload);
+        restoreButton = findViewById(R.id.btn_restore);
         menuButton = findViewById(R.id.btn_menu);
         tabCountView = findViewById(R.id.tab_count);
 
@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
         tabManager = new TabManager(this, geckoView, runtime, tabListener);
 
         wireToolbar();
+        wirePullToRefresh();
 
         List<PersistedTab> persisted = SessionStore.loadTabs(this);
         if (persisted.isEmpty()) {
@@ -99,7 +100,7 @@ public class MainActivity extends Activity {
             tabManager.restoreFrom(persisted, SessionStore.loadCurrentIndex(this));
         }
 
-        updateTabCount();
+        updateTabBadge();
         KeepAliveService.start(this);
         requestNotificationPermissionIfNeeded();
         CrashLogger.breadcrumb(this, "activity.onCreate done");
@@ -118,9 +119,7 @@ public class MainActivity extends Activity {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri data = intent.getData();
         if (data == null) return;
-        String url = data.toString();
-        // External intents open in a fresh tab so we don't clobber what's on screen.
-        Tab t = tabManager.createTab(url);
+        Tab t = tabManager.createTab(data.toString());
         tabManager.switchTo(tabManager.getTabs().indexOf(t));
     }
 
@@ -139,9 +138,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         CrashLogger.breadcrumb(this, "activity.onDestroy finishing=" + isFinishing());
-        if (isFinishing() && tabManager != null) {
-            tabManager.closeAll();
-        }
+        if (isFinishing() && tabManager != null) tabManager.closeAll();
         super.onDestroy();
     }
 
@@ -182,10 +179,11 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------- Tab listener
 
     private final TabManager.Listener tabListener = new TabManager.Listener() {
-        @Override public void onTabListChanged() { updateTabCount(); }
+        @Override public void onTabListChanged() { updateTabBadge(); }
 
         @Override public void onCurrentTabChanged(Tab tab) {
             progressBar.setVisibility(View.GONE);
+            updateTabBadge();
             if (tab == null || tab.url == null || tab.url.isEmpty()) {
                 showHome();
             } else {
@@ -202,6 +200,7 @@ public class MainActivity extends Activity {
 
         @Override public void onPageStop(Tab tab, boolean success) {
             progressBar.setVisibility(View.GONE);
+            if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
             if (success && isHttpOrHttps(tab.url)) {
                 VisitStore.record(MainActivity.this, tab.title, tab.url);
             }
@@ -215,11 +214,6 @@ public class MainActivity extends Activity {
         @Override public void onTitle(Tab tab, String title) {
             setTitle(TextUtils.isEmpty(title)
                     ? getString(R.string.app_name) : title);
-        }
-
-        @Override public void onCanGoBack(Tab tab, boolean value) {
-            backButton.setEnabled(value);
-            backButton.setAlpha(value ? 1f : 0.35f);
         }
 
         @Override public void onCanGoForward(Tab tab, boolean value) {
@@ -239,12 +233,6 @@ public class MainActivity extends Activity {
             if (TextUtils.isEmpty(query)) return;
             onNavigate("https://duckduckgo.com/?q=" + Uri.encode(query));
         }
-
-        @Override public void onAddQuickLink() { showQuickLinkEditor(null); }
-
-        @Override public void onEditQuickLink(HomeStore.QuickLink link) {
-            showQuickLinkEditor(link);
-        }
     };
 
     private void showHome() {
@@ -257,83 +245,27 @@ public class MainActivity extends Activity {
         urlBar.clearFocus();
         urlBar.setText("");
         progressBar.setVisibility(View.GONE);
-        backButton.setEnabled(false);
-        backButton.setAlpha(0.35f);
     }
 
     private void hideHome() {
         if (homeContainer != null) homeContainer.setVisibility(View.GONE);
     }
 
-    private void showQuickLinkEditor(final HomeStore.QuickLink existing) {
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        col.setPadding(pad, dp(8), pad, 0);
-
-        final EditText titleInput = new EditText(this);
-        titleInput.setHint("Title");
-        titleInput.setInputType(InputType.TYPE_CLASS_TEXT);
-        if (existing != null) titleInput.setText(existing.title);
-        col.addView(titleInput);
-
-        final EditText urlInput = new EditText(this);
-        urlInput.setHint("https://example.com");
-        urlInput.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        if (existing != null) urlInput.setText(existing.url);
-        LinearLayout.LayoutParams urlLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        urlLp.topMargin = dp(8);
-        col.addView(urlInput, urlLp);
-
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
-                .setTitle(existing == null ? "Add quick link" : "Edit quick link")
-                .setView(col)
-                .setPositiveButton("Save", (d, w) -> {
-                    String title = titleInput.getText().toString().trim();
-                    String url = urlInput.getText().toString().trim();
-                    if (url.isEmpty()) return;
-                    if (!url.contains("://")) url = "https://" + url;
-                    if (title.isEmpty()) {
-                        try { title = Uri.parse(url).getHost(); } catch (Exception ignored) {}
-                        if (title == null) title = url;
-                    }
-                    if (existing != null) HomeStore.removeQuickLink(this, existing.url);
-                    HomeStore.addQuickLink(this, title, url);
-                    if (homeView != null) homeView.refresh();
-                })
-                .setNegativeButton(android.R.string.cancel, null);
-
-        if (existing != null) {
-            b.setNeutralButton("Remove", (d, w) -> {
-                HomeStore.removeQuickLink(this, existing.url);
-                if (homeView != null) homeView.refresh();
-            });
-        }
-        b.show();
-    }
-
     // -------------------------------------------------------------- toolbar
 
     private void wireToolbar() {
-        backButton.setOnClickListener(v -> {
-            Tab t = tabManager.getCurrentTab();
-            if (t == null) return;
-            if (t.canGoBack) t.session.goBack();
-            else showHome();
-        });
         forwardButton.setOnClickListener(v -> {
             Tab t = tabManager.getCurrentTab();
             if (t != null) t.session.goForward();
         });
-        reloadButton.setOnClickListener(v -> {
-            if (homeContainer != null
-                    && homeContainer.getVisibility() == View.VISIBLE) {
-                if (homeView != null) homeView.refresh();
-                return;
+
+        restoreButton.setOnClickListener(v -> {
+            if (!tabManager.restoreLastClosed()) {
+                Toast.makeText(this, "No closed tabs to restore",
+                        Toast.LENGTH_SHORT).show();
             }
-            tabManager.reload();
         });
+
         menuButton.setOnClickListener(this::showMenu);
         tabCountView.setOnClickListener(v -> openTabSwitcher());
 
@@ -346,14 +278,19 @@ public class MainActivity extends Activity {
             return false;
         });
 
-        backButton.setEnabled(false); backButton.setAlpha(0.35f);
         forwardButton.setEnabled(false); forwardButton.setAlpha(0.35f);
     }
 
-    private void updateTabCount() {
+    /** Called from onTabListChanged + onCurrentTabChanged. */
+    private void updateTabBadge() {
         if (tabCountView == null || tabManager == null) return;
         int n = tabManager.getTabCount();
-        tabCountView.setText(n >= 100 ? "99+" : String.valueOf(n));
+        int cur = tabManager.getCurrentIndex();
+        if (n <= 0 || cur < 0) {
+            tabCountView.setText("0");
+            return;
+        }
+        tabCountView.setText((cur + 1) + "/" + n);
     }
 
     private void openTabSwitcher() {
@@ -366,15 +303,11 @@ public class MainActivity extends Activity {
         hideKeyboard();
         urlBar.clearFocus();
         String normalized = normalize(raw);
-        if (normalized == null) return;    // non-web scheme was handed off
+        if (normalized == null) return;
         hideHome();
         tabManager.loadUrlInCurrentTab(normalized);
     }
 
-    /**
-     * Returns a web URL, or null if the input was a non-web scheme that we
-     * dispatched to the OS instead of loading.
-     */
     private String normalize(String raw) {
         String input = raw.trim();
         if (input.isEmpty()) return null;
@@ -408,43 +341,73 @@ public class MainActivity extends Activity {
         if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
     }
 
-    // --------------------------------------------------------------------- menu
+    // ------------------------------------------------------------- swipe
+
+    private void wirePullToRefresh() {
+        // Tint spinner to match accent
+        try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
+
+        // Gate pull-to-refresh on the ACTUAL page scroll state reported by JS.
+        // Returning true means "child can scroll up" → SwipeRefreshLayout
+        // won't steal the touch; the page handles it.
+        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
+            if (homeContainer.getVisibility() == View.VISIBLE) return true;
+            if (tabManager == null) return true;
+            return !tabManager.isCurrentTabAtTop();
+        });
+
+        swipeRefresh.setOnRefreshListener(() -> {
+            if (homeContainer.getVisibility() == View.VISIBLE) {
+                swipeRefresh.setRefreshing(false);
+                return;
+            }
+            tabManager.reload();
+            // Safety net — clear if onPageStop never fires (error page).
+            swipeRefresh.postDelayed(() -> {
+                if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
+            }, 3000);
+        });
+    }
+
+    // ------------------------------------------------------------------ menu
 
     private void showMenu(View anchor) {
         PopupMenu popup = new PopupMenu(this, anchor);
-        popup.getMenu().add(0, 1, 0, "New tab");
-        popup.getMenu().add(0, 2, 1, "Tabs");
-        popup.getMenu().add(0, 3, 2, "Close tab");
-        popup.getMenu().add(0, 4, 3, R.string.menu_home);
-        popup.getMenu().add(0, 5, 4, R.string.menu_share);
-        popup.getMenu().add(0, 6, 5, R.string.menu_copy);
-        popup.getMenu().add(0, 7, 6, R.string.menu_battery);
-        popup.getMenu().add(0, 8, 7, R.string.menu_autostart);
-        popup.getMenu().add(0, 9, 8, R.string.menu_about);
-        popup.getMenu().add(0, 10, 9, "Show crash log");
-        popup.getMenu().add(0, 11, 10, R.string.menu_exit);
+        popup.getMenu().add(0, 1, 0, "Reload");
+        popup.getMenu().add(0, 2, 1, "New tab");
+        popup.getMenu().add(0, 3, 2, "Tabs");
+        popup.getMenu().add(0, 4, 3, "Close tab");
+        popup.getMenu().add(0, 5, 4, R.string.menu_home);
+        popup.getMenu().add(0, 6, 5, R.string.menu_share);
+        popup.getMenu().add(0, 7, 6, R.string.menu_copy);
+        popup.getMenu().add(0, 8, 7, R.string.menu_battery);
+        popup.getMenu().add(0, 9, 8, R.string.menu_autostart);
+        popup.getMenu().add(0, 10, 9, R.string.menu_about);
+        popup.getMenu().add(0, 11, 10, "Show crash log");
+        popup.getMenu().add(0, 12, 11, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
 
     private boolean onMenuClick(MenuItem item) {
         switch (item.getItemId()) {
-            case 1: {
+            case 1: tabManager.reload(); return true;
+            case 2: {
                 Tab t = tabManager.createTab(null);
                 tabManager.switchTo(tabManager.getTabs().indexOf(t));
                 showHome();
                 return true;
             }
-            case 2: openTabSwitcher(); return true;
-            case 3: tabManager.closeCurrentTab(); return true;
-            case 4: showHome(); return true;
-            case 5: shareCurrent(); return true;
-            case 6: copyCurrent(); return true;
-            case 7: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
-            case 8: OemHelper.openAutostartSettings(this); return true;
-            case 9: showAbout(); return true;
-            case 10: showCrashLog(); return true;
-            case 11: exitApp(); return true;
+            case 3: openTabSwitcher(); return true;
+            case 4: tabManager.closeCurrentTab(); return true;
+            case 5: showHome(); return true;
+            case 6: shareCurrent(); return true;
+            case 7: copyCurrent(); return true;
+            case 8: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
+            case 9: OemHelper.openAutostartSettings(this); return true;
+            case 10: showAbout(); return true;
+            case 11: showCrashLog(); return true;
+            case 12: exitApp(); return true;
             default: return false;
         }
     }
