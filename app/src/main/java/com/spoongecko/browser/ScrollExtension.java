@@ -2,28 +2,25 @@ package com.spoongecko.browser;
 
 import android.os.Bundle;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebExtensionController;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges the bundled "SpoonGecko Scroll Hook" WebExtension to per-tab
  * scroll state.
  *
- * The extension's content script sends { atTop: bool } native messages on
- * scroll events. GeckoView routes those messages to the session-scoped
- * WebExtensionController's MessageDelegate, so tab A's messages only touch
- * tab A's flag.
- *
- * All version-sensitive GeckoView surface is centralized here. If
- * setMessageDelegate or install changes shape in a future GeckoView, only
- * this file needs adjusting.
+ * GeckoView 157 API shape (learned the hard way):
+ *   - The message delegate lives on WebExtension, not on GeckoSession or
+ *     on WebExtensionController.SessionController.
+ *   - One delegate handles messages from ALL sessions. To find out which
+ *     tab sent a message, use MessageSender.getSession().
+ *   - Therefore: register ONE delegate on install(), and keep a
+ *     session -> Tab map that TabManager populates as tabs are created.
  */
 public final class ScrollExtension {
 
@@ -34,21 +31,15 @@ public final class ScrollExtension {
 
     private volatile WebExtension extension;
 
-    /** Session + Tab pair awaiting extension readiness. */
-    private static final class Pending {
-        final GeckoSession session;
-        final Tab tab;
-        Pending(GeckoSession s, Tab t) { session = s; tab = t; }
-    }
-    private final List<Pending> pending = new ArrayList<>();
+    /**
+     * Session-scoped lookup. Written from TabManager on the main thread,
+     * read from the WebExtension message thread inside the delegate.
+     * ConcurrentHashMap because the two threads don't coordinate.
+     */
+    private final Map<GeckoSession, Tab> sessionToTab = new ConcurrentHashMap<>();
 
     private ScrollExtension() {}
 
-    /**
-     * One-time registration per process. Caller passes the GeckoRuntime
-     * obtained from GeckoApp. Safe to call from multiple threads; the
-     * underlying install is idempotent for a given URI.
-     */
     public static ScrollExtension getOrCreate(GeckoRuntime runtime) {
         ScrollExtension local = INSTANCE;
         if (local != null) return local;
@@ -65,70 +56,49 @@ public final class ScrollExtension {
     private void install(GeckoRuntime runtime) {
         try {
             WebExtensionController controller = runtime.getWebExtensionController();
-            controller.install(EXTENSION_URI)
-                    .accept(ext -> {
+            controller.install(EXTENSION_URI).accept(
+                    ext -> {
                         extension = ext;
-                        flushPending();
-                    }, err -> {
-                        // Extension registration failed — leave atTop = true
-                        // for every tab, which is the permissive fallback.
-                        extension = null;
-                    });
+                        attachDelegate(ext);
+                    },
+                    err -> extension = null);
         } catch (Exception ignored) {
             extension = null;
         }
     }
 
     /**
-     * Bind a freshly-created session to the extension so its messages route
-     * to this tab. If the extension isn't ready yet, the binding is queued
-     * and flushed on install completion.
+     * One-time delegate registration. Fires for every message from every
+     * session running the content script. Looks up the sending tab via
+     * MessageSender.getSession().
      */
-    public void bind(GeckoSession session, Tab tab) {
-        if (session == null || tab == null) return;
-        WebExtension ext = extension;
-        if (ext == null) {
-            synchronized (pending) {
-                pending.add(new Pending(session, tab));
-            }
-            return;
-        }
-        attach(session, tab, ext);
-    }
-
-    /**
-     * Session-scoped message delegation. GeckoView 157 exposes this on
-     * GeckoSession.getWebExtensionController() — NOT on GeckoSession
-     * directly (the earlier compile failure).
-     *
-     * The session-scoped controller returns null until the session has been
-     * opened via session.open(runtime). TabManager opens the session before
-     * calling bind(), so this should never be null in practice; the null
-     * check is defensive.
-     */
-    private void attach(GeckoSession session, Tab tab, WebExtension ext) {
+    private void attachDelegate(WebExtension ext) {
         try {
-            WebExtensionController controller = session.getWebExtensionController();
-            if (controller == null) return;
-            controller.setMessageDelegate(ext, (nativeApp, message, sender) -> {
+            ext.setMessageDelegate((nativeApp, message, sender) -> {
+                if (sender == null) return null;
+                GeckoSession senderSession = sender.getSession();
+                if (senderSession == null) return null;
+                Tab tab = sessionToTab.get(senderSession);
+                if (tab == null) return null;
                 Boolean atTop = extractAtTop(message);
                 if (atTop != null) tab.atTop = atTop;
                 return null;
             }, NATIVE_APP);
         } catch (Exception ignored) {
-            // If delegation fails, the tab keeps atTop = true (permissive).
+            // If registration fails, tabs stay at atTop = true (permissive).
         }
     }
 
-    private void flushPending() {
-        WebExtension ext = extension;
-        if (ext == null) return;
-        List<Pending> toBind;
-        synchronized (pending) {
-            toBind = new ArrayList<>(pending);
-            pending.clear();
-        }
-        for (Pending p : toBind) attach(p.session, p.tab, ext);
+    /** Called by TabManager right after a session is opened. */
+    public void bind(GeckoSession session, Tab tab) {
+        if (session == null || tab == null) return;
+        sessionToTab.put(session, tab);
+    }
+
+    /** Called by TabManager when a tab is closed. */
+    public void unbind(GeckoSession session) {
+        if (session == null) return;
+        sessionToTab.remove(session);
     }
 
     /** Message payload is { atTop: bool }. Try the common shapes. */
