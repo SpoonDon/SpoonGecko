@@ -24,6 +24,16 @@ import java.util.Map;
  * document.scrollingElement.scrollTop on every scroll event and posts it
  * via browser.runtime.sendNativeMessage("spoongeckoScroll", ...). The
  * Java side attaches a WebExtension.MessageDelegate per session.
+ *
+ * API note (GeckoView 157):
+ *   - WebExtension is no longer constructed manually. Use
+ *     WebExtensionController.ensureBuiltIn(String uri, String id) or
+ *     installBuiltIn(String uri) to register the bundled extension.
+ *   - GeckoSession no longer has setMessageDelegate(MessageDelegate, String).
+ *     Instead use session.getWebExtensionController()
+ *         .setMessageDelegate(WebExtension, MessageDelegate, String).
+ *   - The content script must be authorized to send native messages via
+ *     the "nativeMessagingFromContent" permission in manifest.json.
  */
 public final class ScrollExtension {
 
@@ -31,25 +41,44 @@ public final class ScrollExtension {
     public static final String NATIVE_APP   = "spoongeckoScroll";
 
     private static final String MANIFEST_URI =
-            "resource://android/assets/scroll/manifest.json";
+            "resource://android/assets/scroll/";
 
     private ScrollExtension() {}
 
-    /** Registers the built-in with the runtime. Call exactly once. */
+    /**
+     * Registers the built-in with the runtime. Call exactly once.
+     *
+     * ensureBuiltIn only installs if the extension is not already present
+     * with the same version, so calling this at every startup is safe
+     * (though installBuiltIn would also work, it re-installs each time).
+     */
     public static void register(@NonNull WebExtensionController controller) {
-        WebExtension extension = new WebExtension(
-                MANIFEST_URI,
-                /* isBuiltIn */ true,
-                /* allowedInPrivateBrowsing */ true);
-        controller.registerBuiltIn(extension);
+        controller.ensureBuiltIn(MANIFEST_URI, EXTENSION_ID)
+                .accept(
+                        extension -> {
+                            android.util.Log.i("ScrollExtension",
+                                    "scroll extension ready: " + extension.id);
+                        },
+                        throwable -> {
+                            android.util.Log.e("ScrollExtension",
+                                    "failed to register scroll extension", throwable);
+                        });
     }
 
     /**
      * Attaches a message delegate to {@code session} that updates
      * {@code tab}'s scroll state from the content script's reports.
+     *
+     * @param extension the WebExtension instance returned by
+     *                  ensureBuiltIn / installBuiltIn
      */
-    public static void attach(@NonNull GeckoSession session, @NonNull Tab tab) {
-        session.setMessageDelegate(new Delegate(tab), NATIVE_APP);
+    public static void attach(@NonNull GeckoSession session,
+                              @NonNull WebExtension extension,
+                              @NonNull Tab tab) {
+        session.getWebExtensionController().setMessageDelegate(
+                extension,
+                new Delegate(tab),
+                NATIVE_APP);
     }
 
     private static final class Delegate implements WebExtension.MessageDelegate {
