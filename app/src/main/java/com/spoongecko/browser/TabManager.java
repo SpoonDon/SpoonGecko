@@ -12,27 +12,26 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebRequestError;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Owns the tab list and drives a single shared GeckoView.
  *
- * Scroll state comes from GeckoSession.ScrollDelegate — GeckoView fires
- * onScrollChanged(session, scrollX, scrollY) on every main-frame scroll,
- * so we can gate pull-to-refresh on the real top of the page instead of the
- * raw touch coordinate. No WebExtension, no JS injection.
- *
- * Limitation: the delegate reports the root scroller. Pages that scroll
- * exclusively via a nested overflow:auto container (some SPA feeds) will
- * report scrollY == 0 while scrolled, which permits pull-to-refresh there.
- * That's an acceptable trade-off — the alternative (JS hook) needs a
- * WebExtension round-trip that has proven unreliable in this build.
+ * Delegates installed per session:
+ *   - ProgressDelegate   : url bar updates, progress bar, session save triggers
+ *   - ContentDelegate    : page titles
+ *   - ScrollDelegate     : gates pull-to-refresh on real page top
+ *   - NavigationDelegate : scheme gating, UA swap for local hosts, error pages,
+ *                          new-tab routing, spoongecko:// action scheme
+ *   - PromptDelegate     : HTTP Basic Auth dialog (routers, ISP modems, etc.)
  */
 public class TabManager {
 
@@ -81,17 +80,11 @@ public class TabManager {
         return tabs.get(currentIndex);
     }
 
-    /**
-     * True when the current tab's root scroller is at scrollY == 0.
-     * SwipeRefreshLayout's onChildScrollUpCallback returns !this so
-     * pull-to-refresh only fires at the real top.
-     */
     public boolean isCurrentTabAtTop() {
         Tab t = getCurrentTab();
         return t == null || t.atTop;
     }
 
-    /** True for empty / about:blank URLs that should be treated as a home tab. */
     private static boolean isBlank(String url) {
         return url == null || url.isEmpty() || "about:blank".equals(url);
     }
@@ -99,6 +92,8 @@ public class TabManager {
     // ------------------------------------------------------------------ create
 
     public Tab createTab(String url) {
+        // Default UA is GeckoView's native Firefox UA. Per-request we swap to
+        // the WebView UA for local/private hosts in onLoadRequest below.
         GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
                 .usePrivateMode(false)
                 .suspendMediaWhenInactive(true)
@@ -109,9 +104,6 @@ public class TabManager {
 
         session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override public void onPageStart(GeckoSession s, String u) {
-                // GeckoView fires onPageStart with "about:blank" the first
-                // time a freshly-opened session is attached. Treat that as
-                // a home tab: keep tab.url empty and don't touch the URL bar.
                 if (isBlank(u)) {
                     tab.url = "";
                     tab.atTop = true;
@@ -133,7 +125,6 @@ public class TabManager {
 
         session.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override public void onTitleChange(GeckoSession s, String title) {
-                // Suppress the "about:blank" title for home tabs.
                 if (isBlank(tab.url) || "about:blank".equals(title)) {
                     tab.title = "";
                 } else {
@@ -142,10 +133,12 @@ public class TabManager {
                 if (tab == getCurrentTab()) listener.onTitle(tab, tab.title);
             }
         });
+
+        // HTTP Basic Auth dialog for routers, ISP modems, corporate proxies.
+        // Without this delegate GeckoView silently cancels the prompt and the
+        // page renders blank.
         session.setPromptDelegate(new AuthPromptHandler(activity));
-        // Root-scroller position. Fires whenever the page scrolls. Reported
-        // values are in CSS pixels and can be negative during overscroll on
-        // some builds, so we clamp to <= 0 rather than == 0.
+
         session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
             @Override public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
                 tab.atTop = scrollY <= 0;
@@ -169,12 +162,41 @@ public class TabManager {
                 Uri uri = Uri.parse(request.uri);
                 String scheme = uri.getScheme();
                 if (scheme == null) return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+
                 switch (scheme.toLowerCase()) {
                     case "http": case "https": case "about":
-                    case "data": case "blob":   case "file":
+                    case "data": case "blob":   case "file": {
+                        // Per-request UA swap for local/private hosts. Many
+                        // routers UA-sniff: WebView UA => serve HTTP admin UI;
+                        // desktop Firefox/Chrome UA => force HTTPS redirect to
+                        // a self-signed cert GeckoView cannot bypass. We send
+                        // the WebView UA only to local hosts so the router
+                        // stops demanding HTTPS.
+                        String target = request.uri;
+                        String desired = WebViewUserAgent.isLocalTarget(target)
+                                ? WebViewUserAgent.VALUE
+                                : null;   // null => GeckoView default (Firefox UA)
+                        if (!Objects.equals(s.getSettings().getUserAgentOverride(), desired)) {
+                            s.getSettings().setUserAgentOverride(desired);
+                        }
                         return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+                    }
                     case "javascript":
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
+                    case "spoongecko": {
+                        // Internal action scheme used by our error page to
+                        // offer "Try over HTTP". Format:
+                        //   spoongecko://retry-http?url=http%3A%2F%2F1.2.3.4
+                        String host = uri.getHost();
+                        if ("retry-http".equals(host)) {
+                            String innerUrl = uri.getQueryParameter("url");
+                            if (innerUrl != null && !innerUrl.isEmpty()) {
+                                final String target = innerUrl;
+                                mainHandler.post(() -> s.loadUri(target));
+                            }
+                        }
+                        return GeckoResult.fromValue(AllowOrDeny.DENY);
+                    }
                     default:
                         LinkSchemeHelper.dispatch(activity, uri);
                         return GeckoResult.fromValue(AllowOrDeny.DENY);
@@ -190,86 +212,85 @@ public class TabManager {
                 });
                 return GeckoResult.fromValue(null);
             }
-                        
-            @Override
-            public GeckoResult<String> onLoadError(GeckoSession s, String uri,
-                                                   org.mozilla.geckoview.WebRequestError error) {
+
+            @Override public GeckoResult<String> onLoadError(
+                    GeckoSession s, String uri, WebRequestError error) {
                 int category = (error == null) ? 0 : error.category;
                 int code = (error == null) ? 0 : error.code;
 
                 String categoryLabel;
                 switch (category) {
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_SECURITY:
-                        categoryLabel = "Security error";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_NETWORK:
-                        categoryLabel = "Network error";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_CONTENT:
-                        categoryLabel = "Content error";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_URI:
-                        categoryLabel = "Invalid address";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_PROXY:
-                        categoryLabel = "Proxy error";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CATEGORY_SAFEBROWSING:
-                        categoryLabel = "Blocked by safe browsing";
-                        break;
+                    case WebRequestError.ERROR_CATEGORY_SECURITY:
+                        categoryLabel = "Security error"; break;
+                    case WebRequestError.ERROR_CATEGORY_NETWORK:
+                        categoryLabel = "Network error"; break;
+                    case WebRequestError.ERROR_CATEGORY_CONTENT:
+                        categoryLabel = "Content error"; break;
+                    case WebRequestError.ERROR_CATEGORY_URI:
+                        categoryLabel = "Invalid address"; break;
+                    case WebRequestError.ERROR_CATEGORY_PROXY:
+                        categoryLabel = "Proxy error"; break;
+                    case WebRequestError.ERROR_CATEGORY_SAFEBROWSING:
+                        categoryLabel = "Blocked by safe browsing"; break;
                     default:
-                        categoryLabel = "Could not load page";
-                        break;
+                        categoryLabel = "Could not load page"; break;
                 }
 
                 String codeLabel;
                 switch (code) {
-                    case org.mozilla.geckoview.WebRequestError.ERROR_CONNECTION_REFUSED:
-                        codeLabel = "Connection refused";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_TIMEOUT:
-                        codeLabel = "Connection timed out";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_UNKNOWN_HOST:
-                        codeLabel = "Host not found";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_SECURITY_SSL:
-                        codeLabel = "SSL negotiation failed";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_SECURITY_BAD_CERT:
-                        codeLabel = "Bad certificate";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_OFFLINE:
-                        codeLabel = "Device is offline";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_PORT_BLOCKED:
-                        codeLabel = "Port blocked by system";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_HTTPS_ONLY:
-                        codeLabel = "Blocked: HTTPS-only mode";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_UNKNOWN_PROTOCOL:
-                        codeLabel = "Unknown protocol";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_RESET:
-                        codeLabel = "Connection reset by peer";
-                        break;
-                    case org.mozilla.geckoview.WebRequestError.ERROR_NET_INTERRUPT:
-                        codeLabel = "Connection interrupted";
-                        break;
+                    case WebRequestError.ERROR_CONNECTION_REFUSED:
+                        codeLabel = "Connection refused"; break;
+                    case WebRequestError.ERROR_NET_TIMEOUT:
+                        codeLabel = "Connection timed out"; break;
+                    case WebRequestError.ERROR_UNKNOWN_HOST:
+                        codeLabel = "Host not found"; break;
+                    case WebRequestError.ERROR_SECURITY_SSL:
+                        codeLabel = "SSL negotiation failed"; break;
+                    case WebRequestError.ERROR_SECURITY_BAD_CERT:
+                        codeLabel = "Bad certificate"; break;
+                    case WebRequestError.ERROR_OFFLINE:
+                        codeLabel = "Device is offline"; break;
+                    case WebRequestError.ERROR_PORT_BLOCKED:
+                        codeLabel = "Port blocked by system"; break;
+                    case WebRequestError.ERROR_HTTPS_ONLY:
+                        codeLabel = "Blocked: HTTPS-only mode"; break;
+                    case WebRequestError.ERROR_UNKNOWN_PROTOCOL:
+                        codeLabel = "Unknown protocol"; break;
+                    case WebRequestError.ERROR_NET_RESET:
+                        codeLabel = "Connection reset by peer"; break;
+                    case WebRequestError.ERROR_NET_INTERRUPT:
+                        codeLabel = "Connection interrupted"; break;
                     default:
-                        codeLabel = null;
-                        break;
+                        codeLabel = null; break;
                 }
 
                 String safeUri = (uri == null || uri.isEmpty()) ? "" : uri;
                 String detail = (codeLabel == null)
                         ? categoryLabel
-                        : categoryLabel + " — " + codeLabel;
+                        : categoryLabel + " - " + codeLabel;
+
+                // "Try over HTTP" fallback when a private HTTPS target fails
+                // on a bad cert. Many routers serve their admin UI on plain
+                // HTTP too and only redirect by default.
+                String httpButton = "";
+                boolean certFail = (code == WebRequestError.ERROR_SECURITY_BAD_CERT
+                        || code == WebRequestError.ERROR_SECURITY_SSL);
+                if (certFail && safeUri.startsWith("https://")
+                        && isPrivateHost(safeUri)) {
+                    String httpUrl = "http://" + safeUri.substring("https://".length());
+                    String encoded = Uri.encode(httpUrl, ":/?&=%#");
+                    httpButton =
+                            "<p style=\"margin-top:20px;\">" +
+                            "<a href=\"spoongecko://retry-http?url=" + encoded + "\" " +
+                            "style=\"display:inline-block;padding:10px 16px;" +
+                            "background:#4d6bfe;color:#ffffff;text-decoration:none;" +
+                            "border-radius:8px;font-size:14px;\">" +
+                            "Try over HTTP instead</a></p>";
+                }
 
                 String html =
                         "<!DOCTYPE html><html><head>" +
-                        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
                         "<style>" +
                         "body{font-family:sans-serif;margin:0;padding:24px;" +
                         "background:#ffffff;color:#0d0d0d;}" +
@@ -281,11 +302,12 @@ public class TabManager {
                         "<h1>Could not load page</h1>" +
                         "<p>" + detail + "</p>" +
                         "<p><code>" + safeUri + "</code></p>" +
+                        httpButton +
                         "</body></html>";
-                String encoded = android.util.Base64.encodeToString(
+                String encodedHtml = android.util.Base64.encodeToString(
                         html.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         android.util.Base64.NO_WRAP);
-                return GeckoResult.fromValue("data:text/html;base64," + encoded);
+                return GeckoResult.fromValue("data:text/html;base64," + encodedHtml);
             }
         });
 
@@ -417,6 +439,30 @@ public class TabManager {
         if (target != currentIndex) {
             currentIndex = -1;
             switchTo(target);
+        }
+    }
+
+    // ------------------------------------------------------------- helpers
+
+    /** True when the URL targets a private-network host. */
+    private static boolean isPrivateHost(String url) {
+        try {
+            String host = Uri.parse(url).getHost();
+            if (host == null) return false;
+            host = host.toLowerCase();
+            if (host.equals("localhost") || host.equals("127.0.0.1")) return true;
+            String[] parts = host.split("\\.");
+            if (parts.length != 4) return false;
+            int a = Integer.parseInt(parts[0]);
+            int b = Integer.parseInt(parts[1]);
+            if (a == 10) return true;
+            if (a == 127) return true;
+            if (a == 192 && b == 168) return true;
+            if (a == 172 && b >= 16 && b <= 31) return true;
+            if (a == 169 && b == 254) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
         }
     }
 
