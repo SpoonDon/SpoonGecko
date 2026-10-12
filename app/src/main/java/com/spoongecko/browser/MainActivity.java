@@ -32,8 +32,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoView;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.util.List;
 
 public class MainActivity extends Activity {
@@ -95,7 +93,6 @@ public class MainActivity extends Activity {
         List<PersistedTab> persisted = SessionStore.loadTabs(this);
         if (persisted.isEmpty()) {
             // createTab() fires onCurrentTabChanged, which calls showHome(true).
-            // No explicit showHome() here — it used to be called twice.
             tabManager.createTab(null);
         } else {
             tabManager.restoreFrom(persisted, SessionStore.loadCurrentIndex(this));
@@ -117,9 +114,6 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        // If the runtime failed to initialise, onCreate() finished us but a
-        // queued ACTION_VIEW intent can still be delivered. tabManager is null
-        // in that path.
         if (tabManager == null) return;
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
         Uri data = intent.getData();
@@ -190,8 +184,6 @@ public class MainActivity extends Activity {
             progressBar.setVisibility(View.GONE);
             updateTabBadge();
             if (tab == null || tab.url == null || tab.url.isEmpty()) {
-                // An empty tab is a "new tab" state — the user expects the
-                // keyboard ready.
                 showHome(true);
             } else {
                 hideHome();
@@ -242,18 +234,8 @@ public class MainActivity extends Activity {
         }
     };
 
-    /** Show home without focusing the search bar (Back from a page, menu Home). */
-    private void showHome() {
-        showHome(false);
-    }
+    private void showHome() { showHome(false); }
 
-    /**
-     * Show home, optionally focusing the search bar.
-     *
-     * Focusing the bar pops the soft keyboard. That's the right behaviour when
-     * the user has just created an empty tab, and the wrong behaviour when
-     * they pressed Back out of a loaded page or tapped menu → Home.
-     */
     private void showHome(boolean focus) {
         if (homeContainer == null) return;
         homeContainer.setVisibility(View.VISIBLE);
@@ -300,7 +282,6 @@ public class MainActivity extends Activity {
         forwardButton.setEnabled(false); forwardButton.setAlpha(0.35f);
     }
 
-    /** Called from onTabListChanged + onCurrentTabChanged. */
     private void updateTabBadge() {
         if (tabCountView == null || tabManager == null) return;
         int n = tabManager.getTabCount();
@@ -363,12 +344,11 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------- swipe
 
     private void wirePullToRefresh() {
-        // Tint spinner to match accent
         try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
 
-        // Gate pull-to-refresh on the ACTUAL page scroll state reported by JS.
         // Returning true means "child can scroll up" → SwipeRefreshLayout
-        // won't steal the touch; the page handles it.
+        // won't steal the touch. So refresh is enabled only when the JS hook
+        // reports the page is at the top.
         swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
             if (homeContainer.getVisibility() == View.VISIBLE) return true;
             if (tabManager == null) return true;
@@ -381,7 +361,6 @@ public class MainActivity extends Activity {
                 return;
             }
             tabManager.reload();
-            // Safety net — clear if onPageStop never fires (error page).
             swipeRefresh.postDelayed(() -> {
                 if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
             }, 3000);
@@ -402,8 +381,7 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 8, 7, R.string.menu_battery);
         popup.getMenu().add(0, 9, 8, R.string.menu_autostart);
         popup.getMenu().add(0, 10, 9, R.string.menu_about);
-        popup.getMenu().add(0, 11, 10, "Show crash log");
-        popup.getMenu().add(0, 12, 11, R.string.menu_exit);
+        popup.getMenu().add(0, 12, 10, R.string.menu_exit);
         popup.setOnMenuItemClickListener(this::onMenuClick);
         popup.show();
     }
@@ -414,18 +392,17 @@ public class MainActivity extends Activity {
             case 2: {
                 Tab t = tabManager.createTab(null);
                 tabManager.switchTo(tabManager.getTabs().indexOf(t));
-                showHome(true);   // new tab → focus the bar
+                showHome(true);
                 return true;
             }
             case 3: openTabSwitcher(); return true;
             case 4: tabManager.closeCurrentTab(); return true;
-            case 5: showHome(); return true;   // menu Home → no focus
+            case 5: showHome(); return true;
             case 6: shareCurrent(); return true;
             case 7: copyCurrent(); return true;
             case 8: OemHelper.requestIgnoreBatteryOptimizations(this); return true;
             case 9: OemHelper.openAutostartSettings(this); return true;
             case 10: showAbout(); return true;
-            case 11: showCrashLog(); return true;
             case 12: exitApp(); return true;
             default: return false;
         }
@@ -455,42 +432,6 @@ public class MainActivity extends Activity {
                 .setTitle(R.string.about_title)
                 .setMessage(getString(R.string.about_message, versionName()))
                 .setPositiveButton(android.R.string.ok, null)
-                .show();
-    }
-
-    private void showCrashLog() {
-        File f = CrashLogger.latestReportFile(this);
-        if (f == null) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Crash log")
-                    .setMessage("No crash report yet.")
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show();
-            return;
-        }
-        String text;
-        try {
-            byte[] data = new byte[(int) f.length()];
-            try (FileInputStream in = new FileInputStream(f)) {
-                int read = in.read(data);
-                text = new String(data, 0, Math.max(read, 0), "UTF-8");
-            }
-        } catch (Exception e) {
-            text = "Could not read " + f.getName() + ": " + e;
-        }
-        final String content = text;
-        new AlertDialog.Builder(this)
-                .setTitle(f.getName())
-                .setMessage(content)
-                .setPositiveButton("Copy", (d, w) -> {
-                    ClipboardManager cm =
-                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    if (cm != null) {
-                        cm.setPrimaryClip(ClipData.newPlainText("crash", content));
-                        Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show();
-                    }
-                })
-                .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
