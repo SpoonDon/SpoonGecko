@@ -119,6 +119,24 @@ public class TabManager {
             @Override public void onExternalResponse(GeckoSession s, WebResponse response) {
                 DownloadManager.getInstance(activity).enqueue(response);
             }
+
+            @Override public void onKill(GeckoSession s) {
+                CrashLogger.breadcrumb(activity,
+                        "content killed tab=" + tab.id);
+                if (tab == getCurrentTab()
+                        && tab.url != null && !tab.url.isEmpty()) {
+                    s.loadUri(tab.url);
+                }
+            }
+
+            @Override public void onCrash(GeckoSession s) {
+                CrashLogger.breadcrumb(activity,
+                        "content crashed tab=" + tab.id);
+                if (tab == getCurrentTab()
+                        && tab.url != null && !tab.url.isEmpty()) {
+                    s.loadUri(tab.url);
+                }
+            }
         });
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
