@@ -1,5 +1,7 @@
 package com.spoongecko.browser;
 
+import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -21,13 +23,15 @@ import java.util.Map;
  *   - GeckoSession no longer has setMessageDelegate(MessageDelegate, String).
  *     Use session.getWebExtensionController()
  *         .setMessageDelegate(WebExtension, MessageDelegate, String).
- *   - WebExtension.MessageDelegate.onMessage now takes three arguments:
+ *   - WebExtension.MessageDelegate.onMessage takes three arguments:
  *       onMessage(String nativeApp, Object message, MessageSender sender)
  *     and returns GeckoResult<Object>.
  *   - The content script must be authorized to send native messages via
  *     the "nativeMessagingFromContent" permission in manifest.json.
  */
 public final class ScrollExtension {
+
+    private static final String TAG = "ScrollExtension";
 
     public static final String EXTENSION_ID = "scroll@spoongecko.browser";
     public static final String NATIVE_APP   = "spoongeckoScroll";
@@ -50,25 +54,33 @@ public final class ScrollExtension {
     public static void install(@NonNull WebExtensionController controller,
                                @NonNull InstallCallback callback) {
         controller.ensureBuiltIn(MANIFEST_URI, EXTENSION_ID)
-                .accept(callback::onInstalled,
-                        throwable -> android.util.Log.e("ScrollExtension",
-                                "failed to register scroll extension", throwable));
+                .accept(extension -> {
+                    Log.i(TAG, "scroll extension installed: " + extension.id);
+                    callback.onInstalled(extension);
+                }, throwable -> {
+                    Log.e(TAG, "failed to register scroll extension", throwable);
+                });
     }
 
     /**
      * Attaches a message delegate to {@code session} that updates
      * {@code tab}'s scroll state from the content script's reports.
      *
-     * @param extension the WebExtension instance returned by
-     *                  ensureBuiltIn / installBuiltIn
+     * Must be called after {@code session.open(runtime)} — the session
+     * controller is not available before then.
+     *
+     * @param extension the WebExtension instance returned by ensureBuiltIn
      */
     public static void attach(@NonNull GeckoSession session,
                               @NonNull WebExtension extension,
                               @NonNull Tab tab) {
-        session.getWebExtensionController().setMessageDelegate(
-                extension,
-                new Delegate(tab),
-                NATIVE_APP);
+        WebExtensionController controller = session.getWebExtensionController();
+        if (controller == null) {
+            Log.w(TAG, "session controller is null; cannot attach scroll delegate");
+            return;
+        }
+        controller.setMessageDelegate(extension, new Delegate(tab), NATIVE_APP);
+        Log.d(TAG, "scroll delegate attached to tab " + tab.id);
     }
 
     private static final class Delegate implements WebExtension.MessageDelegate {
@@ -76,12 +88,6 @@ public final class ScrollExtension {
 
         Delegate(Tab tab) { this.tab = tab; }
 
-        /**
-         * GeckoView 157 signature: nativeApp, message, sender.
-         * Returning null means "fire and forget" — the content script
-         * does not await a reply, it just wants the side-effect of
-         * updating our cached scroll state.
-         */
         @Override
         @Nullable
         public GeckoResult<Object> onMessage(@NonNull String nativeApp,
@@ -99,6 +105,9 @@ public final class ScrollExtension {
             if (scrollYObj instanceof Number) {
                 tab.scrollY = ((Number) scrollYObj).intValue();
             }
+            // Uncomment to debug on device via logcat:
+            // Log.d(TAG, "scroll report tab=" + tab.id
+            //         + " atTop=" + tab.atTop + " y=" + tab.scrollY);
             return null;
         }
     }
