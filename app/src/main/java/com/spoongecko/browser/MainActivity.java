@@ -27,8 +27,6 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
 
@@ -43,7 +41,6 @@ public class MainActivity extends Activity {
 
     private NestedGeckoView geckoView;
     private TabManager tabManager;
-    private SwipeRefreshLayout swipeRefresh;
 
     private FrameLayout homeContainer;
     private HomeView homeView;
@@ -51,7 +48,7 @@ public class MainActivity extends Activity {
     private EditText urlBar;
     private ProgressBar progressBar;
     private ImageButton forwardButton;
-    private ImageButton restoreButton;
+    private ImageButton refreshButton;
     private ImageButton menuButton;
     private TextView tabCountView;
 
@@ -64,12 +61,11 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.gecko_view);
-        swipeRefresh = findViewById(R.id.swipe_refresh);
         homeContainer = findViewById(R.id.home_container);
         urlBar = findViewById(R.id.url_bar);
         progressBar = findViewById(R.id.progress_bar);
         forwardButton = findViewById(R.id.btn_forward);
-        restoreButton = findViewById(R.id.btn_restore);
+        refreshButton = findViewById(R.id.btn_refresh);
         menuButton = findViewById(R.id.btn_menu);
         tabCountView = findViewById(R.id.tab_count);
 
@@ -90,7 +86,6 @@ public class MainActivity extends Activity {
         tabManager = new TabManager(this, geckoView, runtime, tabListener);
 
         wireToolbar();
-        wirePullToRefresh();
 
         List<PersistedTab> persisted = SessionStore.loadTabs(this);
         if (persisted.isEmpty()) {
@@ -191,7 +186,6 @@ public class MainActivity extends Activity {
 
         @Override public void onPageStop(Tab tab, boolean success) {
             progressBar.setVisibility(View.GONE);
-            if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
             if (success && isHttpOrHttps(tab.url)) {
                 HistoryStore.record(MainActivity.this, tab.url, tab.title);
             }
@@ -251,11 +245,8 @@ public class MainActivity extends Activity {
             if (t != null) t.session.goForward();
         });
 
-        restoreButton.setOnClickListener(v -> {
-            if (!tabManager.restoreLastClosed()) {
-                Toast.makeText(this, "No closed tabs to restore",
-                        Toast.LENGTH_SHORT).show();
-            }
+        refreshButton.setOnClickListener(v -> {
+            if (tabManager != null) tabManager.reload();
         });
 
         menuButton.setOnClickListener(this::showMenu);
@@ -381,35 +372,6 @@ public class MainActivity extends Activity {
         InputMethodManager imm =
                 (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(urlBar.getWindowToken(), 0);
-    }
-
-    // ------------------------------------------------------------- swipe
-
-    private void wirePullToRefresh() {
-        try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
-
-        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
-            if (homeContainer.getVisibility() == View.VISIBLE) return true;
-            if (geckoView == null) return true;
-            // canChildScrollUp == true  -> don't trigger pull-to-refresh
-            // canChildScrollUp == false -> trigger pull-to-refresh
-            //
-            // canOverscrollTop() is true exactly when the content is at the
-            // top and can be overscrolled vertically. So:
-            //   canChildScrollUp = !canOverscrollTop()
-            return !geckoView.canOverscrollTop();
-        });
-
-        swipeRefresh.setOnRefreshListener(() -> {
-            if (homeContainer.getVisibility() == View.VISIBLE) {
-                swipeRefresh.setRefreshing(false);
-                return;
-            }
-            tabManager.reload();
-            swipeRefresh.postDelayed(() -> {
-                if (swipeRefresh.isRefreshing()) swipeRefresh.setRefreshing(false);
-            }, 3000);
-        });
     }
 
     // ------------------------------------------------------------------ menu
