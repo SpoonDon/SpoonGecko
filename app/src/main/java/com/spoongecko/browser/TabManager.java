@@ -115,6 +115,10 @@ public class TabManager {
                 }
                 if (tab == getCurrentTab()) listener.onTitle(tab, tab.title);
             }
+            
+            @Override public void onExternalResponse(GeckoSession s, WebResponse response) {
+                DownloadManager.getInstance(activity).enqueue(response);
+            }
         });
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
