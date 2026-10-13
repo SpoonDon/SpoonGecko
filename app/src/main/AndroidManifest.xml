@@ -67,6 +67,10 @@
                 android:value="Keeps the browser process resident so open tabs are not discarded while the user is in another app." />
         </service>
 
+        <receiver    
+            android:name=".NotificationDismissReceiver"    
+            android:exported="false" />
+
     </application>
 
     <queries>
