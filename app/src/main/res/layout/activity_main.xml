@@ -27,12 +27,12 @@
             android:src="@drawable/ic_arrow_forward" />
 
         <ImageButton
-            android:id="@+id/btn_restore"
+            android:id="@+id/btn_refresh"
             style="@style/ToolbarButton"
-            android:contentDescription="Restore closed tab"
+            android:contentDescription="@string/btn_refresh"
             android:focusable="false"
             android:focusableInTouchMode="false"
-            android:src="@drawable/ic_restore" />
+            android:src="@drawable/ic_refresh" />
 
         <EditText
             android:id="@+id/url_bar"
@@ -91,28 +91,22 @@
         android:progressTint="@color/accent"
         android:visibility="gone" />
 
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+    <FrameLayout
+        android:id="@+id/content_frame"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <FrameLayout
-            android:id="@+id/content_frame"
+        <com.spoongecko.browser.NestedGeckoView
+            android:id="@+id/gecko_view"
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="match_parent" />
 
-            <com.spoongecko.browser.NestedGeckoView
-                android:id="@+id/gecko_view"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent" />
-
-            <FrameLayout
-                android:id="@+id/home_container"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:visibility="gone" />
-        </FrameLayout>
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+        <FrameLayout
+            android:id="@+id/home_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+    </FrameLayout>
 
 </LinearLayout>
