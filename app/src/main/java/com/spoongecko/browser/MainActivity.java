@@ -387,6 +387,7 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 6, 5, R.string.menu_share);
         popup.getMenu().add(0, 7, 6, R.string.menu_copy);
         popup.getMenu().add(0, 8, 7, "History");
+        popup.getMenu().add(0, 13, 8, "Downloads");
         popup.getMenu().add(0, 12, 8, "Extensions");
         popup.getMenu().add(0, 9, 9, "Settings");
         popup.getMenu().add(0, 10, 10, R.string.menu_about);
