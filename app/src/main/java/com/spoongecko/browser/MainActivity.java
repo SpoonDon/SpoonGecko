@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
     private static final String FLAGS_PREFS = "spoongecko_flags";
     private static final String KEY_ASKED_BATTERY = "asked_battery";
 
-    private NestedGeckoView geckoView;
+    private GeckoView geckoView;
     private TabManager tabManager;
 
     private FrameLayout homeContainer;
