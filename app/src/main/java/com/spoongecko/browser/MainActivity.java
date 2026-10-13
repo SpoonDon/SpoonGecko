@@ -30,7 +30,6 @@ import android.widget.Toast;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import org.mozilla.geckoview.GeckoRuntime;
-import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebExtension;
 
 import java.util.List;
@@ -42,7 +41,7 @@ public class MainActivity extends Activity {
     private static final String FLAGS_PREFS = "spoongecko_flags";
     private static final String KEY_ASKED_BATTERY = "asked_battery";
 
-    private GeckoView geckoView;
+    private NestedGeckoView geckoView;
     private TabManager tabManager;
     private SwipeRefreshLayout swipeRefresh;
 
@@ -86,9 +85,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        // ===== EXTENSION SUPPORT =====
         ExtensionManager.getInstance().init(this, runtime);
-        // ===== END EXTENSION SUPPORT =====
 
         tabManager = new TabManager(this, geckoView, runtime, tabListener);
 
@@ -391,11 +388,16 @@ public class MainActivity extends Activity {
     private void wirePullToRefresh() {
         try { swipeRefresh.setColorSchemeColors(0xFF4D8DFF); } catch (Exception ignored) {}
 
-        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {    
-            if (homeContainer.getVisibility() == View.VISIBLE) return true;    
-            if (tabManager == null) return true;    
-            Tab t = tabManager.getCurrentTab();    
-            return t == null || !t.atTop;
+        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> {
+            if (homeContainer.getVisibility() == View.VISIBLE) return true;
+            if (geckoView == null) return true;
+            // canChildScrollUp == true  -> don't trigger pull-to-refresh
+            // canChildScrollUp == false -> trigger pull-to-refresh
+            //
+            // canOverscrollTop() is true exactly when the content is at the
+            // top and can be overscrolled vertically. So:
+            //   canChildScrollUp = !canOverscrollTop()
+            return !geckoView.canOverscrollTop();
         });
 
         swipeRefresh.setOnRefreshListener(() -> {
@@ -422,9 +424,7 @@ public class MainActivity extends Activity {
         popup.getMenu().add(0, 6, 5, R.string.menu_share);
         popup.getMenu().add(0, 7, 6, R.string.menu_copy);
         popup.getMenu().add(0, 8, 7, "History");
-        // ===== EXTENSION SUPPORT =====
         popup.getMenu().add(0, 12, 8, "Extensions");
-        // ===== END EXTENSION SUPPORT =====
         popup.getMenu().add(0, 9, 9, "Settings");
         popup.getMenu().add(0, 10, 10, R.string.menu_about);
         popup.getMenu().add(0, 11, 11, R.string.menu_exit);
@@ -447,9 +447,7 @@ public class MainActivity extends Activity {
             case 6: shareCurrent(); return true;
             case 7: copyCurrent(); return true;
             case 8: openHistory(); return true;
-            // ===== EXTENSION SUPPORT =====
             case 12: openExtensions(); return true;
-            // ===== END EXTENSION SUPPORT =====
             case 9: SettingsDialog.show(this); return true;
             case 10: showAbout(); return true;
             case 11: exitApp(); return true;
@@ -457,22 +455,20 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ===== EXTENSION SUPPORT =====
     private void openExtensions() {
-    ExtensionsDialog.show(this, new ExtensionsDialog.Callbacks() {
-        @Override public void onBrowseAmo() {
-            Tab t = tabManager.createTab("https://addons.mozilla.org/android/");
-            tabManager.switchTo(tabManager.getTabs().indexOf(t));
-        }
+        ExtensionsDialog.show(this, new ExtensionsDialog.Callbacks() {
+            @Override public void onBrowseAmo() {
+                Tab t = tabManager.createTab("https://addons.mozilla.org/android/");
+                tabManager.switchTo(tabManager.getTabs().indexOf(t));
+            }
 
-        @Override
-        public void onOpenExtensionOptions(WebExtension ext, String optionsUrl) {
-            Tab t = tabManager.createTab(optionsUrl);
-            tabManager.switchTo(tabManager.getTabs().indexOf(t));
-        }
-    });
-}
-    // ===== END EXTENSION SUPPORT =====
+            @Override
+            public void onOpenExtensionOptions(WebExtension ext, String optionsUrl) {
+                Tab t = tabManager.createTab(optionsUrl);
+                tabManager.switchTo(tabManager.getTabs().indexOf(t));
+            }
+        });
+    }
 
     private void openHistory() {
         HistoryDialog.show(this, new HistoryDialog.Callbacks() {
