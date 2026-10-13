@@ -415,6 +415,7 @@ public class MainActivity extends Activity {
             case 9: SettingsDialog.show(this); return true;
             case 10: showAbout(); return true;
             case 11: exitApp(); return true;
+            case 13: openDownloads(); return true;    
             default: return false;
         }
     }
@@ -445,6 +446,10 @@ public class MainActivity extends Activity {
                 tabManager.switchTo(tabManager.getTabs().indexOf(t));
             }
         });
+    }
+        
+    private void openDownloads() {
+        DownloadsDialog.show(this);
     }
 
     private void shareCurrent() {
