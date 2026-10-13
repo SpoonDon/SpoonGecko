@@ -83,6 +83,14 @@ public final class DownloadManager {
 
     public File getDownloadsDir() { return downloadsDir; }
 
+    /**
+     * Used by DownloadsDialog to detach its listener when the dialog closes.
+     * Prevents the dialog's adapter from being updated after dismissal.
+     */
+    public boolean hasListener(Listener l) {
+        return listener == l;
+    }
+
     public List<Download> getDownloads() {
         synchronized (downloads) {
             return new ArrayList<>(downloads);
