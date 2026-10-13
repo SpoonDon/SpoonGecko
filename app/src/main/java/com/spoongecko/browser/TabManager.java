@@ -315,15 +315,28 @@ public class TabManager {
             applyUaForUrl(session, url);
         }
 
-        // Try to attach the scroll reporter now. If the built-in has not
-        // finished installing yet, the ProgressDelegate above will retry
-        // on the next onPageStart().
-        attachScrollDelegateIfNeeded(session, tab);
+        // Fallback: approximate scroll position from GeckoSession's own
+// ScrollDelegate. This is unreliable on SPA shells / overflow:auto
+// pages, which is why the WebExtension reporter exists, but it keeps
+// pull-to-refresh sane if the extension is not yet attached.
+session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
+    @Override
+    public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
+        tab.scrollY = scrollY;
+        tab.atTop = scrollY <= 0;
+    }
+});
 
-        session.open(runtime);
-        if (!isBlank(url)) {
-            session.loadUri(url);
-        }
+session.open(runtime);
+if (!isBlank(url)) {
+    session.loadUri(url);
+}
+
+// Attach the scroll reporter *after* open(): the session
+// controller does not exist before the session is opened.
+// If the extension is not ready yet, the listener registered in
+// the constructor will attach it later.
+attachScrollDelegateIfNeeded(session, tab);
 
         tabs.add(tab);
 
