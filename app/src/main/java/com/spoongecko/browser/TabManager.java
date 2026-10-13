@@ -13,6 +13,8 @@ import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebRequestError;
+import org.mozilla.geckoview.WebExtension;
+import org.mozilla.geckoview.WebResponse;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
