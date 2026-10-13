@@ -22,18 +22,6 @@ public class Tab {
     public boolean canGoBack = false;
     public boolean canGoForward = false;
 
-    /**
-     * Root-scroller position as reported by the bundled ScrollExtension
-     * content script (assets/scroll/scroll.js) via sendNativeMessage.
-     * Defaults to true so a brand-new or freshly-restored session is
-     * allowed to pull-to-refresh until the page reports otherwise.
-     *
-     * Volatile because the message arrives on a GeckoView thread and is
-     * read on the main thread from SwipeRefreshLayout's scroll callback.
-     */
-    public volatile boolean atTop = true;
-    public volatile int scrollY = 0;
-
     /** Small preview bitmap for the tab switcher; may be null. */
     public Bitmap thumbnail = null;
 
@@ -47,16 +35,6 @@ public class Tab {
             thumbnail.recycle();
         }
         thumbnail = null;
-    }
-
-    /**
-     * Called after a session is (re)attached to the GeckoView and after
-     * a successful page load. The content script will correct this if the
-     * page actually starts scrolled (back nav, hash, restored position).
-     */
-    public void resetScrollState() {
-        this.scrollY = 0;
-        this.atTop = true;
     }
 
     /** Display title with a safe fallback for empty / untitled tabs. */
