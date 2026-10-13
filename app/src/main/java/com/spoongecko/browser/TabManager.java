@@ -54,12 +54,20 @@ public class TabManager {
     private int currentIndex = -1;
 
     public TabManager(MainActivity activity, GeckoView geckoView,
-                      GeckoRuntime runtime, Listener listener) {
-        this.activity = activity;
-        this.geckoView = geckoView;
-        this.runtime = runtime;
-        this.listener = listener;
-    }
+                  GeckoRuntime runtime, Listener listener) {
+    this.activity = activity;
+    this.geckoView = geckoView;
+    this.runtime = runtime;
+    this.listener = listener;
+
+    // When the scroll reporter becomes ready (possibly after some
+    // tabs already exist), retro-attach it to every open session.
+    ExtensionManager.getInstance().setScrollExtensionListener(extension -> {
+        for (Tab tab : tabs) {
+            ScrollExtension.attach(tab.session, extension, tab);
+        }
+    });
+}
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
     public int getTabCount() { return tabs.size(); }
