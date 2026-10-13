@@ -12,7 +12,6 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.WebExtension;
 import org.mozilla.geckoview.WebRequestError;
 
 import java.util.ArrayDeque;
@@ -59,14 +58,6 @@ public class TabManager {
         this.geckoView = geckoView;
         this.runtime = runtime;
         this.listener = listener;
-
-        // When the scroll reporter becomes ready (possibly after some
-        // tabs already exist), retro-attach it to every open session.
-        ExtensionManager.getInstance().setScrollExtensionListener(extension -> {
-            for (Tab tab : tabs) {
-                ScrollExtension.attach(tab.session, extension, tab);
-            }
-        });
     }
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
@@ -77,11 +68,6 @@ public class TabManager {
     public Tab getCurrentTab() {
         if (currentIndex < 0 || currentIndex >= tabs.size()) return null;
         return tabs.get(currentIndex);
-    }
-
-    public boolean isCurrentTabAtTop() {
-        Tab t = getCurrentTab();
-        return t == null || t.atTop;
     }
 
     private static boolean isBlank(String url) {
@@ -103,21 +89,13 @@ public class TabManager {
             @Override public void onPageStart(GeckoSession s, String u) {
                 if (isBlank(u)) {
                     tab.url = "";
-                    tab.resetScrollState();
                     return;
                 }
                 tab.url = u;
-                tab.resetScrollState();
                 if (tab == getCurrentTab()) listener.onPageStart(tab, tab.url);
-
-                // Late-attach fallback: if ensureBuiltIn() had not completed
-                // when this tab was created, attach the scroll message
-                // delegate on the first real page start.
-                attachScrollDelegateIfNeeded(s, tab);
             }
 
             @Override public void onPageStop(GeckoSession s, boolean success) {
-                if (success) tab.resetScrollState();
                 if (tab == getCurrentTab()) listener.onPageStop(tab, success);
             }
 
@@ -138,14 +116,6 @@ public class TabManager {
         });
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
-
-        // NOTE: we deliberately do NOT install a GeckoSession.ScrollDelegate.
-        // Its onScrollChanged() reports the *visual viewport* scroll position,
-        // which is 0 on any page whose actual content scroller is a nested
-        // overflow:auto container. That would set tab.atTop = true while the
-        // user is mid-page and re-enable pull-to-refresh. The WebExtension
-        // content script (assets/scroll/scroll.js) is the only source of
-        // truth for atTop.
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public void onCanGoBack(GeckoSession s, boolean v) {
@@ -328,12 +298,6 @@ public class TabManager {
             session.loadUri(url);
         }
 
-        // Attach the scroll reporter *after* open(): the session
-        // controller does not exist before the session is opened.
-        // If the extension is not ready yet, the listener registered in
-        // the constructor will attach it later.
-        attachScrollDelegateIfNeeded(session, tab);
-
         tabs.add(tab);
 
         if (currentIndex < 0) {
@@ -344,12 +308,6 @@ public class TabManager {
 
         listener.onTabListChanged();
         return tab;
-    }
-
-    private void attachScrollDelegateIfNeeded(GeckoSession session, Tab tab) {
-        WebExtension scrollExt = ExtensionManager.getInstance().getScrollExtension();
-        if (scrollExt == null) return;
-        ScrollExtension.attach(session, scrollExt, tab);
     }
 
     // ------------------------------------------------------------------ switch
@@ -363,7 +321,6 @@ public class TabManager {
 
         currentIndex = index;
         Tab next = tabs.get(index);
-        next.resetScrollState();
         geckoView.setSession(next.session);
         listener.onCurrentTabChanged(next);
         listener.onCanGoForward(next, next.canGoForward);
