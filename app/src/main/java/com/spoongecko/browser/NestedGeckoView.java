@@ -5,13 +5,11 @@ import android.content.Context;
 import android.view.MotionEvent;
 import android.view.ViewParent;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.view.NestedScrollingChild;
 import androidx.core.view.NestedScrollingChildHelper;
 import androidx.core.view.ViewCompat;
 
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.PanZoomController;
 
@@ -19,10 +17,9 @@ import org.mozilla.geckoview.PanZoomController;
  * GeckoView that supports nested scrolls, for use inside a
  * SwipeRefreshLayout.
  *
- * This is a Java port of Mozilla's NestedGeckoView.kt from Android
- * Components. It intercepts touch events and asks GeckoView's
- * PanZoomController how each event will be handled. The resulting
- * InputResultDetail tells us:
+ * Java port of Mozilla's NestedGeckoView.kt. It intercepts touch events
+ * and asks GeckoView's PanZoomController how each event will be handled.
+ * The resulting InputResultDetail tells us:
  *
  *   - who handled the touch (browser, website, or nobody)
  *   - whether the content can scroll to the top
@@ -30,9 +27,9 @@ import org.mozilla.geckoview.PanZoomController;
  *
  * From that we decide whether the parent SwipeRefreshLayout is allowed
  * to intercept the touch for pull-to-refresh. This is reliable for any
- * scroll container (SPA shells, overflow:auto, sticky headers) because
- * it is synchronised with Gecko's own APZ, unlike polling
- * document.scrollingElement.scrollTop from a content script.
+ * scroll container because it is synchronised with Gecko's own APZ,
+ * unlike polling document.scrollingElement.scrollTop from a content
+ * script.
  */
 public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
 
@@ -104,10 +101,6 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
             }
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL: {
-                // Reset to the "allow pull-to-refresh" state. This is done
-                // here (not on the next ACTION_DOWN) because other features
-                // poll getInputResultDetail() between gestures and must not
-                // see stale data from the previous gesture.
                 mInputResultDetail = null;
                 stopNestedScroll();
                 final ViewParent parent = getParent();
@@ -129,9 +122,6 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
         final float eventY = event.getY();
 
         super.onTouchEventForDetailResult(event).accept(result -> {
-            // The APZ response is async. If the gesture has already moved
-            // past the point where the parent could still intercept, drop
-            // the result.
             if (!mGestureCanReachParent) {
                 return;
             }
@@ -147,9 +137,6 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
                 }
             } else if (eventAction == MotionEvent.ACTION_MOVE) {
                 if (mInitialDownY < eventY) {
-                    // Finger moved down (content scrolls up). Allow the
-                    // parent to intercept only if the website did not
-                    // consume the event.
                     if (!isTouchHandledByWebsite()) {
                         final ViewParent parent = getParent();
                         if (parent != null) {
@@ -157,9 +144,6 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
                         }
                     }
                 } else if (mInitialDownY > eventY) {
-                    // Finger moved up (content scrolls down). Once the
-                    // content has started scrolling down, the parent must
-                    // never intercept.
                     final ViewParent parent = getParent();
                     if (parent != null) {
                         parent.requestDisallowInterceptTouchEvent(true);
@@ -217,7 +201,14 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
                 && mInputResultDetail.handledResult() == PanZoomController.INPUT_RESULT_UNHANDLED;
     }
 
-    private boolean shouldPinOnScreen() {
+    /**
+     * Public because GeckoView declares it public. Returns false: this
+     * browser does not pin the toolbar on screen during scroll, and the
+     * return value is only consulted by GeckoView when deciding whether to
+     * compensate for a pinned toolbar.
+     */
+    @Override
+    public boolean shouldPinOnScreen() {
         return false;
     }
 
