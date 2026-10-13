@@ -12,23 +12,6 @@ import org.mozilla.geckoview.WebExtensionController;
 
 import java.util.Map;
 
-/**
- * Bundled built-in WebExtension that reports the page's root-scroller
- * position to the Java side.
- *
- * API note (GeckoView 157):
- *   - WebExtension is no longer constructed manually. Use
- *     WebExtensionController.ensureBuiltIn(String uri, String id) to
- *     register the bundled extension.
- *   - GeckoSession no longer has setMessageDelegate(MessageDelegate, String).
- *     Use session.getWebExtensionController()
- *         .setMessageDelegate(WebExtension, MessageDelegate, String).
- *   - WebExtension.MessageDelegate.onMessage takes three arguments:
- *       onMessage(String nativeApp, Object message, MessageSender sender)
- *     and returns GeckoResult<Object>.
- *   - The content script must be authorized to send native messages via
- *     the "nativeMessagingFromContent" permission in manifest.json.
- */
 public final class ScrollExtension {
 
     private static final String TAG = "ScrollExtension";
@@ -41,16 +24,10 @@ public final class ScrollExtension {
 
     private ScrollExtension() {}
 
-    /** Callback invoked once the scroll extension is available. */
     public interface InstallCallback {
         void onInstalled(@NonNull WebExtension extension);
     }
 
-    /**
-     * Registers the built-in and delivers the resolved WebExtension via
-     * {@code callback}. Safe to call at every startup: ensureBuiltIn only
-     * installs when the extension is missing or has a different version.
-     */
     public static void install(@NonNull WebExtensionController controller,
                                @NonNull InstallCallback callback) {
         controller.ensureBuiltIn(MANIFEST_URI, EXTENSION_ID)
@@ -63,18 +40,18 @@ public final class ScrollExtension {
     }
 
     /**
-     * Attaches a message delegate to {@code session} that updates
-     * {@code tab}'s scroll state from the content script's reports.
+     * Attaches a message delegate to {@code session}.
      *
-     * Must be called after {@code session.open(runtime)} — the session
-     * controller is not available before then.
-     *
-     * @param extension the WebExtension instance returned by ensureBuiltIn
+     * Must be called after {@code session.open(runtime)}.
+     * {@code session.getWebExtensionController()} returns a
+     * {@link WebExtension.SessionController}, which owns
+     * {@code setMessageDelegate(WebExtension, MessageDelegate, String)}.
      */
     public static void attach(@NonNull GeckoSession session,
                               @NonNull WebExtension extension,
                               @NonNull Tab tab) {
-        WebExtensionController controller = session.getWebExtensionController();
+        WebExtension.SessionController controller =
+                session.getWebExtensionController();
         if (controller == null) {
             Log.w(TAG, "session controller is null; cannot attach scroll delegate");
             return;
@@ -105,9 +82,6 @@ public final class ScrollExtension {
             if (scrollYObj instanceof Number) {
                 tab.scrollY = ((Number) scrollYObj).intValue();
             }
-            // Uncomment to debug on device via logcat:
-            // Log.d(TAG, "scroll report tab=" + tab.id
-            //         + " atTop=" + tab.atTop + " y=" + tab.scrollY);
             return null;
         }
     }
