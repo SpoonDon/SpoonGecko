@@ -54,20 +54,20 @@ public class TabManager {
     private int currentIndex = -1;
 
     public TabManager(MainActivity activity, GeckoView geckoView,
-                  GeckoRuntime runtime, Listener listener) {
-    this.activity = activity;
-    this.geckoView = geckoView;
-    this.runtime = runtime;
-    this.listener = listener;
+                      GeckoRuntime runtime, Listener listener) {
+        this.activity = activity;
+        this.geckoView = geckoView;
+        this.runtime = runtime;
+        this.listener = listener;
 
-    // When the scroll reporter becomes ready (possibly after some
-    // tabs already exist), retro-attach it to every open session.
-    ExtensionManager.getInstance().setScrollExtensionListener(extension -> {
-        for (Tab tab : tabs) {
-            ScrollExtension.attach(tab.session, extension, tab);
-        }
-    });
-}
+        // When the scroll reporter becomes ready (possibly after some
+        // tabs already exist), retro-attach it to every open session.
+        ExtensionManager.getInstance().setScrollExtensionListener(extension -> {
+            for (Tab tab : tabs) {
+                ScrollExtension.attach(tab.session, extension, tab);
+            }
+        });
+    }
 
     public List<Tab> getTabs() { return Collections.unmodifiableList(tabs); }
     public int getTabCount() { return tabs.size(); }
@@ -138,6 +138,14 @@ public class TabManager {
         });
 
         session.setPromptDelegate(new AuthPromptHandler(activity));
+
+        // NOTE: we deliberately do NOT install a GeckoSession.ScrollDelegate.
+        // Its onScrollChanged() reports the *visual viewport* scroll position,
+        // which is 0 on any page whose actual content scroller is a nested
+        // overflow:auto container. That would set tab.atTop = true while the
+        // user is mid-page and re-enable pull-to-refresh. The WebExtension
+        // content script (assets/scroll/scroll.js) is the only source of
+        // truth for atTop.
 
         session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public void onCanGoBack(GeckoSession s, boolean v) {
@@ -315,28 +323,16 @@ public class TabManager {
             applyUaForUrl(session, url);
         }
 
-        // Fallback: approximate scroll position from GeckoSession's own
-// ScrollDelegate. This is unreliable on SPA shells / overflow:auto
-// pages, which is why the WebExtension reporter exists, but it keeps
-// pull-to-refresh sane if the extension is not yet attached.
-session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
-    @Override
-    public void onScrollChanged(GeckoSession s, int scrollX, int scrollY) {
-        tab.scrollY = scrollY;
-        tab.atTop = scrollY <= 0;
-    }
-});
+        session.open(runtime);
+        if (!isBlank(url)) {
+            session.loadUri(url);
+        }
 
-session.open(runtime);
-if (!isBlank(url)) {
-    session.loadUri(url);
-}
-
-// Attach the scroll reporter *after* open(): the session
-// controller does not exist before the session is opened.
-// If the extension is not ready yet, the listener registered in
-// the constructor will attach it later.
-attachScrollDelegateIfNeeded(session, tab);
+        // Attach the scroll reporter *after* open(): the session
+        // controller does not exist before the session is opened.
+        // If the extension is not ready yet, the listener registered in
+        // the constructor will attach it later.
+        attachScrollDelegateIfNeeded(session, tab);
 
         tabs.add(tab);
 
@@ -350,11 +346,6 @@ attachScrollDelegateIfNeeded(session, tab);
         return tab;
     }
 
-    /**
-     * Attaches the scroll-reporter message delegate if the built-in
-     * extension has been resolved. Idempotent: GeckoView overwrites the
-     * previous delegate for the same nativeApp, so a second call is safe.
-     */
     private void attachScrollDelegateIfNeeded(GeckoSession session, Tab tab) {
         WebExtension scrollExt = ExtensionManager.getInstance().getScrollExtension();
         if (scrollExt == null) return;
