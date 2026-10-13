@@ -2,6 +2,7 @@ package com.spoongecko.browser;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.ViewParent;
 
@@ -47,6 +48,15 @@ public class NestedGeckoView extends GeckoView implements NestedScrollingChild {
         super(context);
         mChildHelper = new NestedScrollingChildHelper(this);
         setNestedScrollingEnabled(true);
+    }
+
+    /**
+     * Required by the layout inflater. GeckoView exposes no XML attributes,
+     * so the AttributeSet is intentionally ignored and we delegate to the
+     * single-argument constructor.
+     */
+    public NestedGeckoView(Context context, AttributeSet attrs) {
+        this(context);
     }
 
     @SuppressLint("ClickableViewAccessibility")
