@@ -29,6 +29,7 @@ import android.widget.Toast;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.WebExtension;
+import org.mozilla.geckoview.GeckoView;
 
 import java.util.List;
 
