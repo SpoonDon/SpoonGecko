@@ -122,20 +122,30 @@ public class KeepAliveService extends Service {
     }
 
     private Notification buildNotification() {
-        Intent open = new Intent(this, MainActivity.class);
-        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    Intent open = new Intent(this, MainActivity.class);
+    open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-        PendingIntent contentIntent = PendingIntent.getActivity(this, 0, open, piFlags);
+    int piFlags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
+    PendingIntent contentIntent = PendingIntent.getActivity(this, 0, open, piFlags);
 
-        return new Notification.Builder(this, GeckoApp.CHANNEL_KEEPALIVE)
-                .setSmallIcon(R.drawable.ic_stat_spoon)
-                .setContentTitle(getString(R.string.keepalive_title))
-                .setContentText(getString(R.string.keepalive_text))
-                .setContentIntent(contentIntent)
-                .setOngoing(true)
-                .setShowWhen(false)
-                .setCategory(Notification.CATEGORY_SERVICE)
-                .build();
+    // Android 14+ ignores setOngoing(true) for dismissibility. When the
+    // user swipes the notification, Android fires this deleteIntent; the
+    // receiver re-posts the notification so it appears persistent.
+    Intent dismissIntent = new Intent(this, NotificationDismissReceiver.class);
+    dismissIntent.setAction(
+            "com.spoongecko.browser.action.NOTIFICATION_DISMISSED");
+    PendingIntent deleteIntent = PendingIntent.getBroadcast(
+            this, 0, dismissIntent, piFlags);
+
+    return new Notification.Builder(this, GeckoApp.CHANNEL_KEEPALIVE)
+            .setSmallIcon(R.drawable.ic_stat_spoon)
+            .setContentTitle(getString(R.string.keepalive_title))
+            .setContentText(getString(R.string.keepalive_text))
+            .setContentIntent(contentIntent)
+            .setDeleteIntent(deleteIntent)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .build();
     }
 }
