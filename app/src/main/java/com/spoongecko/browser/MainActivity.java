@@ -2,6 +2,7 @@ package com.spoongecko.browser;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.util.Log;
 
 import org.mozilla.geckoview.GeckoRuntime;
@@ -14,10 +15,12 @@ public class MainActivity extends Activity {
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String EXTENSION_LOCATION = "resource://android/assets/messaging/";
     private static final String EXTENSION_ID = "messaging@example.com";
+    private static final String STATE_KEY = "spoongecko_session_state";
 
     private GeckoSession session;
     private GeckoView geckoView;
     private GeckoRuntime runtime;
+    private GeckoSession.SessionState latestState;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,19 +34,33 @@ public class MainActivity extends Activity {
 
         // 2. Create session
         session = new GeckoSession();
-        session.open(runtime);
 
-        // 3. Attach session to the view
+        // 3. Attach a ProgressDelegate to capture the latest SessionState
+        session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+            @Override
+            public void onSessionStateChange(GeckoSession session,
+                                             GeckoSession.SessionState sessionState) {
+                latestState = sessionState;
+            }
+        });
+
+        // 4. Open session and attach to the view
+        session.open(runtime);
         geckoView.setSession(session);
 
-        // 4. Restore state or load default page
+        // 5. Restore state or load default page
         if (savedInstanceState != null) {
-            session.restoreState(savedInstanceState);
+            Parcelable saved = savedInstanceState.getParcelable(STATE_KEY);
+            if (saved instanceof GeckoSession.SessionState) {
+                session.restoreState((GeckoSession.SessionState) saved);
+            } else {
+                session.loadUri(DEFAULT_URL);
+            }
         } else {
             session.loadUri(DEFAULT_URL);
         }
 
-        // 5. Register a built-in extension (optional)
+        // 6. Register a built‑in extension (optional)
         runtime.getWebExtensionController()
                 .ensureBuiltIn(EXTENSION_LOCATION, EXTENSION_ID)
                 .accept(extension -> Log.i(TAG, "Extension ready: " + extension.id),
@@ -53,8 +70,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (session != null) {
-            session.saveState(outState);
+        if (latestState != null) {
+            outState.putParcelable(STATE_KEY, latestState);
         }
     }
 
