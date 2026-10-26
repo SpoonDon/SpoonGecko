@@ -22,6 +22,9 @@ public class MainActivity extends Activity {
     private GeckoView geckoView;
     private GeckoSession.SessionState latestState;
 
+    // GeckoSession has no canGoBack(); we track it from NavigationDelegate.
+    private boolean canGoBack = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,10 +74,16 @@ public class MainActivity extends Activity {
         });
 
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+
+            // 🔑 Track back/forward availability.
+            @Override
+            public void onCanGoBack(GeckoSession session, boolean canGoBack) {
+                MainActivity.this.canGoBack = canGoBack;
+            }
+
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
                 // Single-tab model: open target="_blank" in the same session.
-                // Do not call loadUri — GeckoView loads the URI in the returned session.
                 return GeckoResult.fromValue(source);
             }
         });
@@ -96,9 +105,11 @@ public class MainActivity extends Activity {
         super.onPause();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
-        if (session != null && session.canGoBack()) {
+        // GeckoSession does not expose canGoBack(); use the delegate flag.
+        if (session != null && canGoBack) {
             session.goBack();
         } else {
             super.onBackPressed();
