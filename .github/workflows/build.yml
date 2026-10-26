@@ -48,26 +48,24 @@ jobs:
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Verify platform installation and create symlink
+      - name: Normalize Android 37 platform folder name
         run: |
-          echo "Checking installed platforms..."
-          ls -la "$ANDROID_SDK_ROOT/platforms" || true
+          PLATFORMS="$ANDROID_SDK_ROOT/platforms"
+          echo "Before:"
+          ls -la "$PLATFORMS" || true
 
-          mkdir -p "$ANDROID_SDK_ROOT/platforms"
-
-          if [ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ]; then
-            echo "android-37.0 found, creating symlink android-37 -> android-37.0"
-            ln -sfn "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37"
+          if [ -d "$PLATFORMS/android-37.0" ] && [ ! -d "$PLATFORMS/android-37" ]; then
+            echo "Renaming android-37.0 -> android-37"
+            mv "$PLATFORMS/android-37.0" "$PLATFORMS/android-37"
+          elif [ -d "$PLATFORMS/android-37.0" ] && [ -d "$PLATFORMS/android-37" ]; then
+            echo "Both exist; removing the .0 folder"
+            rm -rf "$PLATFORMS/android-37.0"
           else
-            echo "WARNING: android-37.0 not found. Attempting direct install with --sdk_root."
-            sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-37.0" || true
-            if [ -d "$ANDROID_SDK_ROOT/platforms/android-37.0" ]; then
-              ln -sfn "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37"
-            fi
+            echo "android-37.0 not found; nothing to rename"
           fi
 
-          echo "After symlink:"
-          ls -la "$ANDROID_SDK_ROOT/platforms"
+          echo "After:"
+          ls -la "$PLATFORMS"
 
       - name: Generate CI signing key
         run: |
