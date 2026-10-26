@@ -1,1 +1,19 @@
-// Top-level build file. No plugins are applied here.
+// Root build file.
+// Override AGP 9's built-in Kotlin compiler.
+// AGP 9.1.1 defaults to KGP 2.2.10, whose compiler cannot read Kotlin 2.4 metadata.
+// Putting a newer KGP on the root buildscript classpath makes built-in Kotlin
+// compile with 2.4.x instead. This matches the kotlin-stdlib 2.4.20 that
+// GeckoView brings in transitively.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20'
+    }
+}
+
+// No plugins are applied at the root level.
