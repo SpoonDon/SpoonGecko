@@ -1,0 +1,54 @@
+name: Build SpoonGecko APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate CI signing key
+        working-directory: .
+        run: |
+          mkdir -p ci-signing
+          keytool -genkeypair -v \
+            -keystore ci-signing/ci.keystore \
+            -alias spoongecko-ci \
+            -keyalg RSA -keysize 2048 -validity 36500 \
+            -storepass spoongecko \
+            -keypass spoongecko \
+            -dname "CN=SpoonGecko CI, OU=CI, O=SpoonGecko, L=Unknown, ST=Unknown, C=US"
+          echo "KEYSTORE_FILE=$(pwd)/ci-signing/ci.keystore" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=spoongecko" >> $GITHUB_ENV
+          echo "KEY_ALIAS=spoongecko-ci" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=spoongecko" >> $GITHUB_ENV
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          gradle assembleRelease --no-daemon --stacktrace \
+            -Pandroid.injected.signing.store.file=$KEYSTORE_FILE \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpoonGecko-arm64-v8a
+          path: app/build/outputs/apk/release/*.apk
