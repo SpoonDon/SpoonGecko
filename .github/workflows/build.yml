@@ -7,7 +7,6 @@ on:
       - 'v*'
   workflow_dispatch:
 
-# Cancel any older run for the same branch or tag as soon as a new one starts.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,7 +15,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed to create the GitHub Release
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,7 +46,11 @@ jobs:
       - name: Accept licenses and install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0"
+          sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: Fix android-37 folder name for AGP
+        run: |
+          ln -sf "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37" || true
 
       - name: Generate CI signing key
         run: |
@@ -68,7 +72,7 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            VERSION_NAME="${TAG#v}"   # v0.0.1 -> 0.0.1
+            VERSION_NAME="${TAG#v}"
           else
             VERSION_NAME="1.0.${GITHUB_RUN_NUMBER}"
           fi
