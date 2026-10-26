@@ -1,18 +1,1 @@
-// Root build file.
-// AGP 9.1.1 has built-in Kotlin support.
-// Overriding the KGP version changes the compiler used by built-in Kotlin.
-// KGP 2.4.10 is inside the AGP 9.1.x compatibility range;
-// KGP 2.4.20 caused a BaseVariant removal crash.
-
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-    dependencies {
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10'
-    }
-}
-
-// No plugins are applied at the root level.
+// Root build file. No plugins applied at this level.
