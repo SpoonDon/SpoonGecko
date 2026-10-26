@@ -36,10 +36,7 @@ android {
 }
 
 dependencies {
-    // Latest GeckoView ARM64-v8a artifact (July 2026).
     implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:158.0.20261007201254'
-
-    // Minimal AndroidX dependencies.
     implementation 'androidx.core:core-ktx:1.16.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
