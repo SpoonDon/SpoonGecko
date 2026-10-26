@@ -30,13 +30,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 9.3.1
+          gradle-version: 8.13
 
       - name: Install Android SDK command-line tools
         run: |
           mkdir -p "$HOME/android-sdk/cmdline-tools"
           cd "$HOME/android-sdk/cmdline-tools"
-          curl -sSL -o cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip"
+          curl -sSL -o cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           unzip -q cmdtools.zip
           mv cmdline-tools latest
           echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
@@ -46,26 +46,7 @@ jobs:
       - name: Accept licenses and install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
-
-      - name: Normalize Android 37 platform folder name
-        run: |
-          PLATFORMS="$ANDROID_SDK_ROOT/platforms"
-          echo "Before:"
-          ls -la "$PLATFORMS" || true
-
-          if [ -d "$PLATFORMS/android-37.0" ] && [ ! -d "$PLATFORMS/android-37" ]; then
-            echo "Renaming android-37.0 -> android-37"
-            mv "$PLATFORMS/android-37.0" "$PLATFORMS/android-37"
-          elif [ -d "$PLATFORMS/android-37.0" ] && [ -d "$PLATFORMS/android-37" ]; then
-            echo "Both exist; removing the .0 folder"
-            rm -rf "$PLATFORMS/android-37.0"
-          else
-            echo "android-37.0 not found; nothing to rename"
-          fi
-
-          echo "After:"
-          ls -la "$PLATFORMS"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Generate CI signing key
         run: |
