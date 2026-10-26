@@ -36,7 +36,7 @@ jobs:
         run: |
           mkdir -p "$HOME/android-sdk/cmdline-tools"
           cd "$HOME/android-sdk/cmdline-tools"
-          curl -sSL -o cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          curl -sSL -o cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip"
           unzip -q cmdtools.zip
           mv cmdline-tools latest
           echo "ANDROID_HOME=$HOME/android-sdk" >> "$GITHUB_ENV"
@@ -48,9 +48,14 @@ jobs:
           yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0"
 
-      - name: Fix android-37 folder name for AGP
+      - name: Create android-37 symlink for AGP
         run: |
-          ln -sf "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37" || true
+          mkdir -p "$ANDROID_SDK_ROOT/platforms"
+          ln -sfn "$ANDROID_SDK_ROOT/platforms/android-37.0" "$ANDROID_SDK_ROOT/platforms/android-37"
+
+      - name: Verify installed platforms
+        run: |
+          ls -la "$ANDROID_SDK_ROOT/platforms"
 
       - name: Generate CI signing key
         run: |
