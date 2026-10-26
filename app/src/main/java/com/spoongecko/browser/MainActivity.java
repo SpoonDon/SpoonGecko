@@ -1,25 +1,25 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
-import android.util.Log;
 
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
 public class MainActivity extends Activity {
 
-    private static final String TAG = "SpoonGecko";
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
-    private static final String EXTENSION_LOCATION = "resource://android/assets/messaging/";
-    private static final String EXTENSION_ID = "messaging@example.com";
     private static final String STATE_KEY = "spoongecko_session_state";
+
+    // Process-wide runtime, survives Activity recreation.
+    private static GeckoRuntime sRuntime;
 
     private GeckoSession session;
     private GeckoView geckoView;
-    private GeckoRuntime runtime;
     private GeckoSession.SessionState latestState;
 
     @Override
@@ -29,42 +29,80 @@ public class MainActivity extends Activity {
 
         geckoView = findViewById(R.id.geckoview);
 
-        // 1. Create runtime (shared engine)
-        runtime = GeckoRuntime.create(this);
+        // 1. Shared runtime (application context — no Activity leak).
+        if (sRuntime == null) {
+            sRuntime = GeckoRuntime.create(getApplicationContext());
+        }
 
-        // 2. Create session
+        // 2. Create session and wire delegates.
         session = new GeckoSession();
+        attachDelegates(session);
 
-        // 3. Attach a ProgressDelegate to capture the latest SessionState
-        session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+        // 3. Open session and attach to the view.
+        session.open(sRuntime);
+        geckoView.setSession(session);
+
+        // 4. Restore state (API 33+ uses type-safe overload).
+        GeckoSession.SessionState restored = null;
+        if (savedInstanceState != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                restored = savedInstanceState.getParcelable(STATE_KEY, GeckoSession.SessionState.class);
+            } else {
+                Parcelable p = savedInstanceState.getParcelable(STATE_KEY);
+                if (p instanceof GeckoSession.SessionState) {
+                    restored = (GeckoSession.SessionState) p;
+                }
+            }
+        }
+        if (restored != null) {
+            session.restoreState(restored);
+        } else {
+            session.loadUri(DEFAULT_URL);
+        }
+    }
+
+    private void attachDelegates(final GeckoSession s) {
+        s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
-            public void onSessionStateChange(GeckoSession session,
+            public void onSessionStateChange(GeckoSession sess,
                                              GeckoSession.SessionState sessionState) {
                 latestState = sessionState;
             }
         });
 
-        // 4. Open session and attach to the view
-        session.open(runtime);
-        geckoView.setSession(session);
-
-        // 5. Restore state or load default page
-        if (savedInstanceState != null) {
-            Parcelable saved = savedInstanceState.getParcelable(STATE_KEY);
-            if (saved instanceof GeckoSession.SessionState) {
-                session.restoreState((GeckoSession.SessionState) saved);
-            } else {
-                session.loadUri(DEFAULT_URL);
+        s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override
+            public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
+                // Single-tab model: open target="_blank" in the same session.
+                // Do not call loadUri — GeckoView loads the URI in the returned session.
+                return GeckoResult.fromValue(source);
             }
-        } else {
-            session.loadUri(DEFAULT_URL);
-        }
+        });
+    }
 
-        // 6. Register a built‑in extension (optional)
-        runtime.getWebExtensionController()
-                .ensureBuiltIn(EXTENSION_LOCATION, EXTENSION_ID)
-                .accept(extension -> Log.i(TAG, "Extension ready: " + extension.id),
-                        e -> Log.w(TAG, "Extension not installed (this is fine if no assets)"));
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (session != null) {
+            session.setActive(true);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (session != null) {
+            session.setActive(false);
+        }
+        super.onPause();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (session != null && session.canGoBack()) {
+            session.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override
@@ -77,8 +115,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (geckoView != null) {
+            geckoView.setSession(null);
+        }
         if (session != null) {
             session.close();
+            session = null;
         }
         super.onDestroy();
     }
