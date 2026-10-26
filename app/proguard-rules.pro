@@ -1,5 +1,6 @@
-# Keep all GeckoView classes because they are called from JNI,
-# reflection, and the built-in WebExtension runtime.
+# ------------------------------------------------------------
+# GeckoView
+# ------------------------------------------------------------
 -keep class org.mozilla.geckoview.** { *; }
 -keepclassmembers class org.mozilla.geckoview.** { *; }
 -keep interface org.mozilla.geckoview.** { *; }
@@ -9,3 +10,15 @@
 -keepclasseswithmembernames class * {
     native <methods>;
 }
+
+# ------------------------------------------------------------
+# SnakeYAML (transitive dependency of GeckoView)
+# ------------------------------------------------------------
+-keep class org.yaml.snakeyaml.** { *; }
+-dontwarn org.yaml.snakeyaml.**
+
+# ------------------------------------------------------------
+# java.beans (not available on Android, referenced by SnakeYAML)
+# ------------------------------------------------------------
+-keep class java.beans.** { *; }
+-dontwarn java.beans.**
