@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.spoongecko.browser'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.spoongecko.browser"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "0.0.1"   // <-- change this when you want a new release
+
+        ndk {
+            abiFilters 'arm64-v8a'   // ONLY arm64-v8a
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // GeckoView (arm64-v8a only)
+    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:126.0.20240506000000'
+}
