@@ -1,16 +1,14 @@
 package com.spoongecko.browser;
 
+import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
-
-import androidx.appcompat.app.AppCompatActivity;
 
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckoview.WebExtension;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
 
     private static final String TAG = "SpoonGecko";
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
@@ -45,8 +43,7 @@ public class MainActivity extends AppCompatActivity {
             session.loadUri(DEFAULT_URL);
         }
 
-        // 5. Register a built‑in extension (optional)
-        //    If you do not have an extension folder, this will silently fail.
+        // 5. Register a built-in extension (optional)
         runtime.getWebExtensionController()
                 .ensureBuiltIn(EXTENSION_LOCATION, EXTENSION_ID)
                 .accept(extension -> Log.i(TAG, "Extension ready: " + extension.id),
