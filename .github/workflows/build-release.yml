@@ -16,12 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
+    # Promote the keystore secret to an env variable so it can be
+    # safely evaluated inside a step-level `if:` condition.
+    env:
+      KEYSTORE_EXISTS: ${{ secrets.KEYSTORE_BASE64 != '' }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -30,7 +36,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: ${{ env.KEYSTORE_EXISTS }}
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/release.jks
 
