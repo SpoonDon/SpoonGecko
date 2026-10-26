@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.spoongecko.browser'
-    compileSdk 37
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.spoongecko.browser"
@@ -31,16 +31,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-}
 
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
 dependencies {
-    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:158.0.20261007201254'
+    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:156.0.20260921121718'
     implementation 'androidx.core:core-ktx:1.16.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
