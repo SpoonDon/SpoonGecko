@@ -3,11 +3,20 @@ name: Build SpoonGecko APK
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+# Cancel any older run for the same branch or tag as soon as a new one starts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create the GitHub Release
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,7 +30,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.13
+          gradle-version: 9.3.1
 
       - name: Install Android SDK command-line tools
         run: |
@@ -37,7 +46,7 @@ jobs:
       - name: Accept licenses and install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0"
 
       - name: Generate CI signing key
         run: |
@@ -54,16 +63,46 @@ jobs:
           echo "KEY_ALIAS=spoongecko-ci" >> "$GITHUB_ENV"
           echo "KEY_PASSWORD=spoongecko" >> "$GITHUB_ENV"
 
+      - name: Compute version name and code
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION_NAME="${TAG#v}"   # v0.0.1 -> 0.0.1
+          else
+            VERSION_NAME="1.0.${GITHUB_RUN_NUMBER}"
+          fi
+          VERSION_CODE="$GITHUB_RUN_NUMBER"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Build release APK
         run: |
           gradle assembleRelease --no-daemon --stacktrace \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE" \
             -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
+      - name: Rename APK with version
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/release/*.apk \
+             "out/SpoonGecko-${{ steps.version.outputs.name }}-arm64-v8a.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SpoonGecko-arm64-v8a
-          path: app/build/outputs/apk/release/*.apk
+          name: SpoonGecko-${{ steps.version.outputs.name }}
+          path: out/*.apk
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SpoonGecko ${{ github.ref_name }}
+          files: out/*.apk
