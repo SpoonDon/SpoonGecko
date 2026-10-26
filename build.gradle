@@ -1,16 +1,4 @@
-// Root build file.
-// AGP must be on the classpath BEFORE Kotlin so that BaseVariant is available
-// when the Kotlin plugin loads. This fixes the BaseVariant / BaseExtension crashes.
-// KGP 2.4.10 is the highest version still compatible with AGP 9.1.x.
-
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:9.1.1'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10'
-    }
+// Top-level build file
+plugins {
+    id 'com.android.application' version '8.3.0' apply false
 }
