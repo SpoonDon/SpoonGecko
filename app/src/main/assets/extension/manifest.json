@@ -1,0 +1,17 @@
+{
+  "manifest_version": 2,
+  "name": "SpoonGecko Helper",
+  "version": "1.0",
+  "description": "Minimal bundled extension for SpoonGecko.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "spoongecko@example.com"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
