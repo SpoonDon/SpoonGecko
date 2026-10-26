@@ -11,10 +11,10 @@ android {
         minSdk 24
         targetSdk 34
         versionCode 1
-        versionName "0.0.1"   // <-- change this when you want a new release
+        versionName "0.0.1"
 
         ndk {
-            abiFilters 'arm64-v8a'   // ONLY arm64-v8a
+            abiFilters 'arm64-v8a'
         }
     }
 
@@ -32,6 +32,5 @@ android {
 }
 
 dependencies {
-    // GeckoView (arm64-v8a only)
-    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:126.0.20240506000000'
+    implementation 'org.mozilla.geckoview:geckoview-arm64-v8a:139.0.20250603165925'
 }
