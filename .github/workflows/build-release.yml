@@ -17,8 +17,6 @@ jobs:
     permissions:
       contents: write
 
-    # Promote the keystore secret to an env variable so it can be
-    # safely evaluated inside a step-level `if:` condition.
     env:
       KEYSTORE_EXISTS: ${{ secrets.KEYSTORE_BASE64 != '' }}
 
@@ -34,6 +32,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Do NOT install 'tools' or any other package; AGP will fetch what it needs.
+          packages: ''
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Decode keystore
         if: ${{ env.KEYSTORE_EXISTS }}
