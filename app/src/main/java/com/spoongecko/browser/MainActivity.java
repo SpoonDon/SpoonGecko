@@ -1,44 +1,55 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.content.ComponentCallbacks2;
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.util.Log;
 
+import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements ComponentCallbacks2 {
 
+    private static final String TAG = "SpoonGecko";
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String STATE_KEY = "spoongecko_session_state";
 
+    // Process-wide runtime, survives Activity recreation (rotation, RAM kill).
     private static GeckoRuntime sRuntime;
+    
+    // A static fallback to persist session state if the OS kills the Activity 
+    // in the background but keeps the process alive.
+    private static GeckoSession.SessionState sPersistedState;
 
     private GeckoSession session;
     private GeckoView geckoView;
     private GeckoSession.SessionState latestState;
     private boolean canGoBack = false;
 
-    /**
-     * Build (or reuse) the process-wide GeckoRuntime.
-     *
-     * Telemetry is left unconfigured: GeckoView only sends telemetry if a
-     * telemetry delegate is explicitly supplied. Not calling telemetryDelegate()
-     * therefore keeps telemetry off.
-     *
-     * Crash reporting is also not enabled: no crashHandler(Class) is provided,
-     * so no crash Service is started.
-     */
     private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
         if (sRuntime == null) {
+            // Under-the-hood optimizations for the Gecko engine
             final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    // Do NOT call telemetryDelegate(...) — keeps telemetry disabled.
-                    // Do NOT call crashHandler(...) — keeps crash reporter disabled.
+                    // 1. Content Blocking (Strict ETP)
+                    .contentBlocking(new ContentBlocking.Settings.Builder()
+                            .etpLevel(ContentBlocking.EtpLevel.STRICT)
+                            .build())
+                    // 2. DNS-over-HTTPS (DoH) Fallback mode (Mode 2)
+                    .trrMode(2)
+                    // 3. Security: Enable Fission (site isolation)
+                    .fissionEnabled(true)
+                    // 4. Security: Disable remote debugging in production
+                    .remoteDebuggingEnabled(false)
+                    // 5. Telemetry is implicitly disabled because we don't provide a telemetryDelegate()
                     .build();
+
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
         }
         return sRuntime;
@@ -50,7 +61,6 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.geckoview);
-
         sRuntime = ensureRuntime(this);
 
         session = new GeckoSession();
@@ -69,6 +79,12 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        
+        // Fallback to the statically persisted state if the bundle is null
+        if (restored == null) {
+            restored = sPersistedState;
+        }
+
         if (restored != null) {
             session.restoreState(restored);
         } else {
@@ -77,14 +93,23 @@ public class MainActivity extends Activity {
     }
 
     private void attachDelegates(final GeckoSession s) {
+        // 6. Session State Tracking
         s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
-            public void onSessionStateChange(GeckoSession sess,
-                                             GeckoSession.SessionState sessionState) {
+            public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
                 latestState = sessionState;
             }
         });
 
+        // 7. Content Blocking Tracker Logging (Optional: remove if you don't want log spam)
+        s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
+            @Override
+            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
+                Log.d(TAG, "Blocked tracker: " + event.uri);
+            }
+        });
+
+        // 8. Navigation & Pop-up handling
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override
             public void onCanGoBack(GeckoSession session, boolean value) {
@@ -93,19 +118,50 @@ public class MainActivity extends Activity {
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
+                // Handles target="_blank" links by opening them in the same window
                 return GeckoResult.fromValue(source);
             }
         });
+        
+        // Note: GeckoView defaults to DENYING camera/mic/location if no PermissionDelegate is set.
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        Log.d(TAG, "onTrimMemory: " + level);
+        
+        // Save the session state whenever the system signals memory pressure.
+        if (latestState != null) {
+            sPersistedState = latestState;
+        }
+        
+        // GeckoView handles its own internal memory freeing. Do not call System.gc().
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        Log.w(TAG, "onLowMemory: System is running critically low on memory.");
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // We handle orientation changes here because of android:configChanges in the Manifest,
+        // preventing the Activity from restarting and the GeckoView from reloading.
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // Lifecycle Optimization: Wakes up the engine, resumes JS execution
         if (session != null) session.setActive(true);
     }
 
     @Override
     protected void onPause() {
+        // Lifecycle Optimization: Suspends the engine, pauses JS timers, saves battery
         if (session != null) session.setActive(false);
         super.onPause();
     }
@@ -123,11 +179,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (latestState != null) outState.putParcelable(STATE_KEY, latestState);
+        // Save to the bundle for normal activity restarts
+        if (latestState != null) {
+            outState.putParcelable(STATE_KEY, latestState);
+        }
     }
 
     @Override
     protected void onDestroy() {
+        // Memory cleanup
         if (geckoView != null) geckoView.setSession(null);
         if (session != null) {
             session.close();
