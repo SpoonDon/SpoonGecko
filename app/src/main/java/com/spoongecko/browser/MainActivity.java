@@ -29,23 +29,19 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private GeckoSession.SessionState latestState;
     private boolean canGoBack = false;
 
-    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
-        if (sRuntime == null) {
-            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    // Content Blocking (Strict ETP)
-                    .contentBlocking(new ContentBlocking.Settings.Builder()
-                            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
-                            .build())
-                    // DNS-over-HTTPS fallback (Mode 2 = TRR first, native DNS fallback)
-                    .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
-                    // Security: Fission (site isolation)
-                    .fissionEnabled(true)
-                    // Security: no remote debug socket in production
-                    .remoteDebuggingEnabled(false)
-                    .build();
-
-            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
-        }
+    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {    
+        if (sRuntime == null) {        
+            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()                
+                .contentBlocking(new ContentBlocking.Settings.Builder()                        
+                                 .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)                        
+                                 .build())
+                .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
+                .fissionEnabled(true)
+                .remoteDebuggingEnabled(false)
+                .build();
+        
+            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);    
+        }    
         return sRuntime;
     }
 
