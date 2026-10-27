@@ -42,8 +42,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                     .fissionEnabled(true)
                     // Security: no remote debug socket in production
                     .remoteDebuggingEnabled(false)
-                    // Under-the-hood optimization: cap renderer frame rate
-                    .setPreferredFrameRate(PREFERRED_FRAME_RATE)
                     .build();
 
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
