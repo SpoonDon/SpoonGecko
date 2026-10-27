@@ -50,18 +50,20 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private GeckoSession.SessionState latestState;
     private boolean canGoBack = false;
 
-    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
-        if (sRuntime == null) {
-            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    .contentBlocking(new ContentBlocking.Settings.Builder()
-                            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
-                            .build())
-                    .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
-                    .fissionEnabled(true)
-                    .remoteDebuggingEnabled(false)
-                    .build();
-            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
-        }
+    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {    
+        if (sRuntime == null) {        
+            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()                
+                .contentBlocking(new ContentBlocking.Settings.Builder()                        
+                                 .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)                        
+                                 .build())                
+                .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
+                .fissionEnabled(true)
+                .remoteDebuggingEnabled(false)
+                // NEW: Force GeckoView into dark mode by default
+                .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK)
+                .build();        
+            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);    
+        }    
         return sRuntime;
     }
 
