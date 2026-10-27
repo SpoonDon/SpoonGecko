@@ -21,11 +21,12 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String STATE_KEY = "spoongecko_session_state";
 
-    // Process-wide runtime, survives Activity recreation (rotation, RAM kill).
+    // Under-the-hood optimization #3:
+    // 30fps is more than enough for a browser shell. Halves the GPU work vs. 60fps
+    // and noticeably reduces battery drain during scrolling and video playback.
+    private static final int PREFERRED_FRAME_RATE = 30;
+
     private static GeckoRuntime sRuntime;
-    
-    // A static fallback to persist session state if the OS kills the Activity 
-    // in the background but keeps the process alive.
     private static GeckoSession.SessionState sPersistedState;
 
     private GeckoSession session;
@@ -35,19 +36,19 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
     private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
         if (sRuntime == null) {
-            // Under-the-hood optimizations for the Gecko engine
             final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    // 1. Content Blocking (Strict ETP)
-                    .contentBlocking(new ContentBlocking.Settings.Builder()        
-                                     .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)        
-                                     .build())
-                    // 2. DNS-over-HTTPS (DoH) Fallback mode (Mode 2)
+                    // Content Blocking (Strict ETP)
+                    .contentBlocking(new ContentBlocking.Settings.Builder()
+                            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
+                            .build())
+                    // DNS-over-HTTPS fallback (Mode 2 = TRR first, native DNS fallback)
                     .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
-                    // 3. Security: Enable Fission (site isolation)
+                    // Security: Fission (site isolation)
                     .fissionEnabled(true)
-                    // 4. Security: Disable remote debugging in production
+                    // Security: no remote debug socket in production
                     .remoteDebuggingEnabled(false)
-                    // 5. Telemetry is implicitly disabled because we don't provide a telemetryDelegate()
+                    // Under-the-hood optimization: cap renderer frame rate
+                    .preferredFrameRate(PREFERRED_FRAME_RATE)
                     .build();
 
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
@@ -68,6 +69,9 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         session.open(sRuntime);
         geckoView.setSession(session);
 
+        // Start with an explicit hint so the process is treated as foreground.
+        session.setPriorityHint(GeckoSession.PRIORITY_HINT_ACTIVE);
+
         GeckoSession.SessionState restored = null;
         if (savedInstanceState != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -79,8 +83,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 }
             }
         }
-        
-        // Fallback to the statically persisted state if the bundle is null
+
         if (restored == null) {
             restored = sPersistedState;
         }
@@ -93,7 +96,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     }
 
     private void attachDelegates(final GeckoSession s) {
-        // 6. Session State Tracking
         s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
             public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
@@ -101,7 +103,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             }
         });
 
-        // 7. Content Blocking Tracker Logging (Optional: remove if you don't want log spam)
         s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
             @Override
             public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
@@ -109,7 +110,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             }
         });
 
-        // 8. Navigation & Pop-up handling
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override
             public void onCanGoBack(GeckoSession session, boolean value) {
@@ -118,25 +118,18 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
-                // Handles target="_blank" links by opening them in the same window
                 return GeckoResult.fromValue(source);
             }
         });
-        
-        // Note: GeckoView defaults to DENYING camera/mic/location if no PermissionDelegate is set.
     }
 
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
         Log.d(TAG, "onTrimMemory: " + level);
-        
-        // Save the session state whenever the system signals memory pressure.
         if (latestState != null) {
             sPersistedState = latestState;
         }
-        
-        // GeckoView handles its own internal memory freeing. Do not call System.gc().
     }
 
     @Override
@@ -148,21 +141,29 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        // We handle orientation changes here because of android:configChanges in the Manifest,
-        // preventing the Activity from restarting and the GeckoView from reloading.
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Lifecycle Optimization: Wakes up the engine, resumes JS execution
-        if (session != null) session.setActive(true);
+        if (session != null) {
+            session.setActive(true);
+            // Foreground again — full priority.
+            session.setPriorityHint(GeckoSession.PRIORITY_HINT_ACTIVE);
+        }
     }
 
     @Override
     protected void onPause() {
-        // Lifecycle Optimization: Suspends the engine, pauses JS timers, saves battery
-        if (session != null) session.setActive(false);
+        if (session != null) {
+            session.setActive(false);
+            // Under-the-hood optimization #4:
+            // We're temporarily invisible (e.g., system dialog, settings screen).
+            // Instead of letting the OS background the process and potentially
+            // kill it (losing the tab), bump priority to HIGH so the active
+            // session's process is kept alive but throttled.
+            session.setPriorityHint(GeckoSession.PRIORITY_HINT_HIGH);
+        }
         super.onPause();
     }
 
@@ -179,7 +180,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        // Save to the bundle for normal activity restarts
         if (latestState != null) {
             outState.putParcelable(STATE_KEY, latestState);
         }
@@ -187,7 +187,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
     @Override
     protected void onDestroy() {
-        // Memory cleanup
         if (geckoView != null) geckoView.setSession(null);
         if (session != null) {
             session.close();
