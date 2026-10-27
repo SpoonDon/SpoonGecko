@@ -38,9 +38,9 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             // Under-the-hood optimizations for the Gecko engine
             final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                     // 1. Content Blocking (Strict ETP)
-                    .contentBlocking(new ContentBlocking.Settings.Builder()
-                            .etpLevel(ContentBlocking.EtpLevel.STRICT)
-                            .build())
+                    .contentBlocking(new ContentBlocking.Settings.Builder()        
+                                     .setEnhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)        
+                                     .build())
                     // 2. DNS-over-HTTPS (DoH) Fallback mode (Mode 2)
                     .trrMode(2)
                     // 3. Security: Enable Fission (site isolation)
