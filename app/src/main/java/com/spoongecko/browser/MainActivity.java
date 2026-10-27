@@ -5,8 +5,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
 
+import org.mozilla.geckoview.CrashHandler;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
+import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
@@ -15,15 +17,44 @@ public class MainActivity extends Activity {
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String STATE_KEY = "spoongecko_session_state";
 
-    // Process-wide runtime, survives Activity recreation.
+    /**
+     * No-op crash handler.
+     *
+     * GeckoView's default CrashHandler shows a UI and notifies the app so
+     * that it can upload crash reports. Supplying this handler short-circuits
+     * that path — no UI, no callback into the app, no upload hook.
+     */
+    private static final CrashHandler NO_OP_CRASH_HANDLER = new CrashHandler() {
+        @Override
+        public void onCrash(final CrashHandler.Crash crash) {
+            // Intentionally empty: suppress crash reporter.
+        }
+    };
+
     private static GeckoRuntime sRuntime;
 
     private GeckoSession session;
     private GeckoView geckoView;
     private GeckoSession.SessionState latestState;
-
-    // GeckoSession has no canGoBack(); we track it from NavigationDelegate.
     private boolean canGoBack = false;
+
+    /**
+     * Build (or reuse) the process-wide GeckoRuntime with telemetry and the
+     * crash reporter disabled.
+     *
+     * "telemetryEnabled(false)" turns off both Glean and legacy Firefox
+     * Telemetry in GeckoView 91+.
+     */
+    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
+        if (sRuntime == null) {
+            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
+                    .telemetryEnabled(false)             // disable Glean + Firefox Telemetry
+                    .crashHandler(NO_OP_CRASH_HANDLER)   // disable crash reporter
+                    .build();
+            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
+        }
+        return sRuntime;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,26 +63,20 @@ public class MainActivity extends Activity {
 
         geckoView = findViewById(R.id.geckoview);
 
-        // 1. Shared runtime (application context — no Activity leak).
-        if (sRuntime == null) {
-            sRuntime = GeckoRuntime.create(getApplicationContext());
-        }
+        // Shared, telemetry-free runtime.
+        sRuntime = ensureRuntime(this);
 
-        // 2. Create session and wire delegates.
         session = new GeckoSession();
         attachDelegates(session);
-
-        // 3. Open session and attach to the view.
         session.open(sRuntime);
         geckoView.setSession(session);
 
-        // 4. Restore state (API 33+ uses type-safe overload).
         GeckoSession.SessionState restored = null;
         if (savedInstanceState != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 restored = savedInstanceState.getParcelable(STATE_KEY, GeckoSession.SessionState.class);
             } else {
-                Parcelable p = savedInstanceState.getParcelable(STATE_KEY);
+                final Parcelable p = savedInstanceState.getParcelable(STATE_KEY);
                 if (p instanceof GeckoSession.SessionState) {
                     restored = (GeckoSession.SessionState) p;
                 }
@@ -74,16 +99,13 @@ public class MainActivity extends Activity {
         });
 
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-
-            // 🔑 Track back/forward availability.
             @Override
-            public void onCanGoBack(GeckoSession session, boolean canGoBack) {
-                MainActivity.this.canGoBack = canGoBack;
+            public void onCanGoBack(GeckoSession session, boolean value) {
+                MainActivity.this.canGoBack = value;
             }
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
-                // Single-tab model: open target="_blank" in the same session.
                 return GeckoResult.fromValue(source);
             }
         });
@@ -92,23 +114,18 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (session != null) {
-            session.setActive(true);
-        }
+        if (session != null) session.setActive(true);
     }
 
     @Override
     protected void onPause() {
-        if (session != null) {
-            session.setActive(false);
-        }
+        if (session != null) session.setActive(false);
         super.onPause();
     }
 
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
-        // GeckoSession does not expose canGoBack(); use the delegate flag.
         if (session != null && canGoBack) {
             session.goBack();
         } else {
@@ -119,16 +136,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (latestState != null) {
-            outState.putParcelable(STATE_KEY, latestState);
-        }
+        if (latestState != null) outState.putParcelable(STATE_KEY, latestState);
     }
 
     @Override
     protected void onDestroy() {
-        if (geckoView != null) {
-            geckoView.setSession(null);
-        }
+        if (geckoView != null) geckoView.setSession(null);
         if (session != null) {
             session.close();
             session = null;
