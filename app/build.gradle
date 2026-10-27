@@ -31,6 +31,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    androidResources {
+        noCompress += ['ja']
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -50,6 +54,5 @@ android {
 }
 
 dependencies {
-    // Use the stable GeckoView artifact
     implementation 'org.mozilla.geckoview:geckoview:158.0.20261007201254'
 }
