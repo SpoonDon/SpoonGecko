@@ -39,7 +39,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                     // 1. Content Blocking (Strict ETP)
                     .contentBlocking(new ContentBlocking.Settings.Builder()        
-                                     .setEnhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)        
+                                     .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)        
                                      .build())
                     // 2. DNS-over-HTTPS (DoH) Fallback mode (Mode 2)
                     .trrMode(2)
