@@ -6,13 +6,14 @@
     android:background="#FF000000"
     android:fitsSystemWindows="false">
 
-    <!-- Full-screen GeckoView sits behind every panel -->
+    <!-- FIXED: Force GeckoView to have a black background -->
     <org.mozilla.geckoview.GeckoView
         android:id="@+id/geckoview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:background="#FF000000" />
 
-    <!-- Top URL bar (always visible) -->
+    <!-- Top URL bar -->
     <LinearLayout
         android:id="@+id/url_bar_panel"
         android:layout_width="match_parent"
@@ -42,10 +43,9 @@
             android:singleLine="true"
             android:importantForAutofill="no"
             android:selectAllOnFocus="true" />
-
     </LinearLayout>
 
-    <!-- Home panel (SpoonGecko + search bar) -->
+    <!-- Home panel -->
     <LinearLayout
         android:id="@+id/home_panel"
         android:layout_width="match_parent"
@@ -86,7 +86,5 @@
             android:maxLines="1"
             android:singleLine="true"
             android:importantForAutofill="no" />
-
     </LinearLayout>
-
 </FrameLayout>
