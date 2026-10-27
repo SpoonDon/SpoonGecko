@@ -21,11 +21,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String STATE_KEY = "spoongecko_session_state";
 
-    // Under-the-hood optimization #3:
-    // 30fps is more than enough for a browser shell. Halves the GPU work vs. 60fps
-    // and noticeably reduces battery drain during scrolling and video playback.
-    private static final int PREFERRED_FRAME_RATE = 30;
-
     private static GeckoRuntime sRuntime;
     private static GeckoSession.SessionState sPersistedState;
 
