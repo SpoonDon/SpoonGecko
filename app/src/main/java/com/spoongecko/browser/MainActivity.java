@@ -42,7 +42,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                                      .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)        
                                      .build())
                     // 2. DNS-over-HTTPS (DoH) Fallback mode (Mode 2)
-                    .trrMode(2)
+                    .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
                     // 3. Security: Enable Fission (site isolation)
                     .fissionEnabled(true)
                     // 4. Security: Disable remote debugging in production
