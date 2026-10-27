@@ -5,7 +5,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
 
-import org.mozilla.geckoview.CrashHandler;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
@@ -17,20 +16,6 @@ public class MainActivity extends Activity {
     private static final String DEFAULT_URL = "https://lite.duckduckgo.com/lite/";
     private static final String STATE_KEY = "spoongecko_session_state";
 
-    /**
-     * No-op crash handler.
-     *
-     * GeckoView's default CrashHandler shows a UI and notifies the app so
-     * that it can upload crash reports. Supplying this handler short-circuits
-     * that path — no UI, no callback into the app, no upload hook.
-     */
-    private static final CrashHandler NO_OP_CRASH_HANDLER = new CrashHandler() {
-        @Override
-        public void onCrash(final CrashHandler.Crash crash) {
-            // Intentionally empty: suppress crash reporter.
-        }
-    };
-
     private static GeckoRuntime sRuntime;
 
     private GeckoSession session;
@@ -39,17 +24,20 @@ public class MainActivity extends Activity {
     private boolean canGoBack = false;
 
     /**
-     * Build (or reuse) the process-wide GeckoRuntime with telemetry and the
-     * crash reporter disabled.
+     * Build (or reuse) the process-wide GeckoRuntime.
      *
-     * "telemetryEnabled(false)" turns off both Glean and legacy Firefox
-     * Telemetry in GeckoView 91+.
+     * Telemetry is left unconfigured: GeckoView only sends telemetry if a
+     * telemetry delegate is explicitly supplied. Not calling telemetryDelegate()
+     * therefore keeps telemetry off.
+     *
+     * Crash reporting is also not enabled: no crashHandler(Class) is provided,
+     * so no crash Service is started.
      */
     private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
         if (sRuntime == null) {
             final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
-                    .telemetryEnabled(false)             // disable Glean + Firefox Telemetry
-                    .crashHandler(NO_OP_CRASH_HANDLER)   // disable crash reporter
+                    // Do NOT call telemetryDelegate(...) — keeps telemetry disabled.
+                    // Do NOT call crashHandler(...) — keeps crash reporter disabled.
                     .build();
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
         }
@@ -63,7 +51,6 @@ public class MainActivity extends Activity {
 
         geckoView = findViewById(R.id.geckoview);
 
-        // Shared, telemetry-free runtime.
         sRuntime = ensureRuntime(this);
 
         session = new GeckoSession();
