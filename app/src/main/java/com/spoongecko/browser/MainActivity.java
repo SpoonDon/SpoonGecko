@@ -48,7 +48,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                     // Security: no remote debug socket in production
                     .remoteDebuggingEnabled(false)
                     // Under-the-hood optimization: cap renderer frame rate
-                    .preferredFrameRate(PREFERRED_FRAME_RATE)
+                    .setPreferredFrameRate(PREFERRED_FRAME_RATE)
                     .build();
 
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
@@ -70,7 +70,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         geckoView.setSession(session);
 
         // Start with an explicit hint so the process is treated as foreground.
-        session.setPriorityHint(GeckoSession.PRIORITY_HINT_ACTIVE);
+        session.setPriorityHint(GeckoSession.PRIORITY_HIGH);
 
         GeckoSession.SessionState restored = null;
         if (savedInstanceState != null) {
@@ -149,7 +149,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         if (session != null) {
             session.setActive(true);
             // Foreground again — full priority.
-            session.setPriorityHint(GeckoSession.PRIORITY_HINT_ACTIVE);
+            session.setPriorityHint(GeckoSession.PRIORITY_HIGH);
         }
     }
 
@@ -162,7 +162,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             // Instead of letting the OS background the process and potentially
             // kill it (losing the tab), bump priority to HIGH so the active
             // session's process is kept alive but throttled.
-            session.setPriorityHint(GeckoSession.PRIORITY_HINT_HIGH);
+            session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
         }
         super.onPause();
     }
