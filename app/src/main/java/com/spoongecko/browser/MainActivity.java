@@ -88,6 +88,11 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         session = new GeckoSession();
         attachDelegates(session);
         session.open(sRuntime);
+        // FIX: Force the GeckoView compositor background to black to prevent the startup white flash
+        final CompositorController compositorController = session.getCompositorController();
+        if (compositorController != null) {    
+            compositorController.setClearColor(Color.BLACK);
+        }
         geckoView.setSession(session);
 
         setupInputHandlers();
