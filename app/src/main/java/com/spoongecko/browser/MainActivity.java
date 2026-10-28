@@ -405,6 +405,7 @@ public class MainActivity extends Activity
             String uri, int type, org.mozilla.geckoview.GeckoResult<Integer> result) {
         dialogs.showContentPermissionDialog(uri, type, result);
     }
+                
     @Override public void onPageStarted(Tab tab, String url) {
         if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
             suggestions.setText(url);
