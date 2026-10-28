@@ -1,7 +1,10 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
@@ -35,7 +38,9 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupWindow;
+import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -47,7 +52,6 @@ import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -77,10 +81,17 @@ public class MainActivity extends Activity
     
     private ListView suggestionsList;
     private View flashGuard;
-
     private HistoryStore history;
     private PopupWindow menuPopup;
+    private PopupWindow contextMenuPopup;
     private Dialog exitDialog;
+    private ProgressBar progressBar;
+
+    private static final int REQ_ANDROID_PERMS = 0x5151;
+    private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
+
+    private final Handler suggestionsDebounce = new Handler(Looper.getMainLooper());
+    private Runnable suggestionsQuery;
 
     private SuggestionsAdapter suggestionsAdapter;
     private boolean suppressSuggestionUpdates = false;
