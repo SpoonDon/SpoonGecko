@@ -73,28 +73,29 @@ public class MainActivity extends Activity
     private View homePanel;
     private EditText urlBar;
     private EditText searchBar;
-    
+
     private FrameLayout tabButton;
     private TextView tabCountText;
     private ImageButton forwardButton;
     private ImageButton menuButton;
-    
+
     private ListView suggestionsList;
     private View flashGuard;
+    private ProgressBar progressBar;
+
     private HistoryStore history;
     private PopupWindow menuPopup;
     private PopupWindow contextMenuPopup;
     private Dialog exitDialog;
-    private ProgressBar progressBar;
+
+    private SuggestionsAdapter suggestionsAdapter;
+    private boolean suppressSuggestionUpdates = false;
 
     private static final int REQ_ANDROID_PERMS = 0x5151;
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
 
     private final Handler suggestionsDebounce = new Handler(Looper.getMainLooper());
     private Runnable suggestionsQuery;
-
-    private SuggestionsAdapter suggestionsAdapter;
-    private boolean suppressSuggestionUpdates = false;
 
     private static synchronized GeckoRuntime ensureRuntime(Activity activity) {
         if (sRuntime == null) {
@@ -122,12 +123,12 @@ public class MainActivity extends Activity
         homePanel = findViewById(R.id.home_panel);
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
-        
+
         tabButton = findViewById(R.id.tab_button);
         tabCountText = findViewById(R.id.tab_count_text);
         forwardButton = findViewById(R.id.forward_button);
-        menuButton = findViewById(R.id.menu_button);        
-                
+        menuButton = findViewById(R.id.menu_button);
+
         suggestionsList = findViewById(R.id.suggestions_list);
         progressBar = findViewById(R.id.progress_bar);
 
@@ -154,7 +155,7 @@ public class MainActivity extends Activity
 
         restoreTabs(savedInstanceState);
         applyAmoledTheme();
-        
+
         updateTabCount();
     }
 
@@ -166,7 +167,7 @@ public class MainActivity extends Activity
             tab = tabManager.createTab();
         }
         attachDelegatesForNewTab(tab);
-        tab.session.open(sRuntime); // NOW it's safe to open
+        tab.session.open(sRuntime);
         tabManager.notifyTabsChanged();
         tabManager.notifyActiveChanged();
         return tab;
@@ -324,7 +325,7 @@ public class MainActivity extends Activity
             hideKeyboard();
             hideSuggestions();
         });
-            
+
         urlBar.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -335,13 +336,9 @@ public class MainActivity extends Activity
                 if (q.length() < 1) { hideSuggestions(); return; }
                 suggestionsQuery = () -> {
                     if (isFinishing() || isDestroyed()) return;
-                    // Drop stale results if the user kept typing.
                     if (!urlBar.getText().toString().trim().equals(q)) return;
                     List<HistoryStore.Entry> results = history.suggest(q, 8);
-                    if (results.isEmpty()) {
-                        hideSuggestions();
-                        return;
-                    }
+                    if (results.isEmpty()) { hideSuggestions(); return; }
                     suggestionsAdapter.setData(results);
                     suggestionsList.setVisibility(View.VISIBLE);
                 };
@@ -379,7 +376,7 @@ public class MainActivity extends Activity
         if (input.contains("://")) return true;
         return input.contains(".");
     }
-                
+
     private static String urlEncode(String s) {
         return android.net.Uri.encode(s);
     }
@@ -413,7 +410,7 @@ public class MainActivity extends Activity
     private void updateToolbarState() {
         Tab t = tabManager.getActiveTab();
         runOnUiThread(() -> {
-            boolean fwd  = t != null && t.canGoForward;
+            boolean fwd = t != null && t.canGoForward;
             forwardButton.setAlpha(fwd ? 1f : 0.35f);
             forwardButton.setEnabled(fwd);
             if (t != null && !urlBar.hasFocus() && !t.url.isEmpty()) {
@@ -469,7 +466,7 @@ public class MainActivity extends Activity
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(2);
         lp.bottomMargin = dp(2);
-        parent.addView(item, lp);                
+        parent.addView(item, lp);
         item.setOnClickListener(v -> {
             if (menuPopup != null && menuPopup.isShowing()) menuPopup.dismiss();
             if (contextMenuPopup != null && contextMenuPopup.isShowing()) contextMenuPopup.dismiss();
@@ -494,7 +491,7 @@ public class MainActivity extends Activity
     private void goHome() {
         Tab t = tabManager.getActiveTab();
         if (t == null) return;
-        t.url = ""; 
+        t.url = "";
         t.session.loadUri("about:blank");
         urlBar.setText("");
         showHomePanel(true);
@@ -517,7 +514,7 @@ public class MainActivity extends Activity
             b.setBackgroundResource(R.drawable.bg_glass_button);
         }
         tabButton.setBackgroundResource(R.drawable.bg_glass_button);
-        
+
         urlBar.setTextColor(0xFFFFFFFF);
         urlBar.setHintTextColor(0x99FFFFFF);
         urlBar.setBackgroundResource(R.drawable.bg_glass_input);
@@ -593,11 +590,11 @@ public class MainActivity extends Activity
         w.setDimAmount(0.7f);
         w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * widthFraction),
                 WindowManager.LayoutParams.WRAP_CONTENT);
-        
+
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);
         TextView title = d.findViewById(R.id.dlg_title);
-        
+
         if (title != null) title.setTextColor(0xFFFFFFFF);
         if (neg != null) {
             neg.setTextColor(0xFFFFFFFF);
@@ -699,10 +696,10 @@ public class MainActivity extends Activity
                     }
                     hideSuggestions();
                     showHomePanel(false);
-                    removeFlashGuard();    
+                    removeFlashGuard();
                 });
             }
-            
+
             @Override
             public void onPageStop(GeckoSession sess, boolean success) {
                 if (tab == tabManager.getActiveTab()) persistAllTabs();
@@ -719,7 +716,7 @@ public class MainActivity extends Activity
                 });
             }
         });
-            
+
         s.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
             public void onTitleChange(GeckoSession sess, String title) {
@@ -751,7 +748,7 @@ public class MainActivity extends Activity
                 runOnUiThread(() -> showContextMenu(x, y, element));
             }
         });
-            
+
         s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
             @Override
             public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {}
@@ -759,14 +756,29 @@ public class MainActivity extends Activity
 
         s.setPermissionDelegate(new GeckoSession.PermissionDelegate() {
             @Override
-            public void onContentPermissionRequest(GeckoSession session, String uri,
-                                                   int type, Callback callback) {
-                runOnUiThread(() -> showPermissionDialog(uri, type, callback));
+            public GeckoResult<Integer> onContentPermissionRequest(
+                    GeckoSession session,
+                    GeckoSession.PermissionDelegate.ContentPermission perm) {
+                if (perm == null) {
+                    return GeckoResult.fromValue(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                }
+                if (isFinishing() || isDestroyed()) {
+                    return GeckoResult.fromValue(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                }
+                final GeckoResult<Integer> result = new GeckoResult<>();
+                final String uri = perm.uri;
+                final int type = perm.permission;
+                runOnUiThread(() -> showPermissionDialog(uri, type, result));
+                return result;
             }
 
             @Override
-            public void onAndroidPermissionsRequest(GeckoSession session,
-                                                    String[] permissions, Callback callback) {
+            public void onAndroidPermissionsRequest(
+                    GeckoSession session,
+                    String[] permissions,
+                    GeckoSession.PermissionDelegate.Callback callback) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
                     callback.grant();
                     return;
@@ -788,12 +800,17 @@ public class MainActivity extends Activity
             }
 
             @Override
-            public void onMediaPermissionRequest(GeckoSession session, String uri,
-                                                 MediaSource[] video, MediaSource[] audio,
-                                                 MediaCallback callback) {
+            public void onMediaPermissionRequest(
+                    GeckoSession session,
+                    String uri,
+                    GeckoSession.PermissionDelegate.MediaSource[] video,
+                    GeckoSession.PermissionDelegate.MediaSource[] audio,
+                    GeckoSession.PermissionDelegate.MediaCallback callback) {
                 runOnUiThread(() -> {
-                    MediaSource v = (video != null && video.length > 0) ? video[0] : null;
-                    MediaSource a = (audio != null && audio.length > 0) ? audio[0] : null;
+                    GeckoSession.PermissionDelegate.MediaSource v =
+                            (video != null && video.length > 0) ? video[0] : null;
+                    GeckoSession.PermissionDelegate.MediaSource a =
+                            (audio != null && audio.length > 0) ? audio[0] : null;
                     callback.grant(v, a);
                 });
             }
@@ -809,13 +826,12 @@ public class MainActivity extends Activity
             public void onCanGoForward(GeckoSession sess, boolean value) {
                 tab.canGoForward = value;
                 if (tab == tabManager.getActiveTab()) updateToolbarState();
-            }            
+            }
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String finalUri) {
                 final String target = (finalUri == null || finalUri.isEmpty())
                         ? "about:blank" : finalUri;
                 final GeckoResult<GeckoSession> result = new GeckoResult<>();
-                // addNewTab() opens the session and touches views; must be on UI thread.
                 runOnUiThread(() -> {
                     Tab newTab = addNewTab(null);
                     newTab.session.loadUri(target);
@@ -824,10 +840,12 @@ public class MainActivity extends Activity
                 return result;
             }
         });
-    }                
+    }
+
     // ------------------------------------------------------------------
     // Fullscreen video
     // ------------------------------------------------------------------
+    @SuppressWarnings("deprecation")
     private void setFullScreenMode(boolean fullScreen) {
         View urlPanel = findViewById(R.id.url_bar_panel);
         if (fullScreen) {
@@ -853,9 +871,12 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     // Permission prompt
     // ------------------------------------------------------------------
-    private void showPermissionDialog(String uri, int type,
-                                      GeckoSession.PermissionDelegate.Callback callback) {
-        if (isFinishing() || isDestroyed()) { callback.reject(); return; }
+    private void showPermissionDialog(String uri, int type, GeckoResult<Integer> result) {
+        if (isFinishing() || isDestroyed()) {
+            result.complete(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+            return;
+        }
+
         String host;
         try { host = new java.net.URI(uri).getHost(); }
         catch (Exception e) { host = uri; }
@@ -873,8 +894,14 @@ public class MainActivity extends Activity
                 what = "play video"; break;
             case GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE:
                 what = "store data on this device"; break;
-            case GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM:
+            case GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS:
                 what = "use DRM"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_STORAGE_ACCESS:
+                what = "access first-party cookies"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_TRACKING:
+                what = "disable tracking protection"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_XR:
+                what = "use WebXR"; break;
             default:
                 what = "this permission"; break;
         }
@@ -882,9 +909,12 @@ public class MainActivity extends Activity
         new AlertDialog.Builder(this)
                 .setTitle("Permission request")
                 .setMessage(host + " wants to use " + what + ".")
-                .setPositiveButton("Allow", (d, w) -> callback.grant())
-                .setNegativeButton("Block", (d, w) -> callback.reject())
-                .setOnCancelListener(d -> callback.reject())
+                .setPositiveButton("Allow", (d, w) -> result.complete(
+                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW))
+                .setNegativeButton("Block", (d, w) -> result.complete(
+                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY))
+                .setOnCancelListener(d -> result.complete(
+                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY))
                 .show();
     }
 
@@ -950,7 +980,6 @@ public class MainActivity extends Activity
         contextMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         contextMenuPopup.setOutsideTouchable(true);
         contextMenuPopup.setElevation(dp(8));
-        // Anchor near the touch point; +dp(40) accounts for toolbar offset.
         contextMenuPopup.showAtLocation(geckoView,
                 Gravity.TOP | Gravity.START, x, y + dp(40));
     }
@@ -968,6 +997,7 @@ public class MainActivity extends Activity
         i.putExtra(Intent.EXTRA_TEXT, text);
         startActivity(Intent.createChooser(i, "Share"));
     }
+
     @Override
     public void onTabsChanged() {
         updateTabCount();
@@ -1018,6 +1048,10 @@ public class MainActivity extends Activity
         if (menuPopup != null) { menuPopup.dismiss(); menuPopup = null; }
         if (contextMenuPopup != null) { contextMenuPopup.dismiss(); contextMenuPopup = null; }
         if (exitDialog != null) { exitDialog.dismiss(); exitDialog = null; }
+        if (suggestionsQuery != null) {
+            suggestionsDebounce.removeCallbacks(suggestionsQuery);
+            suggestionsQuery = null;
+        }
         if (geckoView != null) geckoView.setSession(null);
         if (tabManager != null) tabManager.closeAll();
         if (history != null) history.close();
