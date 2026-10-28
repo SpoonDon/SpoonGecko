@@ -324,18 +324,28 @@ public class MainActivity extends Activity
             hideKeyboard();
             hideSuggestions();
         });
-
+            
         urlBar.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {
                 if (suppressSuggestionUpdates) return;
-                String q = s.toString().trim();
+                final String q = s.toString().trim();
+                if (suggestionsQuery != null) suggestionsDebounce.removeCallbacks(suggestionsQuery);
                 if (q.length() < 1) { hideSuggestions(); return; }
-                List<HistoryStore.Entry> results = history.suggest(q, 8);
-                if (results.isEmpty()) { hideSuggestions(); return; }
-                suggestionsAdapter.setData(results);
-                suggestionsList.setVisibility(View.VISIBLE);
+                suggestionsQuery = () -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    // Drop stale results if the user kept typing.
+                    if (!urlBar.getText().toString().trim().equals(q)) return;
+                    List<HistoryStore.Entry> results = history.suggest(q, 8);
+                    if (results.isEmpty()) {
+                        hideSuggestions();
+                        return;
+                    }
+                    suggestionsAdapter.setData(results);
+                    suggestionsList.setVisibility(View.VISIBLE);
+                };
+                suggestionsDebounce.postDelayed(suggestionsQuery, 150);
             }
         });
 
