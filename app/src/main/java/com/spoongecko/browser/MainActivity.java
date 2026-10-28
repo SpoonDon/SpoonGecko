@@ -689,12 +689,24 @@ public class MainActivity extends Activity
                     }
                     hideSuggestions();
                     showHomePanel(false);
+                    removeFlashGuard();    
                 });
             }
-
+            
             @Override
             public void onPageStop(GeckoSession sess, boolean success) {
                 if (tab == tabManager.getActiveTab()) persistAllTabs();
+            }
+
+            @Override
+            public void onProgress(GeckoSession sess, int pageLoadProgress) {
+                final int p = pageLoadProgress;
+                runOnUiThread(() -> {
+                    if (tab != tabManager.getActiveTab() || progressBar == null) return;
+                    progressBar.setProgress(p);
+                    if (p >= 100) progressBar.setVisibility(View.GONE);
+                    else progressBar.setVisibility(View.VISIBLE);
+                });
             }
         });
 
