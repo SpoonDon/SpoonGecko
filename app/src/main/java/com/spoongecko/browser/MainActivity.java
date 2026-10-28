@@ -824,8 +824,150 @@ public class MainActivity extends Activity
                 return result;
             }
         });
+    }                
+    // ------------------------------------------------------------------
+    // Fullscreen video
+    // ------------------------------------------------------------------
+    private void setFullScreenMode(boolean fullScreen) {
+        View urlPanel = findViewById(R.id.url_bar_panel);
+        if (fullScreen) {
+            urlPanel.setVisibility(View.GONE);
+            if (progressBar != null) progressBar.setVisibility(View.GONE);
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        } else {
+            urlPanel.setVisibility(View.VISIBLE);
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+        contentContainer.requestApplyInsets();
     }
 
+    // ------------------------------------------------------------------
+    // Permission prompt
+    // ------------------------------------------------------------------
+    private void showPermissionDialog(String uri, int type,
+                                      GeckoSession.PermissionDelegate.Callback callback) {
+        if (isFinishing() || isDestroyed()) { callback.reject(); return; }
+        String host;
+        try { host = new java.net.URI(uri).getHost(); }
+        catch (Exception e) { host = uri; }
+        if (host == null) host = uri;
+
+        String what;
+        switch (type) {
+            case GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION:
+                what = "your location"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION:
+                what = "notifications"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE:
+                what = "play audio"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE:
+                what = "play video"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE:
+                what = "store data on this device"; break;
+            case GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM:
+                what = "use DRM"; break;
+            default:
+                what = "this permission"; break;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Permission request")
+                .setMessage(host + " wants to use " + what + ".")
+                .setPositiveButton("Allow", (d, w) -> callback.grant())
+                .setNegativeButton("Block", (d, w) -> callback.reject())
+                .setOnCancelListener(d -> callback.reject())
+                .show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQ_ANDROID_PERMS || pendingPermissionCallback == null) return;
+        boolean granted = grantResults.length > 0;
+        for (int r : grantResults) {
+            if (r != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                granted = false;
+                break;
+            }
+        }
+        if (granted) pendingPermissionCallback.grant();
+        else pendingPermissionCallback.reject();
+        pendingPermissionCallback = null;
+    }
+
+    // ------------------------------------------------------------------
+    // Context menu (long-press on link / image / video)
+    // ------------------------------------------------------------------
+    private void showContextMenu(int x, int y,
+                                 GeckoSession.ContentDelegate.ContextElement element) {
+        if (element == null) return;
+        final String link = element.linkUri;
+        final String src = element.srcUri;
+        final boolean hasLink = link != null && !link.isEmpty();
+        final boolean hasSrc = src != null && !src.isEmpty()
+                && (element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_IMAGE
+                || element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_VIDEO
+                || element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_AUDIO);
+
+        if (!hasLink && !hasSrc) return;
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setBackgroundResource(R.drawable.bg_glass_dialog);
+        int pad = dp(6);
+        container.setPadding(pad, pad, pad, pad);
+
+        if (hasLink) {
+            addMenuItem(container, "Open link in new tab", false, () -> {
+                Tab t = addNewTab(null);
+                t.session.loadUri(link);
+            });
+            addMenuItem(container, "Copy link", false, () -> copyToClipboard(link));
+            addMenuItem(container, "Share link", false, () -> shareText(link));
+        }
+        if (hasSrc) {
+            addMenuItem(container, "Open in new tab", false, () -> {
+                Tab t = addNewTab(null);
+                t.session.loadUri(src);
+            });
+            addMenuItem(container, "Copy URL", false, () -> copyToClipboard(src));
+            addMenuItem(container, "Share URL", false, () -> shareText(src));
+        }
+
+        if (contextMenuPopup != null && contextMenuPopup.isShowing()) contextMenuPopup.dismiss();
+        contextMenuPopup = new PopupWindow(container,
+                dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        contextMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        contextMenuPopup.setOutsideTouchable(true);
+        contextMenuPopup.setElevation(dp(8));
+        // Anchor near the touch point; +dp(40) accounts for toolbar offset.
+        contextMenuPopup.showAtLocation(geckoView,
+                Gravity.TOP | Gravity.START, x, y + dp(40));
+    }
+
+    private void copyToClipboard(String text) {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm == null) return;
+        cm.setPrimaryClip(ClipData.newPlainText("URL", text));
+        Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
+    }
+
+    private void shareText(String text) {
+        Intent i = new Intent(Intent.ACTION_SEND);
+        i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_TEXT, text);
+        startActivity(Intent.createChooser(i, "Share"));
+    }
     @Override
     public void onTabsChanged() {
         updateTabCount();
