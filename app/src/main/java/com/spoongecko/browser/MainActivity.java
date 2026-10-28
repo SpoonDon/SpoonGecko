@@ -141,7 +141,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             int topInset;        
             // Get the exact height of the status bar / notch        
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {            
-                topInset = insets.getInsets(android.view.WindowInamsets.Type.statusBars()).top;        
+                topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;        
             } else {            
                 topInset = insets.getSystemWindowInsetTop();        
             }
