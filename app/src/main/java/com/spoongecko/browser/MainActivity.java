@@ -129,16 +129,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
 
-    private void applyStatusBarInset() {
-        final int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        final int statusBarHeight = resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
-        final View panel = findViewById(R.id.url_bar_panel);
-        panel.setPadding(
-                panel.getPaddingLeft(),
-                panel.getPaddingTop() + statusBarHeight,
-                panel.getPaddingRight(),
-                panel.getPaddingBottom());
-    }
 
     // ---------- input handlers ----------
 
