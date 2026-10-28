@@ -91,18 +91,18 @@ public final class PopupsController {
         container.setBackgroundResource(R.drawable.bg_glass_dialog);
         int pad = dp(6);
         container.setPadding(pad, pad, pad, pad);
-
+        
         if (hasLink) {
             addMenuItem(container, "Open link in new tab", false,
                     () -> host.onOpenInNewTab(link));
-            addMenuItem(container, "Copy link", false, () -> copyToClipboard(link));
-            addMenuItem(container, "Share link", false, () -> shareText(link));
+            addMenuItem(container, "Copy link", false, () -> copyToClipboard(activity, link));
+            addMenuItem(container, "Share link", false, () -> shareText(activity, link));
         }
         if (hasSrc) {
             addMenuItem(container, "Open in new tab", false,
                     () -> host.onOpenInNewTab(src));
-            addMenuItem(container, "Copy URL", false, () -> copyToClipboard(src));
-            addMenuItem(container, "Share URL", false, () -> shareText(src));
+            addMenuItem(container, "Copy URL", false, () -> copyToClipboard(activity, src));
+            addMenuItem(container, "Share URL", false, () -> shareText(activity, src));
         }
 
         if (contextMenuPopup != null && contextMenuPopup.isShowing()) contextMenuPopup.dismiss();
