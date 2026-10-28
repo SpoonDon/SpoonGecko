@@ -126,9 +126,10 @@ public class MainActivity extends Activity
         tabButton = findViewById(R.id.tab_button);
         tabCountText = findViewById(R.id.tab_count_text);
         forwardButton = findViewById(R.id.forward_button);
-        menuButton = findViewById(R.id.menu_button);
-        
+        menuButton = findViewById(R.id.menu_button);        
+                
         suggestionsList = findViewById(R.id.suggestions_list);
+        progressBar = findViewById(R.id.progress_bar);
 
         geckoView.setBackgroundColor(Color.BLACK);
         history = new HistoryStore(this);
