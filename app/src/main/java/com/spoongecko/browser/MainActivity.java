@@ -363,9 +363,11 @@ public class MainActivity extends Activity
         // Same synchronous call, same threads, same semantics as before.
         TabPersistence.save(this, tabManager);
     }
-
+                
     @Override public void removeFlashGuard() { screen.removeFlashGuard(); }
-    @Override public void setProgress(int progress) { screen.setProgress(progress); }
+    @Override public void setProgressBarVisible(boolean visible) {
+        screen.setProgressBarVisible(visible);
+    }
     @Override public void showContextMenu(int x, int y,
                                           GeckoSession.ContentDelegate.ContextElement element) {
         popups.showContextMenu(x, y, element);
