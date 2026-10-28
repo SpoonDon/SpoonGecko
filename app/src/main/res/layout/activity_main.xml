@@ -19,11 +19,12 @@
         android:paddingBottom="10dp"
         android:background="@drawable/bg_glass_url_bar">
 
-        <!-- Tab Manager Button (Left) -->
+        <!-- Tab Manager Button (Left) -->                
         <FrameLayout
             android:id="@+id/tab_button"
             android:layout_width="42dp"
             android:layout_height="40dp"
+            android:contentDescription="Tabs"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_glass_button"
             android:clickable="true"
@@ -131,11 +132,12 @@
         android:layout_width="match_parent"
         android:layout_height="22dp" />
 
-    <EditText
+    <EditText                
         android:id="@+id/search_bar"
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:hint="Search with Brave"
+        android:contentDescription="Search with Brave"
         android:textColorHint="#66FFFFFF"
         android:textColor="#FFFFFFFF"
         android:textSize="15sp"
