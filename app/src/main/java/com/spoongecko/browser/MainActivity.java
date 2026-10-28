@@ -14,7 +14,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcel;
-import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -32,6 +31,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupWindow;
@@ -60,7 +60,6 @@ public class MainActivity extends Activity
     private static final String PREF_TABS = "tabs_json";
 
     private static GeckoRuntime sRuntime;
-    // RAM persistence across config changes (activity recreate)
     private static List<GeckoSession.SessionState> sPersistedStates;
     private static int sPersistedActiveIndex = 0;
 
@@ -70,9 +69,12 @@ public class MainActivity extends Activity
     private View homePanel;
     private EditText urlBar;
     private EditText searchBar;
-    private TextView backButton;
-    private TextView forwardButton;
-    private TextView menuButton;
+    
+    private FrameLayout tabButton;
+    private TextView tabCountText;
+    private ImageButton forwardButton;
+    private ImageButton menuButton;
+    
     private ListView suggestionsList;
     private View flashGuard;
 
@@ -83,8 +85,6 @@ public class MainActivity extends Activity
     private SuggestionsAdapter suggestionsAdapter;
     private boolean suppressSuggestionUpdates = false;
 
-    // ---------- runtime ----------
-
     private static synchronized GeckoRuntime ensureRuntime(Activity activity) {
         if (sRuntime == null) {
             GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
@@ -94,7 +94,7 @@ public class MainActivity extends Activity
                     .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
                     .fissionEnabled(true)
                     .remoteDebuggingEnabled(false)
-                    .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK)
+                    // Issue #3: Removed .preferredColorScheme() so sites are not forced to dark mode
                     .build();
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
         }
@@ -112,15 +112,17 @@ public class MainActivity extends Activity
         homePanel = findViewById(R.id.home_panel);
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
-        backButton = findViewById(R.id.back_button);
+        
+        tabButton = findViewById(R.id.tab_button);
+        tabCountText = findViewById(R.id.tab_count_text);
         forwardButton = findViewById(R.id.forward_button);
         menuButton = findViewById(R.id.menu_button);
+        
         suggestionsList = findViewById(R.id.suggestions_list);
 
         geckoView.setBackgroundColor(Color.BLACK);
         history = new HistoryStore(this);
 
-        // flash guard for cold start
         flashGuard = new View(this);
         flashGuard.setBackgroundColor(Color.BLACK);
         flashGuard.setClickable(false);
@@ -140,17 +142,12 @@ public class MainActivity extends Activity
         tabManager.setListener(this);
 
         restoreTabs(savedInstanceState);
-
-        applyTheme();
-
+        applyAmoledTheme();
         updateToolbarState();
-        updateMenuButtonCount();
+        updateTabCount();
     }
 
-    // ---------- tabs restore ----------
-
     private void restoreTabs(Bundle savedInstanceState) {
-        // 1) RAM copy
         if (sPersistedStates != null && !sPersistedStates.isEmpty()) {
             for (GeckoSession.SessionState s : sPersistedStates) {
                 attachDelegatesForNewTab(tabManager.createTabWithState(s));
@@ -161,7 +158,6 @@ public class MainActivity extends Activity
             return;
         }
 
-        // 2) Disk copy
         List<GeckoSession.SessionState> diskStates = loadTabsFromPrefs();
         if (!diskStates.isEmpty()) {
             for (GeckoSession.SessionState s : diskStates) {
@@ -171,12 +167,9 @@ public class MainActivity extends Activity
             return;
         }
 
-        // 3) Fresh start
         attachDelegatesForNewTab(tabManager.createTab());
         showHomePanel(true);
     }
-
-    // ---------- back handling ----------
 
     @android.annotation.TargetApi(Build.VERSION_CODES.TIRAMISU)
     private void setupBackHandler() {
@@ -206,8 +199,6 @@ public class MainActivity extends Activity
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() { handleBackAction(); }
-
-    // ---------- insets ----------
 
     private void makeImmersive() {
         Window w = getWindow();
@@ -252,8 +243,6 @@ public class MainActivity extends Activity
         });
     }
 
-    // ---------- input ----------
-
     private void setupInputHandlers() {
         urlBar.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO
@@ -285,10 +274,7 @@ public class MainActivity extends Activity
             return false;
         });
 
-        backButton.setOnClickListener(v -> {
-            Tab t = tabManager.getActiveTab();
-            if (t != null && t.canGoBack) t.session.goBack();
-        });
+        tabButton.setOnClickListener(v -> showTabList());
         forwardButton.setOnClickListener(v -> {
             Tab t = tabManager.getActiveTab();
             if (t != null && t.canGoForward) t.session.goForward();
@@ -329,12 +315,7 @@ public class MainActivity extends Activity
         });
     }
 
-    private void showSuggestions() {
-        if (suggestionsAdapter.getCount() > 0) suggestionsList.setVisibility(View.VISIBLE);
-    }
     private void hideSuggestions() { suggestionsList.setVisibility(View.GONE); }
-
-    // ---------- navigation ----------
 
     private void navigateFromInput(String input) {
         if (looksLikeUrl(input)) {
@@ -391,48 +372,44 @@ public class MainActivity extends Activity
         return Math.round(px * getResources().getDisplayMetrics().density);
     }
 
-    // ---------- toolbar / menu ----------
-
     private void updateToolbarState() {
         Tab t = tabManager.getActiveTab();
         runOnUiThread(() -> {
-            boolean back = t != null && t.canGoBack;
             boolean fwd  = t != null && t.canGoForward;
-            backButton.setAlpha(back ? 1f : 0.35f);
-            backButton.setEnabled(back);
             forwardButton.setAlpha(fwd ? 1f : 0.35f);
             forwardButton.setEnabled(fwd);
             if (t != null && !urlBar.hasFocus() && !t.url.isEmpty()) {
+                suppressSuggestionUpdates = true;
                 urlBar.setText(t.url);
+                suppressSuggestionUpdates = false;
             }
         });
     }
 
-    private void updateMenuButtonCount() {
+    private void updateTabCount() {
         runOnUiThread(() -> {
             int n = tabManager.count();
-            menuButton.setText(n > 1 ? n + "" : "⋮");
-            menuButton.setTextSize(n > 1 ? 15 : 22);
+            tabCountText.setText(String.valueOf(n));
         });
     }
 
     private void showMenu() {
         if (menuPopup != null && menuPopup.isShowing()) { menuPopup.dismiss(); return; }
-        int theme = ThemeManager.get(this);
 
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setBackground(ThemeManager.glassDialog(this, theme));
+        container.setBackgroundColor(0xEE000000); // AMOLED Dialog Background
+        // Add simple border via padding and layout margin hack? No, rely on standard drawable
+        container.setBackgroundResource(R.drawable.bg_glass_dialog);
+        
         int pad = dp(6);
         container.setPadding(pad, pad, pad, pad);
 
         addMenuItem(container, "New tab", false, this::newTab);
-        addMenuItem(container, "Tabs (" + tabManager.count() + ")", false, this::showTabList);
-        addMenuItem(container, "History", false, this::showHistory);
         addMenuItem(container, "Reload", false, this::reloadActive);
         addMenuItem(container, "Home", false, this::goHome);
         addMenuItem(container, "Share", false, this::shareActive);
-        addMenuItem(container, "Theme: " + ThemeManager.name(theme), false, this::cycleTheme);
+        addMenuItem(container, "History", false, this::showHistory);
         addMenuItem(container, "Exit", true, this::showExitConfirmation);
 
         menuPopup = new PopupWindow(container, dp(190), ViewGroup.LayoutParams.WRAP_CONTENT, true);
@@ -443,14 +420,13 @@ public class MainActivity extends Activity
     }
 
     private void addMenuItem(LinearLayout parent, String label, boolean red, Runnable action) {
-        int theme = ThemeManager.get(this);
         TextView item = new TextView(this);
         item.setText(label);
         item.setTextSize(14);
         item.setGravity(Gravity.CENTER_VERTICAL);
         item.setPadding(dp(16), dp(12), dp(16), dp(12));
-        item.setTextColor(red ? 0xFFFF6666 : ThemeManager.textPrimary(theme));
-        item.setBackground(ThemeManager.glassButton(this, theme));
+        item.setTextColor(red ? 0xFFFF6666 : 0xFFFFFFFF);
+        item.setBackgroundResource(R.drawable.bg_glass_button);
         item.setClickable(true);
         item.setFocusable(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -464,15 +440,13 @@ public class MainActivity extends Activity
         });
     }
 
-    // ---------- actions ----------
-
     private void newTab() {
         Tab t = tabManager.createTab();
         attachDelegatesForNewTab(t);
         urlBar.setText("");
         showHomePanel(true);
         updateToolbarState();
-        updateMenuButtonCount();
+        updateTabCount();
         hideSuggestions();
     }
 
@@ -498,40 +472,26 @@ public class MainActivity extends Activity
         startActivity(Intent.createChooser(i, "Share"));
     }
 
-    private void cycleTheme() {
-        int next = ThemeManager.next(ThemeManager.get(this));
-        ThemeManager.set(this, next);
-        applyTheme();
-        updateToolbarState();
-    }
+    // Hardcoded AMOLED theme for everything
+    private void applyAmoledTheme() {
+        findViewById(R.id.root).setBackgroundColor(0xFF000000);
+        findViewById(R.id.url_bar_panel).setBackgroundResource(R.drawable.bg_glass_url_bar);
 
-    // ---------- theming ----------
-
-    private void applyTheme() {
-        int theme = ThemeManager.get(this);
-        findViewById(R.id.root).setBackgroundColor(ThemeManager.windowBg(theme));
-        findViewById(R.id.url_bar_panel).setBackground(ThemeManager.toolbarBg(this, theme));
-
-        int textPrimary = ThemeManager.textPrimary(theme);
-        int textMuted = ThemeManager.textMuted(theme);
-
-        for (TextView b : new TextView[]{backButton, forwardButton, menuButton}) {
-            b.setTextColor(textPrimary);
-            b.setBackground(ThemeManager.glassButton(this, theme));
+        for (ImageButton b : new ImageButton[]{forwardButton, menuButton}) {
+            b.setBackgroundResource(R.drawable.bg_glass_button);
         }
+        tabButton.setBackgroundResource(R.drawable.bg_glass_button);
+        
+        urlBar.setTextColor(0xFFFFFFFF);
+        urlBar.setHintTextColor(0x99FFFFFF);
+        urlBar.setBackgroundResource(R.drawable.bg_glass_input);
 
-        urlBar.setTextColor(textPrimary);
-        urlBar.setHintTextColor(textMuted);
-        urlBar.setBackground(ThemeManager.glassInput(this, theme));
+        searchBar.setTextColor(0xFFFFFFFF);
+        searchBar.setHintTextColor(0x99FFFFFF);
+        searchBar.setBackgroundResource(R.drawable.bg_glass_search);
 
-        searchBar.setTextColor(textPrimary);
-        searchBar.setHintTextColor(textMuted);
-        searchBar.setBackground(ThemeManager.glassSearch(this, theme));
-
-        suggestionsList.setBackgroundColor(theme == ThemeManager.LIGHT ? 0xEEFFFFFF : 0xEE000000);
+        suggestionsList.setBackgroundColor(0xEE000000);
     }
-
-    // ---------- tab list ----------
 
     private void showTabList() {
         Dialog d = new Dialog(this);
@@ -559,8 +519,6 @@ public class MainActivity extends Activity
 
         d.show();
     }
-
-    // ---------- history ----------
 
     private void showHistory() {
         Dialog d = new Dialog(this);
@@ -597,27 +555,25 @@ public class MainActivity extends Activity
     private void styleDialog(Dialog d, float widthFraction) {
         Window w = d.getWindow();
         if (w == null) return;
-        int theme = ThemeManager.get(this);
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         w.setDimAmount(0.7f);
         w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * widthFraction),
                 WindowManager.LayoutParams.WRAP_CONTENT);
-        // theme the two action buttons
+        
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);
         TextView title = d.findViewById(R.id.dlg_title);
-        if (title != null) title.setTextColor(ThemeManager.textPrimary(theme));
+        
+        if (title != null) title.setTextColor(0xFFFFFFFF);
         if (neg != null) {
-            neg.setTextColor(ThemeManager.textPrimary(theme));
-            neg.setBackground(ThemeManager.glassButton(this, theme));
+            neg.setTextColor(0xFFFFFFFF);
+            neg.setBackgroundResource(R.drawable.bg_glass_button);
         }
         if (pos != null) {
-            pos.setTextColor(ThemeManager.textPrimary(theme));
-            pos.setBackground(ThemeManager.glassButton(this, theme));
+            pos.setTextColor(0xFFFFFFFF);
+            pos.setBackgroundResource(R.drawable.bg_glass_button);
         }
     }
-
-    // ---------- exit ----------
 
     private void showExitConfirmation() {
         if (exitDialog != null && exitDialog.isShowing()) return;
@@ -641,8 +597,6 @@ public class MainActivity extends Activity
         });
         exitDialog.show();
     }
-
-    // ---------- persistence ----------
 
     private void persistAllTabs() {
         try {
@@ -689,8 +643,6 @@ public class MainActivity extends Activity
         return out;
     }
 
-    // ---------- delegates per tab ----------
-
     private void attachDelegatesForNewTab(final Tab tab) {
         final GeckoSession s = tab.session;
 
@@ -707,8 +659,12 @@ public class MainActivity extends Activity
                 tab.url = url;
                 runOnUiThread(() -> {
                     if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
+                        suppressSuggestionUpdates = true;
                         urlBar.setText(url);
+                        suppressSuggestionUpdates = false;
                     }
+                    // FIX for Issue #1: Hide suggestions immediately on page start
+                    hideSuggestions();
                     showHomePanel(false);
                 });
             }
@@ -723,7 +679,6 @@ public class MainActivity extends Activity
             @Override
             public void onTitleChange(GeckoSession sess, String title) {
                 tab.title = title == null ? "" : title;
-                if (tab == tabManager.getActiveTab()) updateMenuButtonCount();
             }
 
             @Override
@@ -735,9 +690,7 @@ public class MainActivity extends Activity
 
         s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
             @Override
-            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
-                Log.d(TAG, "Blocked: " + event.uri);
-            }
+            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {}
         });
 
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
@@ -758,12 +711,9 @@ public class MainActivity extends Activity
         });
     }
 
-    // ---------- TabManager.Listener ----------
-
     @Override
     public void onTabsChanged() {
-        updateMenuButtonCount();
-        // if all tabs closed, spawn a fresh one
+        updateTabCount();
         if (tabManager.count() == 0) {
             Tab t = tabManager.createTab();
             attachDelegatesForNewTab(t);
@@ -780,10 +730,8 @@ public class MainActivity extends Activity
         hideSuggestions();
         showHomePanel(tab.url.isEmpty());
         updateToolbarState();
-        updateMenuButtonCount();
+        updateTabCount();
     }
-
-    // ---------- lifecycle ----------
 
     @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabs(); }
     @Override public void onLowMemory() { super.onLowMemory(); persistAllTabs(); }
@@ -805,7 +753,6 @@ public class MainActivity extends Activity
 
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
-        // capture all session states for RAM persistence across recreation
         List<GeckoSession.SessionState> states = new ArrayList<>();
         for (Tab t : tabManager.getTabs()) if (t.latestState != null) states.add(t.latestState);
         sPersistedStates = states;
@@ -823,10 +770,6 @@ public class MainActivity extends Activity
 
     @Override public void onConfigurationChanged(Configuration newConfig) { super.onConfigurationChanged(newConfig); }
 
-    // ============================================================
-    //  Adapters
-    // ============================================================
-
     private class SuggestionsAdapter extends BaseAdapter {
         private List<HistoryStore.Entry> data = new ArrayList<>();
         void setData(List<HistoryStore.Entry> d) { data = d; notifyDataSetChanged(); }
@@ -836,13 +779,12 @@ public class MainActivity extends Activity
         @Override public View getView(int pos, View cv, ViewGroup parent) {
             View v = cv != null ? cv : getLayoutInflater().inflate(R.layout.row_item, parent, false);
             HistoryStore.Entry e = data.get(pos);
-            int theme = ThemeManager.get(MainActivity.this);
             TextView title = v.findViewById(R.id.row_title);
             TextView sub = v.findViewById(R.id.row_subtitle);
             title.setText(e.title == null || e.title.isEmpty() ? e.url : e.title);
-            title.setTextColor(ThemeManager.textPrimary(theme));
+            title.setTextColor(0xFFFFFFFF);
             sub.setText(e.url);
-            sub.setTextColor(ThemeManager.textMuted(theme));
+            sub.setTextColor(0x99FFFFFF);
             return v;
         }
     }
@@ -854,18 +796,17 @@ public class MainActivity extends Activity
         @Override public View getView(int pos, View cv, ViewGroup parent) {
             View v = cv != null ? cv : getLayoutInflater().inflate(R.layout.row_tab, parent, false);
             Tab t = getItem(pos);
-            int theme = ThemeManager.get(MainActivity.this);
             TextView title = v.findViewById(R.id.row_title);
             TextView sub = v.findViewById(R.id.row_subtitle);
             TextView close = v.findViewById(R.id.row_close);
             title.setText(t.title == null || t.title.isEmpty() ? "New tab" : t.title);
-            title.setTextColor(ThemeManager.textPrimary(theme));
+            title.setTextColor(0xFFFFFFFF);
             sub.setText(t.url.isEmpty() ? "(empty)" : t.url);
-            sub.setTextColor(ThemeManager.textMuted(theme));
-            close.setTextColor(ThemeManager.textMuted(theme));
+            sub.setTextColor(0x99FFFFFF);
+            close.setTextColor(0x99FFFFFF);
             close.setOnClickListener(x -> { tabManager.closeTab(pos); notifyDataSetChanged(); });
             if (pos == tabManager.getActiveIndex()) {
-                v.setBackgroundColor(theme == ThemeManager.LIGHT ? 0x14000000 : 0x22FFFFFF);
+                v.setBackgroundColor(0x22FFFFFF);
             } else {
                 v.setBackgroundColor(Color.TRANSPARENT);
             }
@@ -883,13 +824,12 @@ public class MainActivity extends Activity
         @Override public View getView(int pos, View cv, ViewGroup parent) {
             View v = cv != null ? cv : getLayoutInflater().inflate(R.layout.row_item, parent, false);
             HistoryStore.Entry e = data.get(pos);
-            int theme = ThemeManager.get(MainActivity.this);
             TextView title = v.findViewById(R.id.row_title);
             TextView sub = v.findViewById(R.id.row_subtitle);
             title.setText(e.title == null || e.title.isEmpty() ? e.url : e.title);
-            title.setTextColor(ThemeManager.textPrimary(theme));
+            title.setTextColor(0xFFFFFFFF);
             sub.setText(e.url);
-            sub.setTextColor(ThemeManager.textMuted(theme));
+            sub.setTextColor(0x99FFFFFF);
             return v;
         }
     }
