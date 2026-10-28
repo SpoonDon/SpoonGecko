@@ -23,7 +23,7 @@ public class HistoryStore extends SQLiteOpenHelper {
     public HistoryStore(Context ctx) {
         super(ctx.getApplicationContext(), DB_NAME, null, DB_VERSION);
     }
-
+    
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE " + TABLE + " (" +
@@ -31,12 +31,21 @@ public class HistoryStore extends SQLiteOpenHelper {
                 "title TEXT, " +
                 "visit_count INTEGER DEFAULT 1, " +
                 "last_visited INTEGER DEFAULT 0)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_last ON "
+                + TABLE + "(last_visited DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_count ON "
+                + TABLE + "(visit_count DESC)");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldV, int newV) {
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE);
-        onCreate(db);
+        // v1 -> v2: add performance indexes. Never drop user data.
+        if (oldV < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_last ON "
+                    + TABLE + "(last_visited DESC)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_count ON "
+                    + TABLE + "(visit_count DESC)");
+        }
     }
 
     public void recordVisit(String url, String title) {
