@@ -88,6 +88,15 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         setupWindowInsets();
 
         sRuntime = ensureRuntime(this);
+        private View flashGuard;
+        final FrameLayout contentContainer = findViewById(R.id.content_container);
+        flashGuard = new View(this);
+        flashGuard.setBackgroundColor(Color.BLACK);
+        flashGuard.setClickable(false);
+        flashGuard.setFocusable(false);
+        contentContainer.addView(flashGuard, 1, new FrameLayout.LayoutParams(        
+            FrameLayout.LayoutParams.MATCH_PARENT,        
+            FrameLayout.LayoutParams.MATCH_PARENT));
 
         session = new GeckoSession();
         attachDelegates(session);
