@@ -15,12 +15,14 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 
 import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.ContentBlocking;
@@ -48,24 +50,24 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private View homePanel;
     private EditText urlBar;
     private EditText searchBar;
+    private View flashGuard;
 
     private GeckoSession.SessionState latestState;
     private boolean canGoBack = false;
 
-    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {    
-        if (sRuntime == null) {        
-            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()                
-                .contentBlocking(new ContentBlocking.Settings.Builder()                        
-                                 .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)                        
-                                 .build())                
+    private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
+        if (sRuntime == null) {
+            final GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
+                .contentBlocking(new ContentBlocking.Settings.Builder()
+                                 .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
+                                 .build())
                 .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
                 .fissionEnabled(true)
                 .remoteDebuggingEnabled(false)
-                // NEW: Force GeckoView into dark mode by default
                 .preferredColorScheme(GeckoRuntimeSettings.COLOR_SCHEME_DARK)
-                .build();        
-            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);    
-        }    
+                .build();
+            sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
+        }
         return sRuntime;
     }
 
@@ -82,35 +84,36 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
 
-        // FIX: Ensure Android views are painted black underneath the Gecko surface
+        // Ensure Android view layer is black under and around GeckoView
         geckoView.setBackgroundColor(Color.BLACK);
         homePanel.setBackgroundColor(Color.TRANSPARENT);
-        setupWindowInsets();
 
-        sRuntime = ensureRuntime(this);
-        private View flashGuard;
+        // Flash guard: covers GeckoView until first paint to hide the SurfaceView's
+        // initial white buffer. Non-clickable so touches still reach GeckoView.
         final FrameLayout contentContainer = findViewById(R.id.content_container);
         flashGuard = new View(this);
         flashGuard.setBackgroundColor(Color.BLACK);
         flashGuard.setClickable(false);
         flashGuard.setFocusable(false);
-        contentContainer.addView(flashGuard, 1, new FrameLayout.LayoutParams(        
-            FrameLayout.LayoutParams.MATCH_PARENT,        
-            FrameLayout.LayoutParams.MATCH_PARENT));
+        // Insert at index 1: above GeckoView, below home_panel
+        contentContainer.addView(flashGuard, 1, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        setupWindowInsets();
+
+        sRuntime = ensureRuntime(this);
 
         session = new GeckoSession();
         attachDelegates(session);
         session.open(sRuntime);
         geckoView.setSession(session);
 
-        // FIX: Ensure the compositor draws black instead of white during startup
+        // Force compositor to draw black during startup
         final CompositorController compositorController = session.getCompositorController();
-        if (compositorController != null) {    
+        if (compositorController != null) {
             compositorController.setClearColor(Color.BLACK);
         }
-
-        // FIX: Force the Android view layer to black as well
-        geckoView.setBackgroundColor(Color.BLACK);
 
         setupInputHandlers();
 
@@ -138,32 +141,33 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
-    
+
+    @SuppressWarnings("deprecation")
     private void setupWindowInsets() {
-    final View root = findViewById(R.id.root);
-    final View urlPanel = findViewById(R.id.url_bar_panel);
-    final int originalPaddingTop = urlPanel.getPaddingTop();
+        final View root = findViewById(R.id.root);
+        final View urlPanel = findViewById(R.id.url_bar_panel);
+        final int originalPaddingTop = urlPanel.getPaddingTop();
 
-    root.setOnApplyWindowInsetsListener((v, insets) -> {
-        int topInset;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;
-        } else {
-            topInset = insets.getSystemWindowInsetTop();
-        }
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int topInset;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                topInset = insets.getInsets(WindowInsets.Type.statusBars()).top;
+            } else {
+                topInset = insets.getSystemWindowInsetTop();
+            }
 
-        // Only push the URL bar below the status bar. GeckoView is already
-        // sized to the remaining space by the LinearLayout — no padding needed.
-        urlPanel.setPadding(
-                urlPanel.getPaddingLeft(),
-                originalPaddingTop + topInset,
-                urlPanel.getPaddingRight(),
-                urlPanel.getPaddingBottom()
-        );
+            // Push the URL bar below the status bar. GeckoView is sized by the
+            // LinearLayout to fill the remaining space — no padding needed on it.
+            urlPanel.setPadding(
+                    urlPanel.getPaddingLeft(),
+                    originalPaddingTop + topInset,
+                    urlPanel.getPaddingRight(),
+                    urlPanel.getPaddingBottom()
+            );
 
-        return insets;
-    });
-}    
+            return insets;
+        });
+    }
 
     // ---------- input handlers ----------
 
@@ -244,10 +248,19 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         }
     }
 
+    private void removeFlashGuard() {
+        runOnUiThread(() -> {
+            if (flashGuard != null && flashGuard.getParent() != null) {
+                ((ViewGroup) flashGuard.getParent()).removeView(flashGuard);
+                flashGuard = null;
+            }
+        });
+    }
+
     // ---------- persistence ----------
 
     private GeckoSession.SessionState loadPersistedState(Bundle savedInstanceState) {
-        // 1) Instance state (rarely needed — manifest handles config changes)
+        // 1) Instance state
         if (savedInstanceState != null) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -262,9 +275,9 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 Log.w(TAG, "read instance state failed", e);
             }
         }
-        // 2) RAM (process still alive, activity recreated)
+        // 2) RAM
         if (sPersistedState != null) return sPersistedState;
-        // 3) Disk (process death — survives full app kill)
+        // 3) Disk
         return loadFromPrefs();
     }
 
@@ -336,6 +349,12 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                     }
                     showHomePanel(false);
                 });
+            }
+
+            @Override
+            public void onFirstContentfulPaint(GeckoSession sess) {
+                // First real content has been drawn — safe to remove the black guard
+                removeFlashGuard();
             }
         });
 
