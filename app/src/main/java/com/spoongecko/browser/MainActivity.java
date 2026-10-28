@@ -94,7 +94,6 @@ public class MainActivity extends Activity
                     .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
                     .fissionEnabled(true)
                     .remoteDebuggingEnabled(false)
-                    // Issue #3: Removed .preferredColorScheme() so sites are not forced to dark mode
                     .build();
             sRuntime = GeckoRuntime.create(activity.getApplicationContext(), settings);
         }
@@ -182,6 +181,7 @@ public class MainActivity extends Activity
         }
     }
 
+    // ISSUE #4 FIX: Go to Home Page before showing Exit Confirmation
     private void handleBackAction() {
         if (suggestionsList.getVisibility() == View.VISIBLE) {
             hideSuggestions();
@@ -193,6 +193,12 @@ public class MainActivity extends Activity
             t.session.goBack();
             return;
         }
+        // If there is no history, but we are on a webpage, go back to Home.
+        if (homePanel.getVisibility() != View.VISIBLE) {
+            goHome();
+            return;
+        }
+        // If we are already on Home, trigger exit confirmation.
         showExitConfirmation();
     }
 
@@ -302,7 +308,7 @@ public class MainActivity extends Activity
             @Override public void afterTextChanged(Editable s) {
                 if (suppressSuggestionUpdates) return;
                 String q = s.toString().trim();
-                if (q.length() < 2) { hideSuggestions(); return; }
+                if (q.length() < 1) { hideSuggestions(); return; }
                 List<HistoryStore.Entry> results = history.suggest(q, 8);
                 if (results.isEmpty()) { hideSuggestions(); return; }
                 suggestionsAdapter.setData(results);
@@ -386,10 +392,12 @@ public class MainActivity extends Activity
         });
     }
 
+    // ISSUE #1 FIX: Show [current/total] format
     private void updateTabCount() {
         runOnUiThread(() -> {
-            int n = tabManager.count();
-            tabCountText.setText(String.valueOf(n));
+            int total = tabManager.count();
+            int current = tabManager.getActiveIndex() + 1;
+            tabCountText.setText(current + "/" + total);
         });
     }
 
@@ -398,10 +406,7 @@ public class MainActivity extends Activity
 
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setBackgroundColor(0xEE000000); // AMOLED Dialog Background
-        // Add simple border via padding and layout margin hack? No, rely on standard drawable
         container.setBackgroundResource(R.drawable.bg_glass_dialog);
-        
         int pad = dp(6);
         container.setPadding(pad, pad, pad, pad);
 
@@ -458,6 +463,7 @@ public class MainActivity extends Activity
     private void goHome() {
         Tab t = tabManager.getActiveTab();
         if (t == null) return;
+        t.url = ""; 
         t.session.loadUri("about:blank");
         urlBar.setText("");
         showHomePanel(true);
@@ -472,7 +478,6 @@ public class MainActivity extends Activity
         startActivity(Intent.createChooser(i, "Share"));
     }
 
-    // Hardcoded AMOLED theme for everything
     private void applyAmoledTheme() {
         findViewById(R.id.root).setBackgroundColor(0xFF000000);
         findViewById(R.id.url_bar_panel).setBackgroundResource(R.drawable.bg_glass_url_bar);
@@ -489,8 +494,6 @@ public class MainActivity extends Activity
         searchBar.setTextColor(0xFFFFFFFF);
         searchBar.setHintTextColor(0x99FFFFFF);
         searchBar.setBackgroundResource(R.drawable.bg_glass_search);
-
-        suggestionsList.setBackgroundColor(0xEE000000);
     }
 
     private void showTabList() {
@@ -663,7 +666,6 @@ public class MainActivity extends Activity
                         urlBar.setText(url);
                         suppressSuggestionUpdates = false;
                     }
-                    // FIX for Issue #1: Hide suggestions immediately on page start
                     hideSuggestions();
                     showHomePanel(false);
                 });
@@ -784,7 +786,7 @@ public class MainActivity extends Activity
             title.setText(e.title == null || e.title.isEmpty() ? e.url : e.title);
             title.setTextColor(0xFFFFFFFF);
             sub.setText(e.url);
-            sub.setTextColor(0x99FFFFFF);
+            sub.setTextColor(0x66FFFFFF);
             return v;
         }
     }
@@ -829,7 +831,7 @@ public class MainActivity extends Activity
             title.setText(e.title == null || e.title.isEmpty() ? e.url : e.title);
             title.setTextColor(0xFFFFFFFF);
             sub.setText(e.url);
-            sub.setTextColor(0x99FFFFFF);
+            sub.setTextColor(0x66FFFFFF);
             return v;
         }
     }
