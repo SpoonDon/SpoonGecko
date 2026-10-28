@@ -142,14 +142,28 @@ public class MainActivity extends Activity
 
         restoreTabs(savedInstanceState);
         applyAmoledTheme();
-        updateToolbarState();
+        
         updateTabCount();
+    }
+
+    private Tab addNewTab(GeckoSession.SessionState state) {
+        Tab tab;
+        if (state != null) {
+            tab = tabManager.createTabWithState(state);
+        } else {
+            tab = tabManager.createTab();
+        }
+        attachDelegatesForNewTab(tab);
+        tab.session.open(sRuntime); // NOW it's safe to open
+        tabManager.notifyTabsChanged();
+        tabManager.notifyActiveChanged();
+        return tab;
     }
 
     private void restoreTabs(Bundle savedInstanceState) {
         if (sPersistedStates != null && !sPersistedStates.isEmpty()) {
             for (GeckoSession.SessionState s : sPersistedStates) {
-                attachDelegatesForNewTab(tabManager.createTabWithState(s));
+                addNewTab(s);
             }
             tabManager.switchTo(Math.min(sPersistedActiveIndex, tabManager.count() - 1));
             sPersistedStates = null;
@@ -160,13 +174,13 @@ public class MainActivity extends Activity
         List<GeckoSession.SessionState> diskStates = loadTabsFromPrefs();
         if (!diskStates.isEmpty()) {
             for (GeckoSession.SessionState s : diskStates) {
-                attachDelegatesForNewTab(tabManager.createTabWithState(s));
+                addNewTab(s);
             }
             showHomePanel(false);
             return;
         }
 
-        attachDelegatesForNewTab(tabManager.createTab());
+        addNewTab(null);
         showHomePanel(true);
     }
 
@@ -181,7 +195,6 @@ public class MainActivity extends Activity
         }
     }
 
-    // ISSUE #4 FIX: Go to Home Page before showing Exit Confirmation
     private void handleBackAction() {
         if (suggestionsList.getVisibility() == View.VISIBLE) {
             hideSuggestions();
@@ -193,12 +206,10 @@ public class MainActivity extends Activity
             t.session.goBack();
             return;
         }
-        // If there is no history, but we are on a webpage, go back to Home.
         if (homePanel.getVisibility() != View.VISIBLE) {
             goHome();
             return;
         }
-        // If we are already on Home, trigger exit confirmation.
         showExitConfirmation();
     }
 
@@ -392,7 +403,6 @@ public class MainActivity extends Activity
         });
     }
 
-    // ISSUE #1 FIX: Show [current/total] format
     private void updateTabCount() {
         runOnUiThread(() -> {
             int total = tabManager.count();
@@ -446,8 +456,7 @@ public class MainActivity extends Activity
     }
 
     private void newTab() {
-        Tab t = tabManager.createTab();
-        attachDelegatesForNewTab(t);
+        addNewTab(null);
         urlBar.setText("");
         showHomePanel(true);
         updateToolbarState();
@@ -717,9 +726,7 @@ public class MainActivity extends Activity
     public void onTabsChanged() {
         updateTabCount();
         if (tabManager.count() == 0) {
-            Tab t = tabManager.createTab();
-            attachDelegatesForNewTab(t);
-            showHomePanel(true);
+            newTab();
         }
     }
 
