@@ -738,10 +738,19 @@ public class MainActivity extends Activity
             public void onCanGoForward(GeckoSession sess, boolean value) {
                 tab.canGoForward = value;
                 if (tab == tabManager.getActiveTab()) updateToolbarState();
-            }
+            }            
             @Override
-            public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
-                return GeckoResult.fromValue(source);
+            public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String finalUri) {
+                final String target = (finalUri == null || finalUri.isEmpty())
+                        ? "about:blank" : finalUri;
+                final GeckoResult<GeckoSession> result = new GeckoResult<>();
+                // addNewTab() opens the session and touches views; must be on UI thread.
+                runOnUiThread(() -> {
+                    Tab newTab = addNewTab(null);
+                    newTab.session.loadUri(target);
+                    result.complete(newTab.session);
+                });
+                return result;
             }
         });
     }
