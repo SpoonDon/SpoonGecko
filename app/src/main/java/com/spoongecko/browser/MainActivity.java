@@ -84,7 +84,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         // FIX: Ensure Android views are painted black underneath the Gecko surface
         geckoView.setBackgroundColor(Color.BLACK);
         homePanel.setBackgroundColor(Color.TRANSPARENT);
-        applyStatusBarInset();
+        setupWindowInsets();
 
         sRuntime = ensureRuntime(this);
 
