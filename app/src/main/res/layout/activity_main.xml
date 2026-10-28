@@ -77,10 +77,23 @@
             android:layout_height="40dp"
             android:src="@drawable/ic_menu"
             android:background="@drawable/bg_glass_button"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="6dp"                        
             android:scaleType="centerInside"
             android:contentDescription="Menu" />
     </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        style="@android:style/Widget.Material.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginTop="-1dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#66FFFFFF"
+        android:progressBackgroundTint="#22000000"
+        android:visibility="gone" />
 
     <FrameLayout
         android:id="@+id/content_container"
