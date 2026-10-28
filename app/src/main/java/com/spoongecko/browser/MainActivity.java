@@ -129,43 +129,32 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
     }
+    
+    private void setupWindowInsets() {
+    final View root = findViewById(R.id.root);
+    final View urlPanel = findViewById(R.id.url_bar_panel);
+    final int originalPaddingTop = urlPanel.getPaddingTop();
 
-    private void setupWindowInsets() {    
-        final View root = findViewById(R.id.root);    
-        final View urlPanel = findViewById(R.id.url_bar_panel);
-    
-        // Capture the original XML padding for the URL bar    
-        final int originalPaddingTop = urlPanel.getPaddingTop();
-    
-        root.setOnApplyWindowInsetsListener((v, insets) -> {        
-            int topInset;        
-            // Get the exact height of the status bar / notch        
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {            
-                topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;        
-            } else {            
-                topInset = insets.getSystemWindowInsetTop();        
-            }
-        
-            // ✅ Make an effectively-final copy for capture inside the lambda below        
-            final int finalTopInset = topInset;
-        
-            // 1. Pad the URL bar panel so its content clears the status bar        
-            urlPanel.setPadding(
+    root.setOnApplyWindowInsetsListener((v, insets) -> {
+        int topInset;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;
+        } else {
+            topInset = insets.getSystemWindowInsetTop();
+        }
+
+        // Only push the URL bar below the status bar. GeckoView is already
+        // sized to the remaining space by the LinearLayout — no padding needed.
+        urlPanel.setPadding(
                 urlPanel.getPaddingLeft(),
-                originalPaddingTop + finalTopInset,
+                originalPaddingTop + topInset,
                 urlPanel.getPaddingRight(),
-                urlPanel.getPaddingBottom()        
-            );
-        
-            // 2. Pad the GeckoView so the web page renders BELOW the URL bar entirely        
-            urlPanel.post(() -> {            
-                int urlBarHeight = urlPanel.getHeight();            
-                geckoView.setPadding(0, finalTopInset + urlBarHeight, 0, 0);        
-            });
-        
-            return insets;    
-        });
-    }    
+                urlPanel.getPaddingBottom()
+        );
+
+        return insets;
+    });
+}    
 
     // ---------- input handlers ----------
 
