@@ -1,18 +1,23 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,6 +28,9 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.PopupWindow;
+import android.widget.TextView;
 
 import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.ContentBlocking;
@@ -43,17 +51,24 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private static final String PREF_SESSION = "session_state_b64";
 
     private static GeckoRuntime sRuntime;
-    private static GeckoSession.SessionState sPersistedState;
+    private static GeckoSession.SessionState sPersistedState; // RAM persistence
 
     private GeckoSession session;
     private GeckoView geckoView;
     private View homePanel;
     private EditText urlBar;
     private EditText searchBar;
+    private TextView forwardButton;
+    private TextView menuButton;
     private View flashGuard;
+    private FrameLayout contentContainer;
+
+    private PopupWindow menuPopup;
+    private Dialog exitDialog;
 
     private GeckoSession.SessionState latestState;
     private boolean canGoBack = false;
+    private boolean canGoForward = false;
 
     private static synchronized GeckoRuntime ensureRuntime(final Activity activity) {
         if (sRuntime == null) {
@@ -76,29 +91,30 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         super.onCreate(savedInstanceState);
 
         makeImmersive();
-
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.geckoview);
         homePanel = findViewById(R.id.home_panel);
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
+        forwardButton = findViewById(R.id.forward_button);
+        menuButton = findViewById(R.id.menu_button);
+        contentContainer = findViewById(R.id.content_container);
 
-        // Ensure Android view layer is black under and around GeckoView
         geckoView.setBackgroundColor(Color.BLACK);
         homePanel.setBackgroundColor(Color.TRANSPARENT);
 
-        // Flash guard: covers GeckoView until first paint to hide the SurfaceView's
-        // initial white buffer. Non-clickable so touches still reach GeckoView.
-        final FrameLayout contentContainer = findViewById(R.id.content_container);
+        // Flash guard hides GeckoView's initial white surface buffer.
         flashGuard = new View(this);
         flashGuard.setBackgroundColor(Color.BLACK);
         flashGuard.setClickable(false);
         flashGuard.setFocusable(false);
-        // Insert at index 1: above GeckoView, below home_panel
         contentContainer.addView(flashGuard, 1, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
+
+        // Safety net: remove guard after 1.5s even if no paint ever fires.
+        new Handler(Looper.getMainLooper()).postDelayed(this::removeFlashGuard, 1500);
 
         setupWindowInsets();
 
@@ -109,13 +125,13 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         session.open(sRuntime);
         geckoView.setSession(session);
 
-        // Force compositor to draw black during startup
         final CompositorController compositorController = session.getCompositorController();
         if (compositorController != null) {
             compositorController.setClearColor(Color.BLACK);
         }
 
         setupInputHandlers();
+        updateForwardButtonState();
 
         GeckoSession.SessionState restored = loadPersistedState(savedInstanceState);
         if (restored != null) {
@@ -150,20 +166,32 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             int topInset;
+            int imeInset = 0;
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 topInset = insets.getInsets(WindowInsets.Type.statusBars()).top;
+                imeInset = insets.getInsets(WindowInsets.Type.ime()).bottom;
             } else {
                 topInset = insets.getSystemWindowInsetTop();
+                imeInset = insets.getSystemWindowInsetBottom();
             }
 
-            // Push the URL bar below the status bar. GeckoView is sized by the
-            // LinearLayout to fill the remaining space — no padding needed on it.
+            // Push URL bar below status bar
             urlPanel.setPadding(
                     urlPanel.getPaddingLeft(),
                     originalPaddingTop + topInset,
                     urlPanel.getPaddingRight(),
                     urlPanel.getPaddingBottom()
             );
+
+            // Keep home panel (and its search bar) above the soft keyboard.
+            // Only apply when home panel is visible — avoids interfering with
+            // GeckoView's own IME handling when a page is shown.
+            if (homePanel != null && homePanel.getVisibility() == View.VISIBLE) {
+                contentContainer.setPadding(0, 0, 0, imeInset);
+            } else {
+                contentContainer.setPadding(0, 0, 0, 0);
+            }
 
             return insets;
         });
@@ -202,6 +230,14 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
             }
             return false;
         });
+
+        forwardButton.setOnClickListener(v -> {
+            if (session != null && canGoForward) {
+                session.goForward();
+            }
+        });
+
+        menuButton.setOnClickListener(v -> showMenu());
     }
 
     private void navigateFromInput(final String input) {
@@ -245,7 +281,20 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private void showHomePanel(final boolean show) {
         if (homePanel != null) {
             homePanel.setVisibility(show ? View.VISIBLE : View.GONE);
+            // Re-trigger inset dispatch so IME padding is re-evaluated for new state.
+            if (contentContainer != null) {
+                contentContainer.requestApplyInsets();
+            }
         }
+    }
+
+    private void updateForwardButtonState() {
+        runOnUiThread(() -> {
+            if (forwardButton != null) {
+                forwardButton.setAlpha(canGoForward ? 1f : 0.35f);
+                forwardButton.setEnabled(canGoForward);
+            }
+        });
     }
 
     private void removeFlashGuard() {
@@ -257,10 +306,78 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         });
     }
 
+    private int dp(int px) {
+        return Math.round(px * getResources().getDisplayMetrics().density);
+    }
+
+    // ---------- menu ----------
+
+    private void showMenu() {
+        if (menuPopup != null && menuPopup.isShowing()) {
+            menuPopup.dismiss();
+            return;
+        }
+
+        final LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setBackgroundResource(R.drawable.bg_glass_dialog);
+        final int pad = dp(8);
+        container.setPadding(pad, pad, pad, pad);
+
+        final TextView exitItem = new TextView(this);
+        exitItem.setText("Exit");
+        exitItem.setTextColor(Color.parseColor("#FF6666"));
+        exitItem.setTextSize(15);
+        exitItem.setGravity(Gravity.CENTER);
+        exitItem.setPadding(dp(24), dp(12), dp(24), dp(12));
+        exitItem.setBackgroundResource(R.drawable.bg_glass_button);
+        exitItem.setOnClickListener(v -> {
+            if (menuPopup != null) menuPopup.dismiss();
+            showExitConfirmation();
+        });
+        container.addView(exitItem);
+
+        menuPopup = new PopupWindow(container, dp(140), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        menuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        menuPopup.setOutsideTouchable(true);
+        menuPopup.setElevation(dp(8));
+        menuPopup.showAsDropDown(menuButton, 0, dp(8));
+    }
+
+    // ---------- exit confirmation ----------
+
+    private void showExitConfirmation() {
+        if (exitDialog != null && exitDialog.isShowing()) return;
+
+        exitDialog = new Dialog(this);
+        exitDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        exitDialog.setContentView(R.layout.dialog_exit);
+
+        final Window win = exitDialog.getWindow();
+        if (win != null) {
+            win.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            win.setDimAmount(0.7f);
+            win.setLayout(
+                    (int) (getResources().getDisplayMetrics().widthPixels * 0.85),
+                    WindowManager.LayoutParams.WRAP_CONTENT
+            );
+        }
+
+        final TextView btnCancel = exitDialog.findViewById(R.id.btn_cancel);
+        final TextView btnExit = exitDialog.findViewById(R.id.btn_exit);
+        btnCancel.setOnClickListener(v -> exitDialog.dismiss());
+        btnExit.setOnClickListener(v -> {
+            exitDialog.dismiss();
+            persistState();   // make sure RAM + disk state are current
+            finishAffinity(); // close the app
+        });
+
+        exitDialog.show();
+    }
+
     // ---------- persistence ----------
 
     private GeckoSession.SessionState loadPersistedState(Bundle savedInstanceState) {
-        // 1) Instance state
         if (savedInstanceState != null) {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -275,9 +392,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 Log.w(TAG, "read instance state failed", e);
             }
         }
-        // 2) RAM
-        if (sPersistedState != null) return sPersistedState;
-        // 3) Disk
+        if (sPersistedState != null) return sPersistedState; // RAM persistence
         return loadFromPrefs();
     }
 
@@ -324,7 +439,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
     private void persistState() {
         if (latestState != null) {
-            sPersistedState = latestState;
+            sPersistedState = latestState; // keep RAM copy alive
             saveToPrefs(latestState);
         }
     }
@@ -332,53 +447,58 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     // ---------- delegates ----------
 
     private void attachDelegates(final GeckoSession s) {
-    s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-        @Override
-        public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
-            latestState = sessionState;
-            persistState();
-        }
+        s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+            @Override
+            public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
+                latestState = sessionState;
+                persistState();
+            }
 
-        @Override
-        public void onPageStart(GeckoSession sess, String url) {
-            if (TextUtils.isEmpty(url) || url.startsWith("about:")) return;
-            final String displayUrl = url;
-            runOnUiThread(() -> {
-                if (urlBar != null && !urlBar.hasFocus()) {
-                    urlBar.setText(displayUrl);
-                }
-                showHomePanel(false);
-            });
-        }
-    });
+            @Override
+            public void onPageStart(GeckoSession sess, String url) {
+                if (TextUtils.isEmpty(url) || url.startsWith("about:")) return;
+                final String displayUrl = url;
+                runOnUiThread(() -> {
+                    if (urlBar != null && !urlBar.hasFocus()) {
+                        urlBar.setText(displayUrl);
+                    }
+                    showHomePanel(false);
+                });
+            }
+        });
 
-    s.setContentDelegate(new GeckoSession.ContentDelegate() {
-        @Override
-        public void onFirstContentfulPaint(GeckoSession session) {
-            // First real content has been drawn — safe to remove the black guard
-            removeFlashGuard();
-        }
-    });
+        s.setContentDelegate(new GeckoSession.ContentDelegate() {
+            @Override
+            public void onFirstContentfulPaint(GeckoSession session) {
+                removeFlashGuard();
+            }
+        });
 
-    s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
-        @Override
-        public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
-            Log.d(TAG, "Blocked tracker: " + event.uri);
-        }
-    });
+        s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
+            @Override
+            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
+                Log.d(TAG, "Blocked tracker: " + event.uri);
+            }
+        });
 
-    s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-        @Override
-        public void onCanGoBack(GeckoSession session, boolean value) {
-            MainActivity.this.canGoBack = value;
-        }
+        s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override
+            public void onCanGoBack(GeckoSession session, boolean value) {
+                MainActivity.this.canGoBack = value;
+            }
 
-        @Override
-        public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
-            return GeckoResult.fromValue(source);
-        }
-    });
-}
+            @Override
+            public void onCanGoForward(GeckoSession session, boolean value) {
+                MainActivity.this.canGoForward = value;
+                updateForwardButtonState();
+            }
+
+            @Override
+            public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
+                return GeckoResult.fromValue(source);
+            }
+        });
+    }
 
     // ---------- lifecycle ----------
 
@@ -430,7 +550,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         if (session != null && canGoBack) {
             session.goBack();
         } else {
-            super.onBackPressed();
+            showExitConfirmation();
         }
     }
 
@@ -444,6 +564,14 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
     @Override
     protected void onDestroy() {
+        if (menuPopup != null) {
+            menuPopup.dismiss();
+            menuPopup = null;
+        }
+        if (exitDialog != null) {
+            exitDialog.dismiss();
+            exitDialog = null;
+        }
         if (geckoView != null) geckoView.setSession(null);
         if (session != null) {
             session.close();
