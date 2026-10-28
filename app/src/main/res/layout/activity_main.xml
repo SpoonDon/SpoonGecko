@@ -19,32 +19,43 @@
         android:paddingBottom="10dp"
         android:background="@drawable/bg_glass_url_bar">
 
-        <TextView
-            android:id="@+id/back_button"
+        <!-- Tab Manager Button (Left) -->
+        <FrameLayout
+            android:id="@+id/tab_button"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:text="‹"
-            android:textColor="#FFFFFFFF"
-            android:textSize="24sp"
-            android:gravity="center"
+            android:layout_marginEnd="6dp"
             android:background="@drawable/bg_glass_button"
-            android:layout_marginEnd="4dp"
             android:clickable="true"
-            android:focusable="true"
-            android:contentDescription="Back" />
+            android:focusable="true">
 
-        <TextView
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_tab"
+                android:alpha="0.5"/>
+
+            <TextView
+                android:id="@+id/tab_count_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="1"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
+        <!-- Forward Button -->
+        <ImageButton
             android:id="@+id/forward_button"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:text="›"
-            android:textColor="#FFFFFFFF"
-            android:textSize="24sp"
-            android:gravity="center"
+            android:src="@drawable/ic_forward"
             android:background="@drawable/bg_glass_button"
             android:layout_marginEnd="6dp"
-            android:clickable="true"
-            android:focusable="true"
+            android:scaleType="centerInside"
             android:contentDescription="Forward" />
 
         <EditText
@@ -66,18 +77,15 @@
             android:importantForAutofill="no"
             android:selectAllOnFocus="true" />
 
-        <TextView
+        <!-- Menu Button -->
+        <ImageButton
             android:id="@+id/menu_button"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:text="⋮"
-            android:textColor="#FFFFFFFF"
-            android:textSize="22sp"
-            android:gravity="center"
+            android:src="@drawable/ic_menu"
             android:background="@drawable/bg_glass_button"
             android:layout_marginStart="6dp"
-            android:clickable="true"
-            android:focusable="true"
+            android:scaleType="centerInside"
             android:contentDescription="Menu" />
     </LinearLayout>
 
@@ -135,6 +143,7 @@
                 android:importantForAutofill="no" />
         </LinearLayout>
 
+        <!-- Fixed Suggestions List: Now strictly hidden unless actively typing -->
         <ListView
             android:id="@+id/suggestions_list"
             android:layout_width="match_parent"
@@ -148,6 +157,5 @@
             android:paddingTop="4dp"
             android:paddingBottom="4dp"
             android:clipToPadding="true" />
-
     </FrameLayout>
 </LinearLayout>
