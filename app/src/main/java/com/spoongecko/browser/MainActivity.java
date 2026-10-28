@@ -332,51 +332,53 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     // ---------- delegates ----------
 
     private void attachDelegates(final GeckoSession s) {
-        s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            @Override
-            public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
-                latestState = sessionState;
-                persistState();
-            }
+    s.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+        @Override
+        public void onSessionStateChange(GeckoSession sess, GeckoSession.SessionState sessionState) {
+            latestState = sessionState;
+            persistState();
+        }
 
-            @Override
-            public void onPageStart(GeckoSession sess, String url) {
-                if (TextUtils.isEmpty(url) || url.startsWith("about:")) return;
-                final String displayUrl = url;
-                runOnUiThread(() -> {
-                    if (urlBar != null && !urlBar.hasFocus()) {
-                        urlBar.setText(displayUrl);
-                    }
-                    showHomePanel(false);
-                });
-            }
+        @Override
+        public void onPageStart(GeckoSession sess, String url) {
+            if (TextUtils.isEmpty(url) || url.startsWith("about:")) return;
+            final String displayUrl = url;
+            runOnUiThread(() -> {
+                if (urlBar != null && !urlBar.hasFocus()) {
+                    urlBar.setText(displayUrl);
+                }
+                showHomePanel(false);
+            });
+        }
+    });
 
-            @Override
-            public void onFirstContentfulPaint(GeckoSession sess) {
-                // First real content has been drawn — safe to remove the black guard
-                removeFlashGuard();
-            }
-        });
+    s.setContentDelegate(new GeckoSession.ContentDelegate() {
+        @Override
+        public void onFirstContentfulPaint(GeckoSession session) {
+            // First real content has been drawn — safe to remove the black guard
+            removeFlashGuard();
+        }
+    });
 
-        s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
-            @Override
-            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
-                Log.d(TAG, "Blocked tracker: " + event.uri);
-            }
-        });
+    s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
+        @Override
+        public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {
+            Log.d(TAG, "Blocked tracker: " + event.uri);
+        }
+    });
 
-        s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
-            @Override
-            public void onCanGoBack(GeckoSession session, boolean value) {
-                MainActivity.this.canGoBack = value;
-            }
+    s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+        @Override
+        public void onCanGoBack(GeckoSession session, boolean value) {
+            MainActivity.this.canGoBack = value;
+        }
 
-            @Override
-            public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
-                return GeckoResult.fromValue(source);
-            }
-        });
-    }
+        @Override
+        public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String uri) {
+            return GeckoResult.fromValue(source);
+        }
+    });
+}
 
     // ---------- lifecycle ----------
 
