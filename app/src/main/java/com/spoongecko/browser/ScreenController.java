@@ -94,6 +94,18 @@ public final class ScreenController {
             progressBar.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
         });
     }
+        
+    public void setProgressBarVisible(boolean visible) {
+        activity.runOnUiThread(() -> {
+            if (progressBar == null) return;
+            if (visible) {
+                progressBar.setIndeterminate(true);
+                progressBar.setVisibility(View.VISIBLE);
+            } else {
+                progressBar.setVisibility(View.GONE);
+            }
+        });
+    }
 
     @SuppressWarnings("deprecation")
     public void setupWindowInsets() {
