@@ -22,28 +22,21 @@
         <!-- Tab Manager Button (Left) -->
         <FrameLayout
             android:id="@+id/tab_button"
-            android:layout_width="40dp"
+            android:layout_width="42dp"
             android:layout_height="40dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_glass_button"
             android:clickable="true"
             android:focusable="true">
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_tab"
-                android:alpha="0.5"/>
-
             <TextView
                 android:id="@+id/tab_count_text"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:text="1"
+                android:text="1/1"
                 android:textColor="#FFFFFFFF"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textStyle="bold"/>
         </FrameLayout>
 
@@ -101,6 +94,7 @@
             android:layout_height="match_parent"
             android:background="#FF000000" />
 
+        <!-- Solid Black Home Panel -->
         <LinearLayout
             android:id="@+id/home_panel"
             android:layout_width="match_parent"
@@ -108,6 +102,7 @@
             android:layout_gravity="center"
             android:orientation="vertical"
             android:gravity="center_horizontal"
+            android:background="#FF000000"
             android:paddingStart="22dp"
             android:paddingEnd="22dp">
 
@@ -143,19 +138,17 @@
                 android:importantForAutofill="no" />
         </LinearLayout>
 
-        <!-- Fixed Suggestions List: Now strictly hidden unless actively typing -->
+        <!-- Polished Suggestions List -->
         <ListView
             android:id="@+id/suggestions_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
-            android:maxHeight="260dp"
-            android:background="#EE000000"
+            android:maxHeight="300dp"
+            android:background="#FF111111"
             android:visibility="gone"
-            android:divider="@null"
-            android:dividerHeight="0dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
+            android:divider="#22FFFFFF"
+            android:dividerHeight="1dp"
             android:clipToPadding="true" />
     </FrameLayout>
 </LinearLayout>
