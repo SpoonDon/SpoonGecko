@@ -137,7 +137,7 @@ public class MainActivity extends Activity
         setupSuggestions();
 
         sRuntime = ensureRuntime(this);
-        tabManager = new TabManager(sRuntime);
+        tabManager = new TabManager();
         tabManager.setListener(this);
 
         restoreTabs(savedInstanceState);
