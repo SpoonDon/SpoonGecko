@@ -379,10 +379,9 @@ public class MainActivity extends Activity
         if (input.contains("://")) return true;
         return input.contains(".");
     }
-
+                
     private static String urlEncode(String s) {
-        try { return URLEncoder.encode(s, "UTF-8"); }
-        catch (Exception e) { return s; }
+        return android.net.Uri.encode(s);
     }
 
     private void hideKeyboard() {
