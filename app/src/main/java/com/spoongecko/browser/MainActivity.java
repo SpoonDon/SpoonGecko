@@ -469,9 +469,10 @@ public class MainActivity extends Activity
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(2);
         lp.bottomMargin = dp(2);
-        parent.addView(item, lp);
+        parent.addView(item, lp);                
         item.setOnClickListener(v -> {
-            if (menuPopup != null) menuPopup.dismiss();
+            if (menuPopup != null && menuPopup.isShowing()) menuPopup.dismiss();
+            if (contextMenuPopup != null && contextMenuPopup.isShowing()) contextMenuPopup.dismiss();
             action.run();
         });
     }
