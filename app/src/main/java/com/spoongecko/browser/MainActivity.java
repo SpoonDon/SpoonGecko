@@ -709,7 +709,7 @@ public class MainActivity extends Activity
                 });
             }
         });
-
+            
         s.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
             public void onTitleChange(GeckoSession sess, String title) {
@@ -721,11 +721,72 @@ public class MainActivity extends Activity
                 removeFlashGuard();
                 if (!TextUtils.isEmpty(tab.url)) history.recordVisit(tab.url, tab.title);
             }
-        });
 
+            @Override
+            public void onFullScreen(GeckoSession sess, boolean fullScreen) {
+                runOnUiThread(() -> setFullScreenMode(fullScreen));
+            }
+
+            @Override
+            public void onCloseRequest(GeckoSession sess) {
+                runOnUiThread(() -> {
+                    int idx = tabManager.getTabs().indexOf(tab);
+                    if (idx >= 0) tabManager.closeTab(idx);
+                });
+            }
+
+            @Override
+            public void onContextMenu(GeckoSession sess, int x, int y,
+                                      GeckoSession.ContentDelegate.ContextElement element) {
+                runOnUiThread(() -> showContextMenu(x, y, element));
+            }
+        });
+            
         s.setContentBlockingDelegate(new ContentBlocking.Delegate() {
             @Override
             public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {}
+        });
+
+        s.setPermissionDelegate(new GeckoSession.PermissionDelegate() {
+            @Override
+            public void onContentPermissionRequest(GeckoSession session, String uri,
+                                                   int type, Callback callback) {
+                runOnUiThread(() -> showPermissionDialog(uri, type, callback));
+            }
+
+            @Override
+            public void onAndroidPermissionsRequest(GeckoSession session,
+                                                    String[] permissions, Callback callback) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                    callback.grant();
+                    return;
+                }
+                boolean allGranted = true;
+                for (String p : permissions) {
+                    if (checkSelfPermission(p)
+                            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        allGranted = false;
+                        break;
+                    }
+                }
+                if (allGranted) {
+                    callback.grant();
+                } else {
+                    pendingPermissionCallback = callback;
+                    requestPermissions(permissions, REQ_ANDROID_PERMS);
+                }
+            }
+
+            @Override
+            public void onMediaPermissionRequest(GeckoSession session, String uri,
+                                                 MediaSource[] video, MediaSource[] audio,
+                                                 MediaCallback callback) {
+                runOnUiThread(() -> {
+                    MediaSource v = (video != null && video.length > 0) ? video[0] : null;
+                    MediaSource a = (audio != null && audio.length > 0) ? audio[0] : null;
+                    callback.grant(v, a);
+                });
+            }
         });
 
         s.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
