@@ -11,7 +11,7 @@ import java.util.List;
 
 public class HistoryStore extends SQLiteOpenHelper {
     private static final String DB_NAME = "spoongecko_history.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
     private static final String TABLE = "history";
 
     public static class Entry {
