@@ -3,8 +3,9 @@
     <corners
         android:bottomLeftRadius="18dp"
         android:bottomRightRadius="18dp" />
+    <!-- Solid black at the top to blend with status bar, glassy at the bottom -->
     <gradient
-        android:startColor="#B3000000"
-        android:endColor="#80000000"
+        android:startColor="#FF000000"
+        android:endColor="#CC000000"
         android:angle="270" />
 </shape>
