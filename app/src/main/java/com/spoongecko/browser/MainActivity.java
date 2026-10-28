@@ -104,7 +104,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         geckoView.setBackgroundColor(Color.BLACK);
         homePanel.setBackgroundColor(Color.TRANSPARENT);
 
-        // Flash guard hides GeckoView's initial white surface buffer.
         flashGuard = new View(this);
         flashGuard.setBackgroundColor(Color.BLACK);
         flashGuard.setClickable(false);
@@ -113,10 +112,10 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
-        // Safety net: remove guard after 1.5s even if no paint ever fires.
         new Handler(Looper.getMainLooper()).postDelayed(this::removeFlashGuard, 1500);
 
         setupWindowInsets();
+        setupBackHandler();
 
         sRuntime = ensureRuntime(this);
 
@@ -140,6 +139,37 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         } else {
             showHomePanel(true);
         }
+    }
+
+    // ---------- back handling ----------
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.TIRAMISU)
+    private void setupBackHandler() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                        android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                        () -> handleBackAction()
+                );
+            } catch (Exception e) {
+                Log.w(TAG, "register back callback failed", e);
+            }
+        }
+    }
+
+    private void handleBackAction() {
+        if (session != null && canGoBack) {
+            session.goBack();
+        } else {
+            showExitConfirmation();
+        }
+    }
+
+    /** Only called on API < 33 (manifest opt-in makes the framework skip this on 33+). */
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        handleBackAction();
     }
 
     // ---------- window / insets ----------
@@ -176,7 +206,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 imeInset = insets.getSystemWindowInsetBottom();
             }
 
-            // Push URL bar below status bar
             urlPanel.setPadding(
                     urlPanel.getPaddingLeft(),
                     originalPaddingTop + topInset,
@@ -184,9 +213,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                     urlPanel.getPaddingBottom()
             );
 
-            // Keep home panel (and its search bar) above the soft keyboard.
-            // Only apply when home panel is visible — avoids interfering with
-            // GeckoView's own IME handling when a page is shown.
             if (homePanel != null && homePanel.getVisibility() == View.VISIBLE) {
                 contentContainer.setPadding(0, 0, 0, imeInset);
             } else {
@@ -281,7 +307,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     private void showHomePanel(final boolean show) {
         if (homePanel != null) {
             homePanel.setVisibility(show ? View.VISIBLE : View.GONE);
-            // Re-trigger inset dispatch so IME padding is re-evaluated for new state.
             if (contentContainer != null) {
                 contentContainer.requestApplyInsets();
             }
@@ -368,8 +393,8 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
         btnCancel.setOnClickListener(v -> exitDialog.dismiss());
         btnExit.setOnClickListener(v -> {
             exitDialog.dismiss();
-            persistState();   // make sure RAM + disk state are current
-            finishAffinity(); // close the app
+            persistState();          // flush RAM + disk session
+            finishAndRemoveTask();   // ✅ remove task entirely from recents
         });
 
         exitDialog.show();
@@ -392,7 +417,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 Log.w(TAG, "read instance state failed", e);
             }
         }
-        if (sPersistedState != null) return sPersistedState; // RAM persistence
+        if (sPersistedState != null) return sPersistedState;
         return loadFromPrefs();
     }
 
@@ -439,7 +464,7 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
 
     private void persistState() {
         if (latestState != null) {
-            sPersistedState = latestState; // keep RAM copy alive
+            sPersistedState = latestState;
             saveToPrefs(latestState);
         }
     }
@@ -542,16 +567,6 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
     protected void onStop() {
         persistState();
         super.onStop();
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override
-    public void onBackPressed() {
-        if (session != null && canGoBack) {
-            session.goBack();
-        } else {
-            showExitConfirmation();
-        }
     }
 
     @Override
