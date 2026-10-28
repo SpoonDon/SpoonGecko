@@ -93,50 +93,48 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="#FF000000" />
+<!-- Solid Black Home Panel (Full Screen) -->
+<LinearLayout
+    android:id="@+id/home_panel"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#FF000000"
+    android:paddingStart="22dp"
+    android:paddingEnd="22dp">
 
-        <!-- Solid Black Home Panel -->
-        <LinearLayout
-            android:id="@+id/home_panel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="vertical"
-            android:gravity="center_horizontal"
-            android:background="#FF000000"
-            android:paddingStart="22dp"
-            android:paddingEnd="22dp">
+    <TextView
+        android:id="@+id/logo_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="SpoonGecko"
+        android:textColor="#B3FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.06" />
 
-            <TextView
-                android:id="@+id/logo_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SpoonGecko"
-                android:textColor="#B3FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.06" />
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="22dp" />
 
-            <Space
-                android:layout_width="match_parent"
-                android:layout_height="22dp" />
-
-            <EditText
-                android:id="@+id/search_bar"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:hint="Search with Brave"
-                android:textColorHint="#66FFFFFF"
-                android:textColor="#FFFFFFFF"
-                android:textSize="15sp"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:background="@drawable/bg_glass_search"
-                android:inputType="text"
-                android:imeOptions="actionSearch"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:importantForAutofill="no" />
-        </LinearLayout>
+    <EditText
+        android:id="@+id/search_bar"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:hint="Search with Brave"
+        android:textColorHint="#66FFFFFF"
+        android:textColor="#FFFFFFFF"
+        android:textSize="15sp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/bg_glass_search"
+        android:inputType="text"
+        android:imeOptions="actionSearch"
+        android:maxLines="1"
+        android:singleLine="true"
+        android:importantForAutofill="no" />
+</LinearLayout>
 
         <!-- Polished Suggestions List -->
         <ListView
