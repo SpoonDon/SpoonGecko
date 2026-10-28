@@ -7,38 +7,23 @@ import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
-/**
- * Attaches every GeckoSession delegate for a Tab. Delegates observe state and
- * notify the {@link Host}; they never touch UI directly and never call
- * {@code persistAllTabs} except at the same call sites as before.
- */
 public final class BrowserDelegates {
 
     public interface Host {
         TabManager getTabManager();
         HistoryStore getHistoryStore();
-
-        /** Synchronous in-place save. Caller decides when (unchanged from before). */
         void persistAllTabs();
-
         void removeFlashGuard();
-        void setProgress(int progress);
+        void setProgressBarVisible(boolean visible);
         void showContextMenu(int x, int y,
                              GeckoSession.ContentDelegate.ContextElement element);
         void setFullScreen(boolean fullScreen);
-
-        /** Called on the UI thread. Returns the new tab whose session should be used. */
         Tab createTabAndLoad(String uri);
-
-        /** Called on the Gecko thread — MainActivity handles requestPermissions(). */
         void requestAndroidPermissions(String[] permissions,
                                        GeckoSession.PermissionDelegate.Callback callback);
-
-        /** Called on the UI thread. */
         void showContentPermissionDialog(String uri, int type, GeckoResult<Integer> result);
-
-        /** Called on the UI thread after a page starts loading. */
         void onPageStarted(Tab tab, String url);
+        void updateToolbarState();
     }
 
     private final Activity activity;
@@ -52,8 +37,7 @@ public final class BrowserDelegates {
     public void attach(final Tab tab) {
         attachProgress(tab);
         attachContent(tab);
-        attachContentBlocking();
-        attachPermission();
+        attachPermission(tab);
         attachNavigation(tab);
     }
 
@@ -75,13 +59,7 @@ public final class BrowserDelegates {
             @Override
             public void onPageStop(GeckoSession sess, boolean success) {
                 if (tab == host.getTabManager().getActiveTab()) host.persistAllTabs();
-            }
-
-            @Override
-            public void onProgress(GeckoSession sess, int pageLoadProgress) {
-                if (tab == host.getTabManager().getActiveTab()) {
-                    host.setProgress(pageLoadProgress);
-                }
+                activity.runOnUiThread(() -> host.setProgressBarVisible(false));
             }
         });
     }
@@ -122,23 +100,50 @@ public final class BrowserDelegates {
         });
     }
 
-    private void attachContentBlocking() {
-        // No-op delegate retained for parity with previous implementation.
-        // Not attached via setContentBlockingDelegate anymore because the
-        // previous no-op was only there to satisfy lint.
-    }
+    private void attachPermission(final Tab tab) {
+        tab.session.setContentBlockingDelegate(new ContentBlocking.Delegate() {
+            @Override
+            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {}
+        });
 
-    private void attachPermission() {
-        // Placeholder — see attach() to see actual wiring.
-        // The full permission delegate is installed inside attachPermissionImpl()
-        // which is invoked below.
-        attachPermissionImpl();
-    }
+        tab.session.setPermissionDelegate(new GeckoSession.PermissionDelegate() {
+            @Override
+            public void onAndroidPermissionsRequest(
+                    GeckoSession session, String[] permissions,
+                    GeckoSession.PermissionDelegate.Callback callback) {
+                host.requestAndroidPermissions(permissions, callback);
+            }
 
-    private void attachPermissionImpl() {
-        // Set on each tab's session as in the previous implementation.
-        // (Delegates are attached per-tab inside attach(), so we piggyback
-        //  via the same run pattern as the others.)
+            @Override
+            public GeckoResult<Integer> onContentPermissionRequest(
+                    GeckoSession session,
+                    GeckoSession.PermissionDelegate.ContentPermission perm) {
+                if (perm == null) {
+                    return GeckoResult.fromValue(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                }
+                final GeckoResult<Integer> result = new GeckoResult<>();
+                final String uri = perm.uri;
+                final int type = perm.permission;
+                activity.runOnUiThread(() -> host.showContentPermissionDialog(uri, type, result));
+                return result;
+            }
+
+            @Override
+            public void onMediaPermissionRequest(
+                    GeckoSession session, String uri,
+                    GeckoSession.PermissionDelegate.MediaSource[] video,
+                    GeckoSession.PermissionDelegate.MediaSource[] audio,
+                    GeckoSession.PermissionDelegate.MediaCallback callback) {
+                activity.runOnUiThread(() -> {
+                    GeckoSession.PermissionDelegate.MediaSource v =
+                            (video != null && video.length > 0) ? video[0] : null;
+                    GeckoSession.PermissionDelegate.MediaSource a =
+                            (audio != null && audio.length > 0) ? audio[0] : null;
+                    callback.grant(v, a);
+                });
+            }
+        });
     }
 
     private void attachNavigation(final Tab tab) {
@@ -146,11 +151,13 @@ public final class BrowserDelegates {
             @Override
             public void onCanGoBack(GeckoSession sess, boolean value) {
                 tab.canGoBack = value;
+                if (tab == host.getTabManager().getActiveTab()) host.updateToolbarState();
             }
 
             @Override
             public void onCanGoForward(GeckoSession sess, boolean value) {
                 tab.canGoForward = value;
+                if (tab == host.getTabManager().getActiveTab()) host.updateToolbarState();
             }
 
             @Override
