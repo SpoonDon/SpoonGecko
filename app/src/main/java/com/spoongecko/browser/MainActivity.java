@@ -1016,6 +1016,7 @@ public class MainActivity extends Activity
 
     @Override protected void onDestroy() {
         if (menuPopup != null) { menuPopup.dismiss(); menuPopup = null; }
+        if (contextMenuPopup != null) { contextMenuPopup.dismiss(); contextMenuPopup = null; }
         if (exitDialog != null) { exitDialog.dismiss(); exitDialog = null; }
         if (geckoView != null) geckoView.setSession(null);
         if (tabManager != null) tabManager.closeAll();
