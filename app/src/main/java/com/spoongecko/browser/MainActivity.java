@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -127,6 +128,41 @@ public class MainActivity extends Activity implements ComponentCallbacks2 {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+        
+    private void setupWindowInsets() {
+        final View root = findViewById(R.id.root);
+        final View urlPanel = findViewById(R.id.url_bar_panel);
+        
+        // Capture the original XML padding for the URL bar
+        final int originalPaddingTop = urlPanel.getPaddingTop();
+
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int topInset = 0;
+            // Get the exact height of the status bar / notch
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top;
+            } else {
+                topInset = insets.getSystemWindowInsetTop();
+            }
+
+            // 1. Pad the URL bar panel so its content clears the status bar
+            urlPanel.setPadding(
+                    urlPanel.getPaddingLeft(),
+                    originalPaddingTop + topInset,
+                    urlPanel.getPaddingRight(),
+                    urlPanel.getPaddingBottom()
+            );
+
+            // 2. Pad the GeckoView so the web page renders BELOW the URL bar entirely
+            // We use post() to ensure the urlPanel has calculated its final height
+            urlPanel.post(() -> {
+                int urlBarHeight = urlPanel.getHeight();
+                geckoView.setPadding(0, topInset + urlBarHeight, 0, 0);
+            });
+
+            return insets;
+        });
     }
 
 
