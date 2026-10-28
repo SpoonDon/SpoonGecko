@@ -1,10 +1,7 @@
 package com.spoongecko.browser;
 
 import android.util.Log;
-
-import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,12 +13,9 @@ public class TabManager {
         void onActiveTabChanged(Tab tab);
     }
 
-    private final GeckoRuntime runtime;
     private final List<Tab> tabs = new ArrayList<>();
     private int activeIndex = -1;
     private Listener listener;
-
-    public TabManager(GeckoRuntime runtime) { this.runtime = runtime; }
 
     public void setListener(Listener l) { this.listener = l; }
 
@@ -36,21 +30,25 @@ public class TabManager {
 
     public Tab createTab() {
         GeckoSession session = new GeckoSession();
-        session.open(runtime);
         Tab tab = new Tab(session);
         tabs.add(tab);
         activeIndex = tabs.size() - 1;
-        notifyChanged();
-        notifyActive();
         return tab;
     }
 
     public Tab createTabWithState(GeckoSession.SessionState state) {
-        Tab tab = createTab();
+        GeckoSession session = new GeckoSession();
         if (state != null) {
-            try { tab.session.restoreState(state); }
-            catch (Exception e) { Log.w(TAG, "restoreState failed", e); }
+            try { 
+                // CRITICAL: restoreState MUST be called BEFORE open()
+                session.restoreState(state); 
+            } catch (Exception e) { 
+                Log.w(TAG, "restoreState failed", e); 
+            }
         }
+        Tab tab = new Tab(session);
+        tabs.add(tab);
+        activeIndex = tabs.size() - 1;
         return tab;
     }
 
@@ -78,6 +76,9 @@ public class TabManager {
         notifyChanged();
         notifyActive();
     }
+
+    public void notifyTabsChanged() { notifyChanged(); }
+    public void notifyActiveChanged() { notifyActive(); }
 
     private void notifyChanged() { if (listener != null) listener.onTabsChanged(); }
     private void notifyActive() { if (listener != null) listener.onActiveTabChanged(getActiveTab()); }
