@@ -45,8 +45,13 @@ public final class ScreenController {
         this.originalPaddingTop = urlPanel.getPaddingTop();
     }
 
-    public void makeImmersive() {
-        Window w = activity.getWindow();
+    /**
+     * [C2] Window-only immersive setup, deliberately free of any view lookup so
+     * it is safe to call before setContentView() (the old code instantiated
+     * ScreenController before the content view existed and crashed on the null
+     * views in the constructor).
+     */
+    public static void applyImmersiveWindow(Window w) {
         w.setStatusBarColor(Color.TRANSPARENT);
         w.setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -57,6 +62,10 @@ public final class ScreenController {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+    }
+
+    public void makeImmersive() {
+        applyImmersiveWindow(activity.getWindow());
     }
 
     public void installFlashGuard() {
@@ -94,7 +103,7 @@ public final class ScreenController {
             progressBar.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
         });
     }
-        
+
     public void setProgressBarVisible(boolean visible) {
         activity.runOnUiThread(() -> {
             if (progressBar == null) return;
@@ -111,7 +120,7 @@ public final class ScreenController {
     public void setupWindowInsets() {
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             int topInset;
-            int imeInset = 0;
+            int imeInset;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 topInset = insets.getInsets(WindowInsets.Type.statusBars()).top;
                 imeInset = insets.getInsets(WindowInsets.Type.ime()).bottom;
@@ -124,11 +133,11 @@ public final class ScreenController {
                     originalPaddingTop + topInset,
                     urlPanel.getPaddingRight(),
                     urlPanel.getPaddingBottom());
-            if (homePanel.getVisibility() == View.VISIBLE) {
-                contentContainer.setPadding(0, 0, 0, imeInset);
-            } else {
-                contentContainer.setPadding(0, 0, 0, 0);
-            }
+            // [M6] Always apply the IME inset. It used to be applied only while
+            // the home panel was visible; combined with
+            // SYSTEM_UI_FLAG_LAYOUT_STABLE (which stops the window itself from
+            // resizing) the keyboard covered inputs inside web pages.
+            contentContainer.setPadding(0, 0, 0, imeInset);
             return insets;
         });
     }
