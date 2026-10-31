@@ -30,6 +30,7 @@ public final class PopupsController {
         void onHome();
         void onShare();
         void onShowHistory();
+        void onShowExtensions();
         void onShowExit();
         void onOpenInNewTab(String url);
     }
@@ -62,6 +63,7 @@ public final class PopupsController {
         addMenuItem(container, "Reload", false, host::onReload);
         addMenuItem(container, "Home", false, host::onHome);
         addMenuItem(container, "Share", false, host::onShare);
+        addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
@@ -91,7 +93,7 @@ public final class PopupsController {
         container.setBackgroundResource(R.drawable.bg_glass_dialog);
         int pad = dp(6);
         container.setPadding(pad, pad, pad, pad);
-        
+
         if (hasLink) {
             addMenuItem(container, "Open link in new tab", false,
                     () -> host.onOpenInNewTab(link));
