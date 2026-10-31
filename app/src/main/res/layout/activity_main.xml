@@ -19,7 +19,7 @@
         android:paddingBottom="10dp"
         android:background="@drawable/bg_glass_url_bar">
 
-        <!-- Tab Manager Button (Left) -->                
+        <!-- Tab Manager Button (Left) -->
         <FrameLayout
             android:id="@+id/tab_button"
             android:layout_width="42dp"
@@ -71,6 +71,16 @@
             android:importantForAutofill="no"
             android:selectAllOnFocus="true" />
 
+        <!-- Browser/page action buttons added by extensions (managed at runtime) -->
+        <LinearLayout
+            android:id="@+id/extension_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginStart="6dp"
+            android:visibility="gone" />
+
         <!-- Menu Button -->
         <ImageButton
             android:id="@+id/menu_button"
@@ -78,7 +88,7 @@
             android:layout_height="40dp"
             android:src="@drawable/ic_menu"
             android:background="@drawable/bg_glass_button"
-            android:layout_marginStart="6dp"                        
+            android:layout_marginStart="6dp"
             android:scaleType="centerInside"
             android:contentDescription="Menu" />
     </LinearLayout>
@@ -107,49 +117,50 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="#FF000000" />
-<!-- Solid Black Home Panel (Full Screen) -->
-<LinearLayout
-    android:id="@+id/home_panel"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:background="#FF000000"
-    android:paddingStart="22dp"
-    android:paddingEnd="22dp">
 
-    <TextView
-        android:id="@+id/logo_text"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="SpoonGecko"
-        android:textColor="#B3FFFFFF"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.06" />
+        <!-- Solid Black Home Panel (Full Screen) -->
+        <LinearLayout
+            android:id="@+id/home_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#FF000000"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp">
 
-    <Space
-        android:layout_width="match_parent"
-        android:layout_height="22dp" />
+            <TextView
+                android:id="@+id/logo_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SpoonGecko"
+                android:textColor="#B3FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.06" />
 
-    <EditText                
-        android:id="@+id/search_bar"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:hint="Search with Brave"
-        android:contentDescription="Search with Brave"
-        android:textColorHint="#66FFFFFF"
-        android:textColor="#FFFFFFFF"
-        android:textSize="15sp"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:background="@drawable/bg_glass_search"
-        android:inputType="text"
-        android:imeOptions="actionSearch"
-        android:maxLines="1"
-        android:singleLine="true"
-        android:importantForAutofill="no" />
-</LinearLayout>
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="22dp" />
+
+            <EditText
+                android:id="@+id/search_bar"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:hint="Search with Brave"
+                android:contentDescription="Search with Brave"
+                android:textColorHint="#66FFFFFF"
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:background="@drawable/bg_glass_search"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:importantForAutofill="no" />
+        </LinearLayout>
 
         <!-- Polished Suggestions List -->
         <ListView
