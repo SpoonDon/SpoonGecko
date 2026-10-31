@@ -41,6 +41,12 @@ public final class SuggestionsController {
         this.list = list;
         this.history = history;
         this.adapter = new Adapter(activity);
+
+        // [L] ListView silently ignores android:maxHeight="300dp" declared in
+        // activity_main.xml; apply the intended cap programmatically.
+        list.getLayoutParams().height =
+                Math.round(300f * activity.getResources().getDisplayMetrics().density);
+
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, pos, id) -> {
             HistoryStore.Entry e = adapter.getItem(pos);
@@ -78,6 +84,9 @@ public final class SuggestionsController {
     public void setListener(Listener l) { listener = l; }
 
     public void hide() { list.setVisibility(View.GONE); }
+
+    // [M1] Lets the back handler close the dropdown before page history.
+    public boolean isVisible() { return list.getVisibility() == View.VISIBLE; }
 
     /** Sets URL-bar text without triggering the suggestion query. */
     public void setText(String text) {
