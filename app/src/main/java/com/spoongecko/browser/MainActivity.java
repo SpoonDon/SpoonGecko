@@ -1,26 +1,32 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.content.ComponentCallbacks2;
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.ContentBlocking;
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
@@ -28,6 +34,8 @@ import org.mozilla.geckoview.GeckoView;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainActivity extends Activity
         implements ComponentCallbacks2, TabManager.Listener,
@@ -36,7 +44,6 @@ public class MainActivity extends Activity
 
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
-    private static final int REQ_ANDROID_PERMS = 0x5151;
 
     private static GeckoRuntime sRuntime;
     private static List<GeckoSession.SessionState> sPersistedStates;
@@ -45,6 +52,7 @@ public class MainActivity extends Activity
     private TabManager tabManager;
     private GeckoView geckoView;
     private HistoryStore history;
+    private TabPersistence persistence;              // [H2] async, debounced persistence
 
     private EditText urlBar;
     private EditText searchBar;
@@ -57,8 +65,22 @@ public class MainActivity extends Activity
     private PopupsController popups;
     private BrowserDialogs dialogs;
     private BrowserDelegates delegates;
+    private BrowserPrompts prompts;                  // [H1] JS dialogs / select / file / auth
 
-    private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
+    // [M7] One callback per request code. The old single-slot field dropped every
+    // permission request but the last one, leaving orphaned callbacks.
+    private final SparseArray<GeckoSession.PermissionDelegate.Callback> permissionCallbacks =
+            new SparseArray<>();
+    private int nextPermissionRequest = 0x5151;
+
+    // [C4] Set first in onDestroy() so TabManager notifications fired while
+    // closing sessions cannot resurrect tabs (old bug: closeAll() -> onTabsChanged
+    // -> newTab() -> a brand-new GeckoSession was opened during teardown).
+    private boolean destroyed = false;
+
+    // [M1] Stored so it can be unregistered (typed Object because
+    // android.window.OnBackInvokedCallback only exists on API 33+).
+    private Object backCallback;
 
     private static synchronized GeckoRuntime ensureRuntime(Activity activity) {
         if (sRuntime == null) {
@@ -67,6 +89,9 @@ public class MainActivity extends Activity
                             .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
                             .build())
                     .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
+                    // [S2] Pin the DoH endpoint explicitly. In TRR_MODE_FIRST with no
+                    // URI, DNS can silently fall back to the OS (carrier) resolver.
+                    .trustedRecursiveResolverUri("https://mozilla.cloudflare-dns.com/dns-query")
                     .fissionEnabled(true)
                     .remoteDebuggingEnabled(false)
                     .build();
@@ -79,8 +104,13 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Window decorations must be adjusted before content is attached.
-        new ScreenController(this).makeImmersive();
+        // [C2] The old code ran `new ScreenController(this).makeImmersive()` here,
+        // BEFORE setContentView(). ScreenController's constructor dereferences views
+        // (findViewById(...).getPaddingTop()) that are null at that point, so the app
+        // crashed on every launch. Window flags are now applied through a
+        // view-independent static method; the view-dependent controller is created
+        // after the content view exists.
+        ScreenController.applyImmersiveWindow(getWindow());
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.geckoview);
@@ -94,6 +124,7 @@ public class MainActivity extends Activity
 
         geckoView.setBackgroundColor(android.graphics.Color.BLACK);
         history = new HistoryStore(this);
+        persistence = new TabPersistence(this);      // [H2]
 
         screen = new ScreenController(this);
         screen.installFlashGuard();
@@ -106,9 +137,10 @@ public class MainActivity extends Activity
         tabManager = new TabManager();
         tabManager.setListener(this);
 
+        prompts = new BrowserPrompts(this);         // [H1]
         popups = new PopupsController(this, geckoView, menuButton, this);
         dialogs = new BrowserDialogs(this, tabManager, history);
-        delegates = new BrowserDelegates(this, this);
+        delegates = new BrowserDelegates(this, this, prompts);   // [H1] attaches prompts
 
         setupBackHandler();
         setupInputHandlers();
@@ -166,21 +198,50 @@ public class MainActivity extends Activity
     private void setupBackHandler() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
+                android.window.OnBackInvokedCallback cb = this::handleBackAction;
+                backCallback = cb;
                 getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                        android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                        this::handleBackAction);
-            } catch (Exception e) { Log.w(TAG, "register back callback failed", e); }
+                        android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb);
+            } catch (Exception e) {
+                Log.w(TAG, "register back callback failed", e);
+            }
         }
     }
 
-    private void handleBackAction() {
-        if (suggestions != null) {
-            // If suggestions are visible, close them first.
-            // isHomePanelVisible() covers "no page loaded".
+    // [M1] Unregister on destroy; the dispatcher otherwise keeps a strong
+    // reference to the callback (and through it, this activity).
+    private void unregisterBackHandler() {
+        if (backCallback == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                        (android.window.OnBackInvokedCallback) backCallback);
+            } catch (Exception ignored) {
+            }
         }
+        backCallback = null;
+    }
+
+    private void handleBackAction() {
+        // [M1] Close the suggestion dropdown first. Previously it was ignored
+        // and back always fell through to page history.
+        if (suggestions != null && suggestions.isVisible()) {
+            suggestions.hide();
+            screen.hideKeyboard();
+            return;
+        }
+        // [M2] Home is now an overlay on top of the current page: back hides it
+        // instead of navigating. goHome() no longer loads about:blank, so the
+        // back/forward stacks are never polluted with blank entries.
         Tab t = tabManager.getActiveTab();
-        if (t != null && t.canGoBack) { t.session.goBack(); return; }
-        if (!screen.isHomePanelVisible()) { goHome(); return; }
+        if (screen.isHomePanelVisible() && t != null && !t.url.isEmpty()) {
+            screen.showHomePanel(false);
+            return;
+        }
+        if (t != null && t.canGoBack) {
+            t.session.goBack();
+            return;
+        }
         showExitConfirmation();
     }
 
@@ -211,6 +272,9 @@ public class MainActivity extends Activity
         TabPersistence.Restored disk = TabPersistence.load(this);
         if (!disk.states.isEmpty()) {
             for (GeckoSession.SessionState s : disk.states) addNewTab(s);
+            // [M5] disk.activeIndex is now the index *within the saved array*
+            // (tabs without state are skipped when saving), so this maps to the
+            // correct restored tab instead of drifting past the end.
             tabManager.switchTo(Math.min(disk.activeIndex, tabManager.count() - 1));
             screen.showHomePanel(false);
             return;
@@ -229,10 +293,9 @@ public class MainActivity extends Activity
     }
 
     private void goHome() {
-        Tab t = tabManager.getActiveTab();
-        if (t == null) return;
-        t.url = "";
-        t.session.loadUri("about:blank");
+        // [M2] Pure overlay: keep the page (and its history) alive underneath.
+        // The old t.session.loadUri("about:blank") pushed a blank entry onto
+        // the history stack on every Home press.
         suggestions.setText("");
         screen.showHomePanel(true);
     }
@@ -267,6 +330,7 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     // Toolbar / tab count
     // ------------------------------------------------------------------
+    @Override
     public void updateToolbarState() {
         Tab t = tabManager.getActiveTab();
         runOnUiThread(() -> {
@@ -292,7 +356,7 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     private void showExitConfirmation() {
         dialogs.showExitConfirmation(() -> {
-            persistAllTabs();
+            persistence.persistNow(tabManager);    // [H2] final synchronous snapshot
             finishAndRemoveTask();
         });
     }
@@ -302,6 +366,8 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     @Override
     public void onTabsChanged() {
+        // [C4] Never resurrect tabs while the activity is being destroyed.
+        if (destroyed) return;
         updateTabCount();
         if (tabManager.count() == 0) newTab();
     }
@@ -360,10 +426,15 @@ public class MainActivity extends Activity
 
     @Override
     public void persistAllTabs() {
-        // Same synchronous call, same threads, same semantics as before.
-        TabPersistence.save(this, tabManager);
+        // [H2] Called from onSessionStateChange for every navigation/scroll/form
+        // change. The old implementation synchronously serialized every tab on
+        // the main thread (Parcel -> Base64 -> JSON -> SharedPreferences), which
+        // froze the UI under load. Now debounced and written on a worker thread.
+        if (persistence != null && tabManager != null) {
+            persistence.scheduleSave(tabManager);
+        }
     }
-                
+
     @Override public void removeFlashGuard() { screen.removeFlashGuard(); }
     @Override public void setProgressBarVisible(boolean visible) {
         screen.setProgressBarVisible(visible);
@@ -380,12 +451,120 @@ public class MainActivity extends Activity
         t.session.loadUri(uri);
         return t;
     }
+
+    // [H5] Real load progress for the progress bar (onProgressChange).
+    @Override public void setLoadProgress(int progress) {
+        screen.setProgress(progress);
+    }
+
+    // [H4] URL bar / home panel follow redirects and SPA navigations.
+    @Override public void onTabLocationChanged(Tab tab, String url) {
+        if (destroyed || tab == null || tab != tabManager.getActiveTab()) return;
+        boolean blank = url == null || url.isEmpty() || "about:blank".equals(url);
+        screen.showHomePanel(blank);
+        if (!blank && !urlBar.hasFocus()) suggestions.setText(url);
+        updateToolbarState();
+    }
+
+    // [H3] Media (camera/microphone) permission requests now go through a
+    // user-visible dialog instead of being granted silently.
+    @Override public void showMediaPermissionDialog(String uri,
+            GeckoSession.PermissionDelegate.MediaSource[] video,
+            GeckoSession.PermissionDelegate.MediaSource[] audio,
+            GeckoSession.PermissionDelegate.MediaCallback callback) {
+        dialogs.showMediaPermissionDialog(uri, video, audio, callback);
+    }
+
+    // [M3] Non-web schemes (mailto:, tel:, intent:, market:, ...) are handed to
+    // the system instead of failing inside Gecko.
+    @Override public void openExternalUri(String uri) {
+        if (uri == null || destroyed) return;
+        try {
+            if (uri.startsWith("intent:")) {
+                Intent parsed = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
+                try {
+                    startActivity(parsed);
+                } catch (Exception e) {
+                    String fallback = parsed.getStringExtra("browser_fallback_url");
+                    if (fallback != null) {
+                        navigateToUrl(fallback);
+                        return;
+                    }
+                    throw e;
+                }
+            } else {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "No app can open this link", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // [M3] Real downloads: ContentDelegate.onExternalResponse routes the file
+    // to the system DownloadManager.
+    @Override public void downloadFile(String url, String mime, String contentDisposition) {
+        if (url == null || destroyed) return;
+        try {
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            if (mime != null && !mime.isEmpty()) request.setMimeType(mime);
+            request.setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            String name = fileNameFor(url, contentDisposition);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) throw new IllegalStateException("DownloadManager unavailable");
+            dm.enqueue(request);
+            Toast.makeText(this, "Downloading " + name, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Download failed", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private static String fileNameFor(String url, String disposition) {
+        String name = null;
+        if (disposition != null) {
+            Matcher m = Pattern.compile("filename\\*?=\"?([^\";]+)\"?").matcher(disposition);
+            if (m.find()) {
+                name = m.group(1);
+                int apostrophe = name.indexOf("''");      // RFC 5987: UTF-8''name
+                if (apostrophe >= 0) name = name.substring(apostrophe + 2);
+            }
+        }
+        if (name == null || name.trim().isEmpty()) {
+            try {
+                name = Uri.parse(url).getLastPathSegment();
+            } catch (Exception ignored) {
+            }
+        }
+        if (name == null || name.trim().isEmpty()) name = "download";
+        name = name.replaceAll("[/\\\\:;\"']", "_").trim();
+        return name.isEmpty() ? "download" : name;
+    }
+
+    // [M9] Content process killed or crashed: the session is closed and unusable,
+    // but may be recovered by open() + reload (no state preserved). Previously the
+    // app just kept showing a dead view with no way to recover.
+    @Override public void onSessionGone(Tab tab) {
+        if (destroyed || tab == null) return;
+        final String url = tab.url;
+        try {
+            tab.session.open(sRuntime);
+            if (url != null && !url.isEmpty() && !url.startsWith("about:")) {
+                tab.session.loadUri(url);
+            }
+            if (tab == tabManager.getActiveTab()) {
+                geckoView.setSession(tab.session);
+            }
+            Toast.makeText(this, "Tab was killed by the system \u2014 reopened",
+                    Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.w(TAG, "session recovery failed", e);
+        }
+    }
+
+    // [M7] Robust Android permission handling: one request code per callback.
     @Override public void requestAndroidPermissions(
             String[] permissions, GeckoSession.PermissionDelegate.Callback callback) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            callback.grant();
-            return;
-        }
         boolean allGranted = true;
         for (String p : permissions) {
             if (checkSelfPermission(p)
@@ -396,16 +575,34 @@ public class MainActivity extends Activity
         }
         if (allGranted) {
             callback.grant();
-        } else {
-            pendingPermissionCallback = callback;
-            requestPermissions(permissions, REQ_ANDROID_PERMS);
+            return;
+        }
+        final int code = nextPermissionRequest++;
+        permissionCallbacks.put(code, callback);
+        requestPermissions(permissions, code);
+    }
+
+    // [S3] POST_NOTIFICATIONS is declared in the manifest but was never requested;
+    // site notifications silently failed on Android 13+.
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                    nextPermissionRequest++);   // no Gecko callback attached
         }
     }
+
     @Override public void showContentPermissionDialog(
-            String uri, int type, org.mozilla.geckoview.GeckoResult<Integer> result) {
-        dialogs.showContentPermissionDialog(uri, type, result);
+            String uri, int type, GeckoResult<Integer> result) {
+        Runnable onAllowed =
+                (type == GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION)
+                        ? this::ensureNotificationPermission
+                        : null;
+        dialogs.showContentPermissionDialog(uri, type, result, onAllowed);
     }
-                
+
     @Override public void onPageStarted(Tab tab, String url) {
         if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
             suggestions.setText(url);
@@ -420,24 +617,42 @@ public class MainActivity extends Activity
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != REQ_ANDROID_PERMS || pendingPermissionCallback == null) return;
-        boolean granted = grantResults.length > 0;
-        for (int r : grantResults) {
-            if (r != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                granted = false;
-                break;
+        GeckoSession.PermissionDelegate.Callback callback = permissionCallbacks.get(requestCode);
+        if (callback == null) return;   // e.g. the POST_NOTIFICATIONS request above
+        permissionCallbacks.remove(requestCode);
+        boolean granted = grantResults != null && grantResults.length > 0;
+        if (granted) {
+            for (int r : grantResults) {
+                if (r != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    granted = false;
+                    break;
+                }
             }
         }
-        if (granted) pendingPermissionCallback.grant();
-        else pendingPermissionCallback.reject();
-        pendingPermissionCallback = null;
+        if (granted) callback.grant();
+        else callback.reject();
+    }
+
+    // [H1] File picker results come back here and are forwarded to BrowserPrompts.
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (prompts != null) {
+            prompts.handleActivityResult(requestCode, resultCode, data);
+        }
     }
 
     // ------------------------------------------------------------------
-    // Lifecycle — persistence calls preserved verbatim
+    // Lifecycle
     // ------------------------------------------------------------------
-    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabs(); }
-    @Override public void onLowMemory() { super.onLowMemory(); persistAllTabs(); }
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (persistence != null && tabManager != null) persistence.persistNow(tabManager);
+    }
+    @Override public void onLowMemory() {
+        super.onLowMemory();
+        if (persistence != null && tabManager != null) persistence.persistNow(tabManager);
+    }
 
     @Override protected void onResume() {
         super.onResume();
@@ -449,7 +664,7 @@ public class MainActivity extends Activity
     }
 
     @Override protected void onPause() {
-        persistAllTabs();
+        if (persistence != null && tabManager != null) persistence.persistNow(tabManager);
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         if (t != null) {
             t.session.setActive(false);
@@ -458,10 +673,14 @@ public class MainActivity extends Activity
         super.onPause();
     }
 
-    @Override protected void onStop() { persistAllTabs(); super.onStop(); }
+    @Override protected void onStop() {
+        if (persistence != null && tabManager != null) persistence.persistNow(tabManager);
+        super.onStop();
+    }
 
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
+        if (tabManager == null) return;
         List<GeckoSession.SessionState> states = new ArrayList<>();
         for (Tab t : tabManager.getTabs()) {
             if (t.latestState != null) states.add(t.latestState);
@@ -470,11 +689,19 @@ public class MainActivity extends Activity
         sPersistedActiveIndex = tabManager.getActiveIndex();
     }
 
-    @Override protected void onDestroy() {
+    @Override
+    protected void onDestroy() {
+        destroyed = true;                                  // [C4] guard first
+        unregisterBackHandler();                           // [M1]
         if (popups != null) popups.dismissAll();
+        if (dialogs != null) dialogs.dismissAll();         // [M8] no leaked windows
+        if (prompts != null) prompts.dismissAll();         // [M8]
         if (suggestions != null) suggestions.dispose();
-        if (geckoView != null) geckoView.setSession(null);
+        // [C3] Do NOT call geckoView.setSession(null) — the parameter is
+        // @NonNull in GeckoView, and passing null crashed the app on every
+        // exit. The sessions are closed below; the view is being torn down.
         if (tabManager != null) tabManager.closeAll();
+        if (persistence != null) persistence.shutdown();   // [H2]
         if (history != null) history.close();
         super.onDestroy();
     }
