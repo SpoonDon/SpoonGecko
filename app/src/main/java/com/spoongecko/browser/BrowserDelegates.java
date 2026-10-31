@@ -34,7 +34,7 @@ public final class BrowserDelegates {
         void showContextMenu(int x, int y,
                              GeckoSession.ContentDelegate.ContextElement element);
         void setFullScreen(boolean fullScreen);
-        Tab createTabAndLoad(String uri);
+        Tab createNewSessionTab();                                           // [F6]
         void requestAndroidPermissions(String[] permissions,
                                        GeckoSession.PermissionDelegate.Callback callback);
         void showContentPermissionDialog(String uri, int type, GeckoResult<Integer> result);
@@ -250,11 +250,14 @@ public final class BrowserDelegates {
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String finalUri) {
-                final String target = (finalUri == null || finalUri.isEmpty())
-                        ? "about:blank" : finalUri;
+                // [F6] Per the NavigationDelegate contract: "The URI is provided
+                // only for informational purposes. Do not call load here" —
+                // GeckoView loads finalUri into the returned session itself.
+                // The old code pre-loaded it (createTabAndLoad), producing a
+                // duplicate load for every target=_blank / window.open.
                 final GeckoResult<GeckoSession> result = new GeckoResult<>();
                 activity.runOnUiThread(() -> {
-                    Tab newTab = host.createTabAndLoad(target);
+                    Tab newTab = host.createNewSessionTab();
                     result.complete(newTab.session);
                 });
                 return result;
