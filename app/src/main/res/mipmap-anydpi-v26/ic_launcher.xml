@@ -1,6 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  [C1] Fixed adaptive launcher icon.
+
+  The old file referenced three mipmap resources that do not exist in any
+  mipmap folder (@mipmap/ic_launcher_background, @mipmap/ic_launcher_foreground,
+  @mipmap/ic_launcher_monochrome), which made AAPT2 fail the whole build with
+  "resource mipmap/ic_launcher_background not found".
+
+  The launcher PNGs (ic_launcher.png / ic_launcher_round.png) DO exist in the
+  mipmap-*dpi folders, so they are used directly as the foreground and
+  monochrome layers, and the background points at the color that already
+  exists in values/ic_launcher_background.xml.
+
+  NOTE: since minSdk is 26, this adaptive icon is the ONLY icon Android will
+  ever use — the legacy PNGs act as the foreground layer and will be slightly
+  masked by round launchers (standard practice when only legacy icons exist).
+
+  If you additionally ship ic_launcher_foreground.png (and/or
+  ic_launcher_monochrome.png) in the mipmap-*dpi folders, swap the two lines
+  below to reference them instead:
+      <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+      <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-  <background android:drawable="@mipmap/ic_launcher_background"/>
-  <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-  <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher"/>
+    <monochrome android:drawable="@mipmap/ic_launcher"/>
 </adaptive-icon>
