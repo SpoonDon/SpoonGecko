@@ -67,6 +67,10 @@ public final class TabPersistence {
         this.appContext = ctx.getApplicationContext();
     }
 
+    public static void save(Context ctx, TabManager tabManager) {
+        new TabPersistence(ctx).persistNow(tabManager);
+    }
+
     /** Debounced save — safe to call from onSessionStateChange storms. */
     public void scheduleSave(TabManager tabManager) {
         if (shutdown) return;
