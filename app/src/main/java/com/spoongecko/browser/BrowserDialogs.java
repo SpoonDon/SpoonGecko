@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.BaseAdapter;
+import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 
@@ -76,6 +77,7 @@ public final class BrowserDialogs {
 
         TabListAdapter adapter = new TabListAdapter(d, list);
         list.setAdapter(adapter);
+        capListHeight(list, dp(360));                 // [F10]
         list.setOnItemClickListener((parent, view, pos1, id) -> {
             onTabSelected.accept(pos1);
             d.dismiss();
@@ -108,6 +110,7 @@ public final class BrowserDialogs {
         List<HistoryStore.Entry> entries = history.recent(100);
         ItemAdapter adapter = new ItemAdapter(d, entries);
         list.setAdapter(adapter);
+        capListHeight(list, dp(360));                 // [F10]
         list.setOnItemClickListener((parent, view, pos1, id) -> {
             onNavigate.accept(adapter.getItem(pos1).url);
             d.dismiss();
@@ -299,6 +302,34 @@ public final class BrowserDialogs {
             pos.setTextColor(0xFFFFFFFF);
             pos.setBackgroundResource(R.drawable.bg_glass_button);
         }
+    }
+
+    /**
+     * [F10] ListView ignores android:maxHeight, and a 0dp/weighted ListView
+     * inside a wrap_content dialog grows with its content — a long tab or
+     * history list made the dialog taller than the screen. Measure the rows
+     * and clamp the height here instead.
+     */
+    private void capListHeight(ListView list, int maxPx) {
+        if (list == null || maxPx <= 0) return;
+        ListAdapter adapter = list.getAdapter();
+        if (adapter == null) {
+            list.getLayoutParams().height = maxPx;
+            return;
+        }
+        int total = 0;
+        View row = null;
+        for (int i = 0; i < adapter.getCount() && total < maxPx; i++) {
+            row = adapter.getView(i, row, list);
+            row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            total += row.getMeasuredHeight();
+        }
+        if (total == 0) total = maxPx;
+        list.getLayoutParams().height = Math.min(total, maxPx);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * activity.getResources().getDisplayMetrics().density);
     }
 
     // ------------------------------------------------------------------
