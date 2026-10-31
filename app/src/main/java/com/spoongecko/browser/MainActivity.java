@@ -40,6 +40,7 @@ public class MainActivity extends Activity
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
     private static final int REQ_ANDROID_PERMS = 0x5151;
+    private static final int REQ_POST_NOTIFICATIONS = 0x5152;   // [F12]
 
     private static GeckoRuntime sRuntime;
     private static List<GeckoSession.SessionState> sPersistedStates;
@@ -48,6 +49,7 @@ public class MainActivity extends Activity
     private TabManager tabManager;
     private GeckoView geckoView;
     private HistoryStore history;
+    private TabPersistence tabPersistence;   // [P1] one reusable instance
 
     private EditText urlBar;
     private EditText searchBar;
@@ -64,6 +66,7 @@ public class MainActivity extends Activity
     private BrowserDelegates delegates;
 
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
+    private android.window.OnBackInvokedCallback backCallback;   // [F2]
 
     /** True while this activity is being destroyed — blocks tab revival below. */
     private boolean destroying = false;
@@ -97,6 +100,7 @@ public class MainActivity extends Activity
 
         geckoView.setBackgroundColor(android.graphics.Color.BLACK);
         history = new HistoryStore(this);
+        tabPersistence = new TabPersistence(this);   // [P1]
 
         screen = new ScreenController(this);
         screen.makeImmersive();
@@ -179,17 +183,32 @@ public class MainActivity extends Activity
     private void setupBackHandler() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
+                backCallback = this::handleBackAction;                        // [F2]
                 getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                         android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                        this::handleBackAction);
+                        backCallback);
             } catch (Exception e) { Log.w(TAG, "register back callback failed", e); }
         }
     }
 
+    /** [F2] The callback used to stay registered (and keep this activity
+     *  referenced) after destroy. */
+    private void unregisterBackCallback() {
+        if (backCallback == null) return;
+        try {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
+        } catch (Exception ignored) {
+        }
+        backCallback = null;
+    }
+
     private void handleBackAction() {
-        if (suggestions != null) {
-            // If suggestions are visible, close them first.
-            // isHomePanelVisible() covers "no page loaded".
+        // [F3] This used to be a dead comment — the dropdown was never closed.
+        if (suggestions != null && suggestions.isVisible()) {
+            suggestions.hide();
+            urlBar.clearFocus();
+            screen.hideKeyboard();
+            return;
         }
         Tab t = tabManager.getActiveTab();
         if (t != null && t.canGoBack) { t.session.goBack(); return; }
@@ -306,7 +325,7 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     private void showExitConfirmation() {
         dialogs.showExitConfirmation(() -> {
-            persistAllTabs();
+            persistNow();               // [P1] immediate (non-debounced) save
             finishAndRemoveTask();
         });
     }
@@ -323,7 +342,13 @@ public class MainActivity extends Activity
 
     @Override
     public void onActiveTabChanged(Tab tab) {
-        if (tab == null) return;
+        if (tab == null) {
+            // [F8] All tabs are gone (e.g. closeAll during teardown): drop the
+            // stale "active session" reference in the extension controller,
+            // otherwise it keeps a closed GeckoSession alive.
+            ExtensionManager.get().setActiveSession(null);
+            return;
+        }
         geckoView.setSession(tab.session);
         CompositorController cc = tab.session.getCompositorController();
         if (cc != null) cc.setClearColor(android.graphics.Color.BLACK);
@@ -365,6 +390,7 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     @Override
     public GeckoSession openExtensionTab(String url) {
+        // WebExtension tabs.create: the embedder IS responsible for loading.
         Tab t = addNewTab(null);
         if (url != null && !url.isEmpty()) t.session.loadUri(url);
         return t.session;
@@ -389,19 +415,28 @@ public class MainActivity extends Activity
 
     @Override
     public void persistAllTabs() {
-        // Same synchronous call, same threads, same semantics as before.
-        TabPersistence.save(this, tabManager);
+        // [P1] Hot path (every onSessionStateChange / onPageStop). The old
+        // implementation built a brand-new TabPersistence — and a fresh executor
+        // thread — on every call. Debounced on one reusable instance instead.
+        if (tabPersistence != null) tabPersistence.scheduleSave(tabManager);
+    }
+
+    /** Immediate (non-debounced) save — used at lifecycle points and on exit. */
+    private void persistNow() {
+        if (tabPersistence != null && tabManager != null) {
+            tabPersistence.persistNow(tabManager);
+        }
     }
 
     @Override public void removeFlashGuard() { screen.removeFlashGuard(); }
     @Override public void setProgressBarVisible(boolean visible) {
         screen.setProgressBarVisible(visible);
     }
-    
+
     @Override public void setLoadProgress(int progress) {
         screen.setProgress(progress);
     }
-    
+
     @Override public void showContextMenu(int x, int y,
                                           GeckoSession.ContentDelegate.ContextElement element) {
         popups.showContextMenu(x, y, element);
@@ -409,11 +444,15 @@ public class MainActivity extends Activity
     @Override public void setFullScreen(boolean fullScreen) {
         screen.setFullScreenMode(fullScreen);
     }
-    @Override public Tab createTabAndLoad(String uri) {
-        Tab t = addNewTab(null);
-        t.session.loadUri(uri);
-        return t;
+
+    @Override public Tab createNewSessionTab() {
+        // [F6] GeckoView loads the URI into the returned session itself
+        // (onNewSession contract: "The URI is provided only for informational
+        // purposes. Do not call load here."). The old createTabAndLoad()
+        // pre-loaded it and caused a duplicate load on every target=_blank.
+        return addNewTab(null);
     }
+
     @Override public void requestAndroidPermissions(
             String[] permissions, GeckoSession.PermissionDelegate.Callback callback) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -435,9 +474,22 @@ public class MainActivity extends Activity
             requestPermissions(permissions, REQ_ANDROID_PERMS);
         }
     }
+
     @Override public void showContentPermissionDialog(
             String uri, int type, org.mozilla.geckoview.GeckoResult<Integer> result) {
-        dialogs.showContentPermissionDialog(uri, type, result);
+        // [F12] On Android 13+ the site permission alone is not enough for
+        // notifications; ask for the POST_NOTIFICATIONS runtime grant right
+        // after the user taps "Allow".
+        Runnable onAllowed = null;
+        if (type == GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            onAllowed = () -> requestPermissions(
+                    new String[]{"android.permission.POST_NOTIFICATIONS"},
+                    REQ_POST_NOTIFICATIONS);
+        }
+        dialogs.showContentPermissionDialog(uri, type, result, onAllowed);
     }
 
     @Override public void showMediaPermissionDialog(String uri,
@@ -476,10 +528,21 @@ public class MainActivity extends Activity
     }
 
     @Override public void onSessionGone(Tab tab) {
+        // [F7] The old version always added an extra tab on top of the one the
+        // TabManager.Listener already revives when the last tab closes, and had
+        // no guard against running during teardown.
+        if (destroying || tabManager == null) return;
+        final String lastUrl = tab.url;
         int idx = tabManager.getTabs().indexOf(tab);
-        if (idx >= 0) tabManager.closeTab(idx);
-        Tab newTab = addNewTab(null);
-        if (tab.url != null && !tab.url.isEmpty()) newTab.session.loadUri(tab.url);
+        if (idx >= 0) tabManager.closeTab(idx);   // may revive a fresh tab via onTabsChanged
+        Tab replacement = tabManager.getActiveTab();
+        if (replacement == null) return;
+        // Only reload the crashed page into a *fresh* tab; never hijack another
+        // existing tab that just became active.
+        if (lastUrl != null && !lastUrl.isEmpty() && replacement.url.isEmpty()) {
+            replacement.session.loadUri(lastUrl);
+        }
+        updateToolbarState();
     }
 
     @Override public void onPageStarted(Tab tab, String url) {
@@ -496,6 +559,7 @@ public class MainActivity extends Activity
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_POST_NOTIFICATIONS) return;   // [F12] best effort
         if (requestCode != REQ_ANDROID_PERMS || pendingPermissionCallback == null) return;
         boolean granted = grantResults.length > 0;
         for (int r : grantResults) {
@@ -520,8 +584,8 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     // Lifecycle — persistence calls preserved verbatim
     // ------------------------------------------------------------------
-    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabs(); }
-    @Override public void onLowMemory() { super.onLowMemory(); persistAllTabs(); }
+    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistNow(); }
+    @Override public void onLowMemory() { super.onLowMemory(); persistNow(); }
 
     @Override protected void onResume() {
         super.onResume();
@@ -534,7 +598,7 @@ public class MainActivity extends Activity
     }
 
     @Override protected void onPause() {
-        persistAllTabs();
+        persistNow();
         ExtensionManager.get().setCurrentActivity(null);
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         if (t != null) {
@@ -544,7 +608,7 @@ public class MainActivity extends Activity
         super.onPause();
     }
 
-    @Override protected void onStop() { persistAllTabs(); super.onStop(); }
+    @Override protected void onStop() { persistNow(); super.onStop(); }
 
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
@@ -558,16 +622,26 @@ public class MainActivity extends Activity
 
     @Override protected void onDestroy() {
         destroying = true;
+        // Final tab snapshot BEFORE the sessions are closed.
+        persistNow();
         if (popups != null) popups.dismissAll();
         if (suggestions != null) suggestions.dispose();
-        // Fix for the exit crash (C3): GeckoView.setSession() is @NonNull and
-        // throws on null — the view is being torn down, nothing to detach.
+        // [F1] The [M8] dismissal machinery existed but was never called from
+        // here — a dialog open during destroy crashed with WindowLeaked.
+        if (dialogs != null) dialogs.dismissAll();
+        if (prompts != null) prompts.dismissAll();
+        if (pendingPermissionCallback != null) {
+            try { pendingPermissionCallback.reject(); } catch (Exception ignored) {}
+            pendingPermissionCallback = null;
+        }
+        unregisterBackCallback();                 // [F2]
         if (tabManager != null) {
-            tabManager.setListener(null);   // fix for the destroy-revive loop (C4)
+            tabManager.setListener(null);         // fix for the destroy-revive loop (C4)
             tabManager.closeAll();
         }
         if (history != null) history.close();
         ExtensionManager.get().onActivityDestroyed(this);
+        if (tabPersistence != null) tabPersistence.shutdown();   // [P1] drain queued writes
         super.onDestroy();
     }
 
