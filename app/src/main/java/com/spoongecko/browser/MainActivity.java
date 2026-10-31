@@ -1,11 +1,14 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.app.DownloadManager;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -13,6 +16,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.webkit.URLUtil;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -56,6 +60,7 @@ public class MainActivity extends Activity
     private SuggestionsController suggestions;
     private PopupsController popups;
     private BrowserDialogs dialogs;
+    private BrowserPrompts prompts;
     private BrowserDelegates delegates;
 
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
@@ -107,7 +112,8 @@ public class MainActivity extends Activity
 
         popups = new PopupsController(this, geckoView, menuButton, this);
         dialogs = new BrowserDialogs(this, tabManager, history);
-        delegates = new BrowserDelegates(this, this);
+        prompts = new BrowserPrompts(this);
+        delegates = new BrowserDelegates(this, this, prompts);
 
         setupBackHandler();
         setupInputHandlers();
@@ -268,12 +274,13 @@ public class MainActivity extends Activity
     }
 
     private static String urlEncode(String s) {
-        return android.net.Uri.encode(s);
+        return Uri.encode(s);
     }
 
     // ------------------------------------------------------------------
     // Toolbar / tab count
     // ------------------------------------------------------------------
+    @Override
     public void updateToolbarState() {
         Tab t = tabManager.getActiveTab();
         runOnUiThread(() -> {
@@ -390,6 +397,11 @@ public class MainActivity extends Activity
     @Override public void setProgressBarVisible(boolean visible) {
         screen.setProgressBarVisible(visible);
     }
+    
+    @Override public void setLoadProgress(int progress) {
+        screen.setProgress(progress);
+    }
+    
     @Override public void showContextMenu(int x, int y,
                                           GeckoSession.ContentDelegate.ContextElement element) {
         popups.showContextMenu(x, y, element);
@@ -428,6 +440,48 @@ public class MainActivity extends Activity
         dialogs.showContentPermissionDialog(uri, type, result);
     }
 
+    @Override public void showMediaPermissionDialog(String uri,
+            GeckoSession.PermissionDelegate.MediaSource[] video,
+            GeckoSession.PermissionDelegate.MediaSource[] audio,
+            GeckoSession.PermissionDelegate.MediaCallback callback) {
+        dialogs.showMediaPermissionDialog(uri, video, audio, callback);
+    }
+
+    @Override public void onTabLocationChanged(Tab tab, String url) {
+        if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
+            suggestions.setText(url);
+        }
+    }
+
+    @Override public void openExternalUri(String uri) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
+        } catch (Exception e) {
+            Log.e(TAG, "open external uri failed", e);
+        }
+    }
+
+    @Override public void downloadFile(String url, String mime, String contentDisposition) {
+        try {
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+            if (mime != null) req.setMimeType(mime);
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            String fileName = URLUtil.guessFileName(url, contentDisposition, mime);
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+            dm.enqueue(req);
+        } catch (Exception e) {
+            Log.e(TAG, "download failed", e);
+        }
+    }
+
+    @Override public void onSessionGone(Tab tab) {
+        int idx = tabManager.getTabs().indexOf(tab);
+        if (idx >= 0) tabManager.closeTab(idx);
+        Tab newTab = addNewTab(null);
+        if (tab.url != null && !tab.url.isEmpty()) newTab.session.loadUri(tab.url);
+    }
+
     @Override public void onPageStarted(Tab tab, String url) {
         if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
             suggestions.setText(url);
@@ -453,6 +507,14 @@ public class MainActivity extends Activity
         if (granted) pendingPermissionCallback.grant();
         else pendingPermissionCallback.reject();
         pendingPermissionCallback = null;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (prompts != null && prompts.handleActivityResult(requestCode, resultCode, data)) {
+            return;
+        }
     }
 
     // ------------------------------------------------------------------
