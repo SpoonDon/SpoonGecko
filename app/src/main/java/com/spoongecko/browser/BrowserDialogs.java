@@ -22,19 +22,41 @@ import java.util.function.Consumer;
 
 /**
  * Constructs and shows every dialog used by the browser: tab list, history,
- * exit confirmation, and the content-permission prompt. Each method is
- * self-contained; no shared state between dialogs.
+ * exit confirmation, the content-permission prompt and the media
+ * (camera/microphone) permission prompt.
+ *
+ * [M8] Every shown dialog is tracked and can be dismissed in bulk from
+ * MainActivity.onDestroy(), so no window is leaked when the activity dies
+ * with a dialog on screen (which used to crash with
+ * "android.view.WindowLeaked" / "has leaked window").
  */
 public final class BrowserDialogs {
 
     private final Activity activity;
     private final TabManager tabManager;
     private final HistoryStore history;
+    private final List<Dialog> activeDialogs = new ArrayList<>();   // [M8]
 
     public BrowserDialogs(Activity activity, TabManager tabManager, HistoryStore history) {
         this.activity = activity;
         this.tabManager = tabManager;
         this.history = history;
+    }
+
+    private void track(Dialog d) {
+        activeDialogs.add(d);
+        d.setOnDismissListener(x -> activeDialogs.remove(d));
+    }
+
+    /** [M8] Dismiss everything still showing; called from onDestroy(). */
+    public void dismissAll() {
+        for (Dialog d : new ArrayList<>(activeDialogs)) {
+            try {
+                if (d.isShowing()) d.dismiss();
+            } catch (Exception ignored) {
+            }
+        }
+        activeDialogs.clear();
     }
 
     // ------------------------------------------------------------------
@@ -64,6 +86,7 @@ public final class BrowserDialogs {
         pos.setText("New tab");
         pos.setOnClickListener(v -> { onNewTab.run(); d.dismiss(); });
 
+        track(d);                                   // [M8]
         d.show();
     }
 
@@ -99,6 +122,7 @@ public final class BrowserDialogs {
             d.dismiss();
         });
 
+        track(d);                                   // [M8]
         d.show();
     }
 
@@ -120,14 +144,28 @@ public final class BrowserDialogs {
         TextView exit = d.findViewById(R.id.btn_exit);
         cancel.setOnClickListener(v -> d.dismiss());
         exit.setOnClickListener(v -> { d.dismiss(); onConfirmExit.run(); });
+
+        track(d);                                   // [M8]
         d.show();
         return d;
     }
 
     // ------------------------------------------------------------------
-    // Content permission
+    // Content permission (geolocation, notifications, autoplay, ...)
     // ------------------------------------------------------------------
-    public void showContentPermissionDialog(String uri, int type, GeckoResult<Integer> result) {
+    public void showContentPermissionDialog(String uri, int type,
+                                            GeckoResult<Integer> result) {
+        showContentPermissionDialog(uri, type, result, null);
+    }
+
+    /**
+     * @param onAllowed optional hook run when the user taps "Allow" (used to
+     *                  request the Android POST_NOTIFICATIONS runtime permission
+     *                  for site notifications).
+     */
+    public void showContentPermissionDialog(String uri, int type,
+                                            GeckoResult<Integer> result,
+                                            Runnable onAllowed) {
         if (activity.isFinishing() || activity.isDestroyed()) {
             result.complete(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
             return;
@@ -162,16 +200,80 @@ public final class BrowserDialogs {
                 what = "this permission"; break;
         }
 
-        new AlertDialog.Builder(activity)
+        final Runnable hook = onAllowed;
+        final boolean[] answered = {false};
+        track(new AlertDialog.Builder(activity)
                 .setTitle("Permission request")
                 .setMessage(host + " wants to use " + what + ".")
-                .setPositiveButton("Allow", (dlg, w2) -> result.complete(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW))
-                .setNegativeButton("Block", (dlg, w2) -> result.complete(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY))
-                .setOnCancelListener(dlg -> result.complete(
-                        GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY))
-                .show();
+                .setPositiveButton("Allow", (dlg, w2) -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    result.complete(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW);
+                    if (hook != null) hook.run();          // [S3]
+                })
+                .setNegativeButton("Block", (dlg, w2) -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    result.complete(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                })
+                .setOnCancelListener(dlg -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    result.complete(
+                            GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY);
+                })
+                .show());
+    }
+
+    // ------------------------------------------------------------------
+    // Media permission (camera / microphone) — [H3]
+    // ------------------------------------------------------------------
+    public void showMediaPermissionDialog(String uri,
+            GeckoSession.PermissionDelegate.MediaSource[] video,
+            GeckoSession.PermissionDelegate.MediaSource[] audio,
+            GeckoSession.PermissionDelegate.MediaCallback callback) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            callback.reject();
+            return;
+        }
+
+        String host;
+        try { host = new java.net.URI(uri).getHost(); }
+        catch (Exception e) { host = uri; }
+        if (host == null) host = uri;
+
+        final boolean wantsCamera = video != null && video.length > 0;
+        final boolean wantsMic = audio != null && audio.length > 0;
+        String what;
+        if (wantsCamera && wantsMic) what = "use your camera and microphone";
+        else if (wantsCamera) what = "use your camera";
+        else if (wantsMic) what = "use your microphone";
+        else { callback.reject(); return; }
+
+        final boolean[] answered = {false};
+        track(new AlertDialog.Builder(activity)
+                .setTitle("Permission request")
+                .setMessage(host + " wants to " + what + ".")
+                .setPositiveButton("Allow", (dlg, w) -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    // MediaSource objects must be the originals from the request.
+                    callback.grant(wantsCamera ? video[0] : null,
+                            wantsMic ? audio[0] : null);
+                })
+                .setNegativeButton("Block", (dlg, w) -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    callback.reject();
+                })
+                .setOnCancelListener(dlg -> {
+                    if (answered[0]) return;
+                    answered[0] = true;
+                    callback.reject();
+                })
+                .show());
     }
 
     // ------------------------------------------------------------------
