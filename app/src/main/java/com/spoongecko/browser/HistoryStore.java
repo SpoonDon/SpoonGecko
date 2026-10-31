@@ -23,7 +23,7 @@ public class HistoryStore extends SQLiteOpenHelper {
     public HistoryStore(Context ctx) {
         super(ctx.getApplicationContext(), DB_NAME, null, DB_VERSION);
     }
-    
+
     @Override
     public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE " + TABLE + " (" +
@@ -68,24 +68,34 @@ public class HistoryStore extends SQLiteOpenHelper {
         List<Entry> out = new ArrayList<>();
         if (query == null || query.isEmpty()) return out;
         String like = "%" + query + "%";
-        Cursor c = getReadableDatabase().rawQuery(
-                "SELECT url, title FROM " + TABLE +
-                        " WHERE url LIKE ? OR title LIKE ?" +
-                        " ORDER BY visit_count DESC, last_visited DESC LIMIT ?",
-                new String[]{like, like, String.valueOf(limit)});
-        while (c.moveToNext()) out.add(new Entry(c.getString(0), c.getString(1)));
-        c.close();
+        // [L] Cursor closed in finally: an exception mid-iteration used to leak it.
+        Cursor c = null;
+        try {
+            c = getReadableDatabase().rawQuery(
+                    "SELECT url, title FROM " + TABLE +
+                            " WHERE url LIKE ? OR title LIKE ?" +
+                            " ORDER BY visit_count DESC, last_visited DESC LIMIT ?",
+                    new String[]{like, like, String.valueOf(limit)});
+            while (c.moveToNext()) out.add(new Entry(c.getString(0), c.getString(1)));
+        } finally {
+            if (c != null) c.close();
+        }
         return out;
     }
 
     public List<Entry> recent(int limit) {
         List<Entry> out = new ArrayList<>();
-        Cursor c = getReadableDatabase().rawQuery(
-                "SELECT url, title FROM " + TABLE +
-                        " ORDER BY last_visited DESC LIMIT ?",
-                new String[]{String.valueOf(limit)});
-        while (c.moveToNext()) out.add(new Entry(c.getString(0), c.getString(1)));
-        c.close();
+        // [L] Same finally-close fix.
+        Cursor c = null;
+        try {
+            c = getReadableDatabase().rawQuery(
+                    "SELECT url, title FROM " + TABLE +
+                            " ORDER BY last_visited DESC LIMIT ?",
+                    new String[]{String.valueOf(limit)});
+            while (c.moveToNext()) out.add(new Entry(c.getString(0), c.getString(1)));
+        } finally {
+            if (c != null) c.close();
+        }
         return out;
     }
 
