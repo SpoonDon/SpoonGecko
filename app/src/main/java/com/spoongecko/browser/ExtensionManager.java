@@ -608,10 +608,10 @@ public final class ExtensionManager {
             row.setOrientation(LinearLayout.HORIZONTAL);
             LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
             lp1.topMargin = dp(activity, 12);
-            lp1.marginEnd = dp(activity, 4);
+            lp1.setMarginEnd(dp(activity, 4));
             LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, dp(activity, 44), 1f);
             lp2.topMargin = dp(activity, 12);
-            lp2.marginStart = dp(activity, 4);
+            lp2.setMarginStart(dp(activity, 4));
             row.addView(reenable, lp1);
             row.addView(keep, lp2);
             content.addView(row);
@@ -743,7 +743,7 @@ public final class ExtensionManager {
                         }
                     });
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
-                    lp.marginEnd = dp(c, 6);
+                    lp.setMarginEnd(dp(c, 6));
                     container.addView(button, lp);
                     any = true;
                 }
@@ -912,10 +912,10 @@ public final class ExtensionManager {
         row.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, dp(c, 44), 1f);
         lp1.topMargin = dp(c, 12);
-        lp1.marginEnd = dp(c, 4);
+        lp1.setMarginEnd(dp(c, 4));
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, dp(c, 44), 1f);
         lp2.topMargin = dp(c, 12);
-        lp2.marginStart = dp(c, 4);
+        lp2.setMarginStart(dp(c, 4));
         row.addView(cancel, lp1);
         row.addView(confirm, lp2);
         content.addView(row);
