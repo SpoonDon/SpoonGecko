@@ -416,10 +416,12 @@ public class MainActivity extends Activity
     @Override public void setFullScreen(boolean fullScreen) {
         screen.setFullScreenMode(fullScreen);
     }
-    @Override public Tab createTabAndLoad(String uri) {
-        Tab t = addNewTab(null);
-        t.session.loadUri(uri);
-        return t;
+    // [F6] Contract of NavigationDelegate.onNewSession(): return a NEW,
+    // already-open session and DO NOT load the URI — GeckoView loads finalUri
+    // into the returned session itself. Pre-loading it here (the old
+    // createTabAndLoad) caused a duplicate load for every target=_blank link.
+    @Override public Tab createNewSessionTab() {
+        return addNewTab(null);
     }
     @Override public void requestAndroidPermissions(
             String[] permissions, GeckoSession.PermissionDelegate.Callback callback) {
