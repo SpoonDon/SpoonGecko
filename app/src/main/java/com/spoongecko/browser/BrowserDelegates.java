@@ -19,10 +19,16 @@ import java.util.Map;
 import java.util.Set;
 
 public final class BrowserDelegates {
-
     /** Schemes Gecko itself can load; everything else goes to the system. */
+    // [F10] "moz-extension" and "extension" MUST be in this list: every
+    // WebExtension page (uBlock Origin dashboard/options, Dark Reader
+    // settings, popup pages opened as tabs, ...) lives under these internal
+    // schemes. Without them onLoadRequest DENIED each such load, so the
+    // dashboard tab opened blank. Both spellings are allowed to cover
+    // whichever scheme the GeckoView version reports.
     private static final Set<String> BROWSER_SCHEMES = new HashSet<>(Arrays.asList(
-            "http", "https", "about", "data", "blob", "file", "ws", "wss", "javascript"));
+            "http", "https", "about", "data", "blob", "file", "ws", "wss", "javascript",
+            "moz-extension", "extension"));
 
     public interface Host {
         TabManager getTabManager();
