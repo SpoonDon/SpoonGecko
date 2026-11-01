@@ -14,14 +14,22 @@ android {
         versionName "0.0.1"
 
         ndk {
+            // GeckoView 158 ships arm64-v8a, armeabi-v7a and x86_64.
+            // arm64-v8a covers virtually every phone sold since 2018.
+            // If you ever need to run the app on a 32-bit phone or an x86_64
+            // emulator, add 'armeabi-v7a' or 'x86_64' here (bigger APK).
             abiFilters 'arm64-v8a'
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
+            // [STARTUP FIX] Code shrinking stays OFF until the app is
+            // confirmed launching on your device. Once it starts reliably,
+            // set both back to true — app/proguard-rules.pro is already
+            // prepared with the complete rule set.
+            minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
