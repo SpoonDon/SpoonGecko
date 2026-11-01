@@ -36,10 +36,16 @@ public class MainActivity extends Activity
         implements ComponentCallbacks2, TabManager.Listener,
                    BrowserDelegates.Host, PopupsController.Host,
                    SuggestionsController.Listener, ExtensionManager.Host {
-
+                
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
     private static final int REQ_ANDROID_PERMS = 0x5151;
+    // [F13] Keys for the saved-instance-state Bundle (string lists only —
+    // parceling SessionState through a Bundle would hit the broken CREATOR).
+    private static final String KEY_TAB_STATES = "tabs_states_v2";
+    private static final String KEY_TAB_URLS = "tabs_urls_v2";
+    private static final String KEY_TAB_TITLES = "tabs_titles_v2";
+    private static final String KEY_ACTIVE_TAB = "tabs_active_v2";
 
     private static GeckoRuntime sRuntime;
     private static List<GeckoSession.SessionState> sPersistedStates;
