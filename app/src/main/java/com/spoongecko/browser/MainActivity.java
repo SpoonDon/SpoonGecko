@@ -223,24 +223,74 @@ public class MainActivity extends Activity
         tabManager.notifyActiveChanged();
         return tab;
     }
-
+                
     private void restoreTabs(Bundle savedInstanceState) {
-        if (sPersistedStates != null && !sPersistedStates.isEmpty()) {
-            for (GeckoSession.SessionState s : sPersistedStates) addNewTab(s);
-            tabManager.switchTo(Math.min(sPersistedActiveIndex, tabManager.count() - 1));
-            sPersistedStates = null;
-            screen.showHomePanel(false);
-            return;
+        // [F13] Restore order:
+        //   1. savedInstanceState Bundle — survives process death AND activity
+        //      recreation (Android re-delivers it even after the process is
+        //      killed in the background). The old code ignored the Bundle
+        //      completely and used static fields, which die with the process.
+        //   2. Disk (TabPersistence) — survives the task being swiped away
+        //      and cold starts. Previously broken (Parcel round-trip), fixed.
+        //   3. Fresh tab with the home panel.
+        if (savedInstanceState != null && savedInstanceState.containsKey(KEY_TAB_STATES)) {
+            ArrayList<String> states = savedInstanceState.getStringArrayList(KEY_TAB_STATES);
+            ArrayList<String> urls = savedInstanceState.getStringArrayList(KEY_TAB_URLS);
+            ArrayList<String> titles = savedInstanceState.getStringArrayList(KEY_TAB_TITLES);
+            if (states != null && !states.isEmpty()) {
+                for (int i = 0; i < states.size(); i++) {
+                    String s = states.get(i);
+                    GeckoSession.SessionState st = null;
+                    if (s != null && !s.isEmpty()) {
+                        try { st = GeckoSession.SessionState.fromString(s); }
+                        catch (Exception ignored) {}
+                    }
+                    addRestoredTab(st,
+                            urls != null && i < urls.size() ? urls.get(i) : "",
+                            titles != null && i < titles.size() ? titles.get(i) : "");
+                }
+                tabManager.switchTo(Math.min(savedInstanceState.getInt(KEY_ACTIVE_TAB, 0),
+                        tabManager.count() - 1));
+                screen.showHomePanel(isActiveTabEmpty());
+                return;
+            }
         }
+
         TabPersistence.Restored disk = TabPersistence.load(this);
         if (!disk.states.isEmpty()) {
-            for (GeckoSession.SessionState s : disk.states) addNewTab(s);
+            for (int i = 0; i < disk.states.size(); i++) {
+                addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i));
+            }
             tabManager.switchTo(Math.min(disk.activeIndex, tabManager.count() - 1));
-            screen.showHomePanel(false);
+            screen.showHomePanel(isActiveTabEmpty());
             return;
         }
         addNewTab(null);
         screen.showHomePanel(true);
+    }
+
+    private boolean isActiveTabEmpty() {
+        Tab t = tabManager.getActiveTab();
+        return t == null || t.url == null || t.url.isEmpty();
+    }
+
+    /**
+     * [F13] Creates a tab from a saved state and immediately restores its
+     * url / title / latestState, so the URL bar, the home-panel visibility
+     * and the NEXT disk save are all correct from the very first frame.
+     * latestState in particular keeps the save chain unbroken: without it,
+     * a quick re-minimize before any page event would lose the tab again.
+     */
+    private Tab addRestoredTab(GeckoSession.SessionState state, String url, String title) {
+        Tab tab = tabManager.createTabWithState(state);
+        tab.url = url == null ? "" : url;
+        tab.title = title == null ? "" : title;
+        tab.latestState = state;
+        delegates.attach(tab);
+        tab.session.open(sRuntime);
+        tabManager.notifyTabsChanged();
+        tabManager.notifyActiveChanged();
+        return tab;
     }
 
     private void newTab() {
