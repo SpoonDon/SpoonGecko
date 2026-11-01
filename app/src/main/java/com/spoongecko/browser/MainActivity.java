@@ -623,15 +623,30 @@ public class MainActivity extends Activity
     }
 
     @Override protected void onStop() { persistAllTabs(); super.onStop(); }
-
+                
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
-        List<GeckoSession.SessionState> states = new ArrayList<>();
+        // [F13] Real data in the Bundle: string lists only (see TabPersistence
+        // for why SessionState must not be parceled through a Bundle). This is
+        // what brings the session back after the process is killed in the
+        // background; the old code stored everything in static fields, which
+        // die with the process, and relied on a broken disk restore.
+        ArrayList<String> states = new ArrayList<>();
+        ArrayList<String> urls = new ArrayList<>();
+        ArrayList<String> titles = new ArrayList<>();
         for (Tab t : tabManager.getTabs()) {
-            if (t.latestState != null) states.add(t.latestState);
+            String s = null;
+            if (t.latestState != null) {
+                try { s = t.latestState.toString(); } catch (Exception ignored) {}
+            }
+            states.add(s == null ? "" : s);
+            urls.add(t.url == null ? "" : t.url);
+            titles.add(t.title == null ? "" : t.title);
         }
-        sPersistedStates = states;
-        sPersistedActiveIndex = tabManager.getActiveIndex();
+        out.putStringArrayList(KEY_TAB_STATES, states);
+        out.putStringArrayList(KEY_TAB_URLS, urls);
+        out.putStringArrayList(KEY_TAB_TITLES, titles);
+        out.putInt(KEY_ACTIVE_TAB, tabManager.getActiveIndex());
     }
 
     @Override protected void onDestroy() {
