@@ -42,6 +42,10 @@ import java.util.List;
  * The "Add-ons manager" screen: list installed extensions with on/off
  * switches, install new ones (URL / quick add / local .xpi), update them,
  * back up and restore the installed set, and toggle automatic updates.
+ *
+ * [M8] Every dialog shown here is tracked and dismissed in bulk from
+ * onDestroy(), so none can outlive the activity and crash with
+ * "android.view.WindowLeaked" (same pattern as BrowserDialogs).
  */
 public class ExtensionsActivity extends Activity {
 
@@ -58,17 +62,9 @@ public class ExtensionsActivity extends Activity {
 
     private Adapter adapter;
     private TextView autoButton;
-
-    // [F5] Every dialog this activity shows is tracked and dismissed in
-    // onDestroy(); previously they could leak the window.
-    private final List<Dialog> activeDialogs = new ArrayList<>();
+    private final List<Dialog> activeDialogs = new ArrayList<>();   // [M8]
 
     private final ExtensionManager.Listener listener = this::onExtensionsChanged;
-
-    private void track(Dialog d) {
-        activeDialogs.add(d);
-        d.setOnDismissListener(x -> activeDialogs.remove(d));
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -136,9 +132,12 @@ public class ExtensionsActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // [F5] Dismiss everything still showing so no window is leaked.
+        // [M8] Dismiss everything still showing before the activity dies.
         for (Dialog d : new ArrayList<>(activeDialogs)) {
-            try { if (d.isShowing()) d.dismiss(); } catch (Exception ignored) {}
+            try {
+                if (d.isShowing()) d.dismiss();
+            } catch (Exception ignored) {
+            }
         }
         activeDialogs.clear();
         ExtensionManager.get().removeListener(listener);
@@ -164,6 +163,14 @@ public class ExtensionsActivity extends Activity {
     }
 
     // ------------------------------------------------------------------
+    // Dialog tracking ([M8])
+    // ------------------------------------------------------------------
+    private void trackDialog(Dialog d) {
+        activeDialogs.add(d);
+        d.setOnDismissListener(x -> activeDialogs.remove(d));
+    }
+
+    // ------------------------------------------------------------------
     // Install dialog
     // ------------------------------------------------------------------
 
@@ -178,9 +185,7 @@ public class ExtensionsActivity extends Activity {
         url.setHintTextColor(0x66FFFFFF);
         url.setTextSize(13);
         url.setSingleLine(true);
-        // [F11] TYPE_TEXT_VARIATION_URI alone has no class bits; the class
-        // flag must be set explicitly or the input type is invalid.
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         url.setBackgroundResource(R.drawable.bg_glass_input);
         LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
@@ -199,7 +204,6 @@ public class ExtensionsActivity extends Activity {
         content.addView(cancel);
 
         final AlertDialog dialog = glassDialog(new ScrollView(this), content);
-        track(dialog);                                   // [F5]
 
         install.setOnClickListener(v -> {
             String u = url.getText().toString().trim();
@@ -299,7 +303,6 @@ public class ExtensionsActivity extends Activity {
         content.addView(close);
 
         final AlertDialog dialog = glassDialog(new ScrollView(this), content);
-        track(dialog);                                   // [F5]
 
         update.setOnClickListener(v -> {
             dialog.dismiss();
@@ -315,13 +318,12 @@ public class ExtensionsActivity extends Activity {
         });
         remove.setOnClickListener(v -> {
             dialog.dismiss();
-            AlertDialog confirm = new AlertDialog.Builder(ExtensionsActivity.this)
+            trackDialog(new AlertDialog.Builder(ExtensionsActivity.this)
                     .setTitle("Remove " + ExtensionManager.displayName(ext) + "?")
                     .setMessage("The extension and its data will be removed.")
                     .setPositiveButton("Remove", (d, w) -> em.uninstall(ext, null))
                     .setNegativeButton("Cancel", null)
-                    .show();
-            track(confirm);                             // [F5]
+                    .show());
         });
         close.setOnClickListener(v -> dialog.dismiss());
     }
@@ -426,7 +428,6 @@ public class ExtensionsActivity extends Activity {
         TextView ok = button("OK", false);
         content.addView(ok);
         final AlertDialog dialog = glassDialog(new ScrollView(this), content);
-        track(dialog);                                   // [F5]
         ok.setOnClickListener(v -> dialog.dismiss());
     }
 
@@ -552,6 +553,7 @@ public class ExtensionsActivity extends Activity {
             dialog.getWindow().setBackgroundDrawable(
                     new ColorDrawable(android.graphics.Color.TRANSPARENT));
         }
+        trackDialog(dialog);                              // [M8]
         dialog.show();
         return dialog;
     }
