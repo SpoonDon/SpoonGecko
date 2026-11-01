@@ -347,8 +347,10 @@ public class MainActivity extends Activity
         runOnUiThread(() -> {
             boolean fwd = t != null && t.canGoForward;
             forwardButton.setAlpha(fwd ? 1f : 0.35f);
-            forwardButton.setEnabled(fwd);
-            if (t != null && !urlBar.hasFocus() && !t.url.isEmpty()) {
+            forwardButton.setEnabled(fwd);        
+            // [F14] Always mirror tab.url into the bar — also when empty —
+            // so a stale "about:blank" can never survive there.
+            if (t != null && !urlBar.hasFocus()) {
                 suggestions.setText(t.url);
             }
         });
