@@ -80,10 +80,16 @@ public final class ScreenController {
 
     public void removeFlashGuard() {
         activity.runOnUiThread(() -> {
-            if (flashGuard != null && flashGuard.getParent() != null) {
-                ((ViewGroup) flashGuard.getParent()).removeView(flashGuard);
-                flashGuard = null;
+            if (flashGuard == null) return;
+            if (flashGuard.getParent() != null) {
+                try {
+                    ((ViewGroup) flashGuard.getParent()).removeView(flashGuard);
+                } catch (Exception ignored) {
+                }
             }
+            // [fix] The field used to stay non-null when the guard had already
+            // been detached, so every later call re-posted a no-op runnable.
+            flashGuard = null;
         });
     }
 
