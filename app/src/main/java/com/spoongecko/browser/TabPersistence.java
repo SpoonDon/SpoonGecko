@@ -4,8 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Parcel;
-import android.util.Base64;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -19,28 +17,29 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * [H2] Tab persistence.
+ * [H2] Tab persistence — format 2.
  *
- * The old static implementation serialized every tab (Parcel -> Base64 ->
- * JSON -> SharedPreferences) synchronously on the calling thread — which was
- * the main thread, on every onSessionStateChange (navigation, scrolling, form
- * data...). Under load this froze the UI and risked ANRs.
+ * Session states are serialized with the DOCUMENTED pair
+ * SessionState.toString() / SessionState.fromString() — the same pair Firefox
+ * and android-components use.
  *
- * The replacement:
- *   - scheduleSave(): debounced (500 ms), coalesces the state-change storm.
- *   - persistNow():  takes a cheap snapshot on the caller thread, then does
- *                    all marshalling/writing on a single background thread.
- *   - load():        still synchronous and called once at startup.
+ * The previous implementation wrote SessionState into a Parcel and stored
+ * Base64(bytes). That round-trip is BROKEN on the pinned GeckoView
+ * (158.0.20261007201254, verified in the AAR): writeToParcel() writes ONE
+ * string, but SessionState.CREATOR.createFromParcel() calls readString()
+ * TWICE (a null-check that consumes the value, then the real read). The
+ * second read runs past the parcel end and throws, load() swallowed the
+ * exception, and every restore silently returned an empty list — so the app
+ * always reopened to a fresh startup page after the process was killed.
  *
- * [FIX] The background writer is now ONE shared static executor. save() used
- * to construct a brand-new TabPersistence (and with it a brand-new
- * single-thread executor, i.e. a new thread) on EVERY call — and save() runs
- * on every onPause / onStop / onTrimMemory, so threads piled up for the
- * lifetime of the process.
+ * The stored JSON now also keeps each tab's URL and title, so a restored tab
+ * immediately shows the right address in the URL bar (and the home panel
+ * stays out of the way). Tabs without a session state yet (fresh tabs) are
+ * stored with an empty state, so they survive as empty tabs instead of
+ * disappearing.
  *
- * [M5] The saved "active" index is the index within the *saved array*
- * (tabs without a session state are skipped), so restoring selects the
- * tab the user actually had open instead of drifting past the end.
+ * Writing still happens on one shared background thread: persistNow() takes
+ * its snapshot on the caller thread and marshals off-thread.
  */
 public final class TabPersistence {
 
@@ -58,9 +57,15 @@ public final class TabPersistence {
 
     public static final class Restored {
         public final List<GeckoSession.SessionState> states;
+        public final List<String> urls;
+        public final List<String> titles;
         public final int activeIndex;
-        public Restored(List<GeckoSession.SessionState> states, int activeIndex) {
+
+        public Restored(List<GeckoSession.SessionState> states, List<String> urls,
+                        List<String> titles, int activeIndex) {
             this.states = states;
+            this.urls = urls;
+            this.titles = titles;
             this.activeIndex = activeIndex;
         }
     }
@@ -94,6 +99,8 @@ public final class TabPersistence {
     public void persistNow(TabManager tabManager) {
         if (shutdown || tabManager == null) return;
         final List<GeckoSession.SessionState> states = new ArrayList<>();
+        final List<String> urls = new ArrayList<>();
+        final List<String> titles = new ArrayList<>();
         final List<Tab> tabs = tabManager.getTabs();
         final int active = tabManager.getActiveIndex();
 
@@ -101,31 +108,34 @@ public final class TabPersistence {
         int savedActive = 0;
         for (int i = 0; i < tabs.size(); i++) {
             Tab t = tabs.get(i);
-            if (t.latestState == null) continue;          // not saved: index shifts
             if (i == active) savedActive = savedIndex;    // [M5] index in saved array
-            states.add(t.latestState);
+            states.add(t.latestState);                    // null allowed -> empty tab
+            urls.add(t.url == null ? "" : t.url);
+            titles.add(t.title == null ? "" : t.title);
             savedIndex++;
         }
 
         final int activeToWrite = savedActive;
-        IO.execute(() -> write(states, activeToWrite));
+        IO.execute(() -> write(states, urls, titles, activeToWrite));
     }
 
-    private void write(List<GeckoSession.SessionState> states, int active) {
+    private void write(List<GeckoSession.SessionState> states,
+                       List<String> urls, List<String> titles, int active) {
         try {
             JSONArray arr = new JSONArray();
-            for (GeckoSession.SessionState s : states) {
-                Parcel p = Parcel.obtain();
-                try {
-                    s.writeToParcel(p, 0);
-                    JSONObject obj = new JSONObject();
-                    obj.put("s", Base64.encodeToString(p.marshall(), Base64.NO_WRAP));
-                    arr.put(obj);
-                } finally {
-                    p.recycle();
-                }
+            for (int i = 0; i < states.size(); i++) {
+                GeckoSession.SessionState s = states.get(i);
+                JSONObject obj = new JSONObject();
+                // toString() is the documented serialization; it can return
+                // null for an empty/failed state, in which case JSONObject
+                // drops the "s" key — restore then yields an empty tab.
+                obj.put("s", s != null ? s.toString() : null);
+                obj.put("u", urls.get(i));
+                obj.put("t", titles.get(i));
+                arr.put(obj);
             }
             JSONObject root = new JSONObject();
+            root.put("format", 2);
             root.put("active", active);
             root.put("tabs", arr);
             appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -138,30 +148,36 @@ public final class TabPersistence {
     /** Called once at startup; synchronous by design. */
     public static Restored load(Context ctx) {
         List<GeckoSession.SessionState> out = new ArrayList<>();
+        List<String> urls = new ArrayList<>();
+        List<String> titles = new ArrayList<>();
         int activeIndex = 0;
         try {
             String raw = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .getString(PREF_TABS, null);
-            if (raw == null) return new Restored(out, activeIndex);
+            if (raw == null) return new Restored(out, urls, titles, activeIndex);
             JSONObject root = new JSONObject(raw);
             JSONArray arr = root.getJSONArray("tabs");
             for (int i = 0; i < arr.length(); i++) {
-                String b64 = arr.getJSONObject(i).getString("s");
-                byte[] bytes = Base64.decode(b64, Base64.NO_WRAP);
-                Parcel p = Parcel.obtain();
-                try {
-                    p.unmarshall(bytes, 0, bytes.length);
-                    p.setDataPosition(0);
-                    out.add(GeckoSession.SessionState.CREATOR.createFromParcel(p));
-                } finally {
-                    p.recycle();
+                JSONObject o = arr.getJSONObject(i);
+                String s = o.optString("s", "");
+                GeckoSession.SessionState state = null;
+                if (s != null && !s.isEmpty()) {
+                    try {
+                        // fromString() — NOT the broken Parcelable CREATOR.
+                        state = GeckoSession.SessionState.fromString(s);
+                    } catch (Exception e) {
+                        Log.w(TAG, "session state parse failed", e);
+                    }
                 }
+                out.add(state);                              // null -> empty tab
+                urls.add(o.optString("u", ""));
+                titles.add(o.optString("t", ""));
             }
             activeIndex = root.optInt("active", 0);
         } catch (Exception e) {
             Log.w(TAG, "loadTabs failed", e);
         }
-        return new Restored(out, activeIndex);
+        return new Restored(out, urls, titles, activeIndex);
     }
 
     /** Stops accepting new saves and lets queued writes drain. */
