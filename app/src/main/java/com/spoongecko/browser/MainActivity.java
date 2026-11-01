@@ -46,10 +46,8 @@ public class MainActivity extends Activity
     private static final String KEY_TAB_URLS = "tabs_urls_v2";
     private static final String KEY_TAB_TITLES = "tabs_titles_v2";
     private static final String KEY_ACTIVE_TAB = "tabs_active_v2";
-
+                
     private static GeckoRuntime sRuntime;
-    private static List<GeckoSession.SessionState> sPersistedStates;
-    private static int sPersistedActiveIndex = 0;
 
     private TabManager tabManager;
     private GeckoView geckoView;
