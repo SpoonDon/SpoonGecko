@@ -49,7 +49,7 @@ android {
             // set both back to true — app/proguard-rules.pro is already
             // prepared with the complete rule set.
             minifyEnabled false
-            shrinkResources true
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
