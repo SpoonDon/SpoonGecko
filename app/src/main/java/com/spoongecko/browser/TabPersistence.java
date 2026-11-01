@@ -32,7 +32,13 @@ import java.util.concurrent.TimeUnit;
  *                    all marshalling/writing on a single background thread.
  *   - load():        still synchronous and called once at startup.
  *
- * [M5] The saved "active" index is now the index within the *saved array*
+ * [FIX] The background writer is now ONE shared static executor. save() used
+ * to construct a brand-new TabPersistence (and with it a brand-new
+ * single-thread executor, i.e. a new thread) on EVERY call — and save() runs
+ * on every onPause / onStop / onTrimMemory, so threads piled up for the
+ * lifetime of the process.
+ *
+ * [M5] The saved "active" index is the index within the *saved array*
  * (tabs without a session state are skipped), so restoring selects the
  * tab the user actually had open instead of drifting past the end.
  */
@@ -42,6 +48,13 @@ public final class TabPersistence {
     private static final String PREFS_NAME = "spoongecko_prefs";
     private static final String PREF_TABS = "tabs_json";
     private static final long SAVE_DEBOUNCE_MS = 500L;
+
+    /** Single shared writer thread for the whole process. */
+    private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "spoongecko-tab-persist");
+        t.setDaemon(true);
+        return t;
+    });
 
     public static final class Restored {
         public final List<GeckoSession.SessionState> states;
@@ -54,14 +67,9 @@ public final class TabPersistence {
 
     private final Context appContext;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "spoongecko-tab-persist");
-        t.setDaemon(true);
-        return t;
-    });
 
     private Runnable pendingSave;
-    private boolean shutdown;
+    private volatile boolean shutdown;
 
     public TabPersistence(Context ctx) {
         this.appContext = ctx.getApplicationContext();
@@ -100,7 +108,7 @@ public final class TabPersistence {
         }
 
         final int activeToWrite = savedActive;
-        io.execute(() -> write(states, activeToWrite));
+        IO.execute(() -> write(states, activeToWrite));
     }
 
     private void write(List<GeckoSession.SessionState> states, int active) {
@@ -163,10 +171,10 @@ public final class TabPersistence {
             main.removeCallbacks(pendingSave);
             pendingSave = null;
         }
-        io.shutdown();
+        IO.shutdown();
         try {
             // Best effort: don't hang teardown on a slow write.
-            io.awaitTermination(2, TimeUnit.SECONDS);
+            IO.awaitTermination(2, TimeUnit.SECONDS);
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
