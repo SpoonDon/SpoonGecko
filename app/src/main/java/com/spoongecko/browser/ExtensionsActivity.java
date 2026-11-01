@@ -307,14 +307,16 @@ public class ExtensionsActivity extends Activity {
         update.setOnClickListener(v -> {
             dialog.dismiss();
             em.updateExtension(ext, null);
-        });
+        });        
         if (options != null) options.setOnClickListener(v -> {
             dialog.dismiss();
             em.openInBrowserTab(ext.metaData.optionsPageUrl);
+            finish();   // [F12] reveal the tab that was just opened
         });
         if (homepage != null) homepage.setOnClickListener(v -> {
             dialog.dismiss();
             em.openInBrowserTab(ext.metaData.homepageUrl);
+            finish();   // [F12] reveal the tab that was just opened
         });
         remove.setOnClickListener(v -> {
             dialog.dismiss();
