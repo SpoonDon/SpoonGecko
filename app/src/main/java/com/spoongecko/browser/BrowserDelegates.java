@@ -228,15 +228,18 @@ public final class BrowserDelegates {
             // [H4] onPageStart only fires for top-level document loads; it never
             // fires for redirects already in flight or SPA pushState navigations,
             // so the URL bar used to show stale addresses. onLocationChange is
-            // the authoritative signal.
+            // the authoritative signal.                        
             @Override
             public void onLocationChange(GeckoSession sess, String url,
                     List<GeckoSession.PermissionDelegate.ContentPermission> perms,
                     Boolean hasUserGesture) {
                 if (url == null) return;
+                // [F14] tab.url is the sanitized value ("" for about:blank);
+                // the URL bar must receive THAT, not the raw url — otherwise
+                // every fresh tab left "about:blank" sitting in the bar.
                 tab.url = "about:blank".equals(url) ? "" : url;
                 if (tab == host.getTabManager().getActiveTab()) {
-                    activity.runOnUiThread(() -> host.onTabLocationChanged(tab, url));
+                    activity.runOnUiThread(() -> host.onTabLocationChanged(tab, tab.url));
                 }
             }
 
