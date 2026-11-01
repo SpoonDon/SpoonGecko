@@ -36,7 +36,7 @@ jobs:
         with:
           packages: ''
           accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
+          log-accepted-sdk-licenses: false
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -51,6 +51,12 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.jks"
 
+      # [C5] Diagnostic build: debug-signed, no code shrinking. If the debug
+      # APK starts but the release one does not, the difference is in the
+      # release build settings (R8/ProGuard), not in the code.
+      - name: Build debug APK (diagnostic)
+        run: gradle assembleDebug --no-daemon
+
       - name: Build signed release APK
         if: env.KEYSTORE_EXISTS == 'true'
         env:
@@ -59,7 +65,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          gradle assembleRelease --no-daemon --stacktrace \
+          gradle assembleRelease --no-daemon \
             -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
@@ -67,9 +73,16 @@ jobs:
 
       - name: Build unsigned release APK
         if: env.KEYSTORE_EXISTS != 'true'
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: gradle assembleRelease --no-daemon
 
-      - name: Upload APK artifact
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpoonGecko-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: SpoonGecko-release
