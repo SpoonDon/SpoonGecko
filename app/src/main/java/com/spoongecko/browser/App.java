@@ -76,6 +76,9 @@ public class App extends Application {
         File f = new File(c.getFilesDir(), CRASH_FILE);
         try (FileWriter w = new FileWriter(f, false)) {
             w.write(sb.toString());
+        } catch (Exception e) {
+            // [C5] Never let the crash logger itself throw — the uncaught
+            // exception handler depends on it to deliver the report.
         }
     }
 
