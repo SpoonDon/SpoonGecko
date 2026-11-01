@@ -51,6 +51,7 @@ public final class ScreenController {
      * ScreenController before the content view existed and crashed on the null
      * views in the constructor).
      */
+    @SuppressWarnings("deprecation")
     public static void applyImmersiveWindow(Window w) {
         w.setStatusBarColor(Color.TRANSPARENT);
         w.setNavigationBarColor(Color.TRANSPARENT);
