@@ -474,8 +474,12 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
             result.complete(prompt.dismiss());
             return result;
         }
-        PopupsController.shareText(activity, sb.toString());
-        result.complete(prompt.confirm(SharePrompt.Result.SUCCESS));
+        // [F4] shareText() used to be able to crash (ActivityNotFoundException on
+        // devices with no share target). It now reports success/failure, and the
+        // failure is passed back to the page instead of throwing.
+        boolean shown = PopupsController.shareText(activity, sb.toString());
+        result.complete(prompt.confirm(shown ? SharePrompt.Result.SUCCESS
+                                             : SharePrompt.Result.FAILURE));
         return result;
     }
 
