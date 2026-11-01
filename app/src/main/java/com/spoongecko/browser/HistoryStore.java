@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,13 +14,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public class HistoryStore extends SQLiteOpenHelper {
+    private static final String TAG = "SpoonGecko";
     private static final String DB_NAME = "spoongecko_history.db";
     private static final int DB_VERSION = 2;
     private static final String TABLE = "history";
 
-    // [P2] recordVisit() used to do its SQLite write on the main thread (it is
-    // called from onFirstContentfulPaint). All writes now go through a single
-    // background thread; close() drains it before the DB handle is released.
+    /**
+     * [FIX] recordVisit() used to do its SQLite write on the UI thread (it is
+     * called from onFirstContentfulPaint for every page). Writes now run on
+     * this single background thread.
+     */
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "spoongecko-history");
         t.setDaemon(true);
@@ -60,25 +64,26 @@ public class HistoryStore extends SQLiteOpenHelper {
         }
     }
 
-    public void recordVisit(final String url, final String title) {
-        // [P2] Also guards the empty URL that about:blank tabs can produce.
-        if (url == null || url.isEmpty()) return;
+    public void recordVisit(String url, String title) {
+        if (url == null) return;
         if (url.startsWith("about:") || url.startsWith("file:") || url.startsWith("data:")) return;
         final String safeTitle = title == null ? "" : title;
+        final ContentValues cv = new ContentValues();
+        cv.put("url", url);
+        cv.put("title", safeTitle);
+        cv.put("last_visited", System.currentTimeMillis());
         io.execute(() -> {
             try {
                 SQLiteDatabase db = getWritableDatabase();
-                ContentValues cv = new ContentValues();
-                cv.put("url", url);
-                cv.put("title", safeTitle);
-                cv.put("last_visited", System.currentTimeMillis());
-                long id = db.insertWithOnConflict(TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+                long id = db.insertWithOnConflict(TABLE, null, cv,
+                        SQLiteDatabase.CONFLICT_IGNORE);
                 if (id == -1) {
                     db.execSQL("UPDATE " + TABLE + " SET visit_count = visit_count + 1, " +
                                     "last_visited = ?, title = ? WHERE url = ?",
                             new Object[]{System.currentTimeMillis(), safeTitle, url});
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                Log.w(TAG, "recordVisit failed", e);
             }
         });
     }
@@ -120,9 +125,9 @@ public class HistoryStore extends SQLiteOpenHelper {
 
     public void clear() { getWritableDatabase().delete(TABLE, null, null); }
 
+    /** [FIX] Drains pending writes before closing the database. */
     @Override
-    public void close() {
-        // [P2] Drain pending writes before the DB handle goes away.
+    public synchronized void close() {
         io.shutdown();
         try {
             io.awaitTermination(2, TimeUnit.SECONDS);
