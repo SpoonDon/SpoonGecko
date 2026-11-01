@@ -511,10 +511,12 @@ public class MainActivity extends Activity
             GeckoSession.PermissionDelegate.MediaCallback callback) {
         dialogs.showMediaPermissionDialog(uri, video, audio, callback);
     }
-
+                
     @Override public void onTabLocationChanged(Tab tab, String url) {
+        // [F14] url arrives sanitized ("" for about:blank), so an empty value
+        // CLEARS the bar instead of leaving "about:blank" sitting in it.
         if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
-            suggestions.setText(url);
+            suggestions.setText(url == null ? "" : url);
         }
     }
 
