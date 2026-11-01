@@ -2,6 +2,26 @@ plugins {
     id 'com.android.application'
 }
 
+// ------------------------------------------------------------------
+// Version automation (no PC / web-UI workflow):
+//
+// CI derives both values from the git tag that triggered the build
+// (tag v1.2.3  ->  versionName "1.2.3") and passes them as environment
+// variables. -P command-line properties win, then environment variables,
+// then the hardcoded fallbacks below for plain local builds.
+//
+// versionCode uses the GitHub run number in CI: it increases on EVERY
+// build, so a new APK can always be installed over any previously
+// installed one (Android rejects downgrades).
+// ------------------------------------------------------------------
+def appVersionName = (project.findProperty('APP_VERSION_NAME')
+        ?: System.getenv('APP_VERSION_NAME')
+        ?: '0.0.1').toString()
+
+def appVersionCode = (project.findProperty('APP_VERSION_CODE')
+        ?: System.getenv('APP_VERSION_CODE')
+        ?: '1').toString().toInteger()
+
 android {
     namespace 'com.spoongecko.browser'
     compileSdk 37
@@ -10,8 +30,8 @@ android {
         applicationId "com.spoongecko.browser"
         minSdk 26
         targetSdk 37
-        versionCode 1
-        versionName "0.0.1"
+        versionCode appVersionCode
+        versionName appVersionName
 
         ndk {
             // GeckoView 158 ships arm64-v8a, armeabi-v7a and x86_64.
