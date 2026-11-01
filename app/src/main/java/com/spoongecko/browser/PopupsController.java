@@ -113,8 +113,18 @@ public final class PopupsController {
         contextMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         contextMenuPopup.setOutsideTouchable(true);
         contextMenuPopup.setElevation(dp(8));
+        // [F9] onContextMenu delivers *screen* coordinates (screenX/screenY per
+        // the ContentDelegate javadoc), but PopupWindow.showAtLocation() takes
+        // window-relative offsets. The old code passed them through unchanged
+        // (plus a made-up +40dp), so the menu appeared below/right of the press.
+        int[] inWindow = new int[2];
+        int[] onScreen = new int[2];
+        geckoView.getLocationInWindow(inWindow);
+        geckoView.getLocationOnScreen(onScreen);
+        int winX = x - (onScreen[0] - inWindow[0]);
+        int winY = y - (onScreen[1] - inWindow[1]);
         contextMenuPopup.showAtLocation(geckoView,
-                Gravity.TOP | Gravity.START, x, y + dp(40));
+                Gravity.TOP | Gravity.START, winX, winY);
     }
 
     public void dismissAll() {
@@ -151,11 +161,22 @@ public final class PopupsController {
         Toast.makeText(activity, "Copied", Toast.LENGTH_SHORT).show();
     }
 
-    public static void shareText(Activity activity, String text) {
-        Intent i = new Intent(Intent.ACTION_SEND);
-        i.setType("text/plain");
-        i.putExtra(Intent.EXTRA_TEXT, text);
-        activity.startActivity(Intent.createChooser(i, "Share"));
+    /**
+     * [F4] This used to throw an uncaught ActivityNotFoundException on devices
+     * with no share target (also reachable from navigator.share()). It now
+     * reports whether the sheet was actually shown.
+     */
+    public static boolean shareText(Activity activity, String text) {
+        try {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, text);
+            activity.startActivity(Intent.createChooser(i, "Share"));
+            return true;
+        } catch (Exception e) {
+            Toast.makeText(activity, "No share app available", Toast.LENGTH_SHORT).show();
+            return false;
+        }
     }
 
     private int dp(int px) {
