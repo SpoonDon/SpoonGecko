@@ -4,6 +4,7 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
+    android:descendantFocusability="blocksDescendants"
     android:background="?android:attr/selectableItemBackground"
     android:paddingStart="12dp"
     android:paddingEnd="8dp"
@@ -63,9 +64,16 @@
             android:ellipsize="end" />
     </LinearLayout>
 
+    <!-- [F11] A focusable view inside a ListView row makes Android suppress
+         the row's item click — which is why tapping an extension did nothing
+         while the toggle still worked. focusable=false (plus the row's
+         descendantFocusability above) restores item clicks; tapping the
+         switch itself still toggles it. -->
     <Switch
         android:id="@+id/ext_switch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="6dp" />
+        android:layout_marginStart="6dp"
+        android:focusable="false"
+        android:focusableInTouchMode="false" />
 </LinearLayout>
