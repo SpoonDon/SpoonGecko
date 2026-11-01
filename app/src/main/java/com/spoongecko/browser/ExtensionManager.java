@@ -780,12 +780,13 @@ public final class ExtensionManager {
 
             surface.setSession(popupSession);
             popupSession.open(runtime);
-            dialog.setOnDismissListener(d -> {
-                try { popupSession.close(); } catch (Exception ignored) {}
-            });
             dialog.show();
             if (dialog.getWindow() != null) dialog.getWindow().setLayout(width, height);
-            trackDialog(activity, dialog);
+            // [P3] One tracker owns the dismiss event: it closes the popup
+            // session AND removes the dialog from dialogsByActivity.
+            trackDialog(activity, dialog, () -> {
+                try { popupSession.close(); } catch (Exception ignored) {}
+            });
             return GeckoResult.fromValue(popupSession);
         } catch (Exception e) {
             Log.w(TAG, "could not open extension popup", e);
@@ -827,13 +828,23 @@ public final class ExtensionManager {
         }
     }
 
-    private void trackDialog(Activity owner, Dialog d) {
+    /**
+     * [P3] Tracks a dialog for its owning activity. Dismissed dialogs used to
+     * stay in dialogsByActivity until the whole activity died; they are now
+     * dropped as soon as they close. The optional runnable runs on dismiss.
+     */
+    private void trackDialog(Activity owner, Dialog d, Runnable onDismiss) {
         List<Dialog> list = dialogsByActivity.get(owner);
         if (list == null) {
             list = new ArrayList<>();
             dialogsByActivity.put(owner, list);
         }
         list.add(d);
+        d.setOnDismissListener(x -> {
+            List<Dialog> l = dialogsByActivity.get(owner);
+            if (l != null) l.remove(d);
+            if (onDismiss != null) onDismiss.run();
+        });
     }
 
     private boolean isUiAvailable(Activity a) {
@@ -960,7 +971,7 @@ public final class ExtensionManager {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
         dialog.show();
-        trackDialog(activity, dialog);
+        trackDialog(activity, dialog, null);
         return dialog;
     }
 
