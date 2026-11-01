@@ -15,13 +15,13 @@
         android:textStyle="bold"
         android:paddingBottom="10dp" />
 
+    <!-- [F10] wrap_content: the real cap is applied in code (ListView ignores
+         android:maxHeight, and 0dp+weight inside a wrap_content dialog made
+         the dialog grow past the screen with long lists). -->
     <ListView
         android:id="@+id/dlg_list"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:minHeight="120dp"
-        android:maxHeight="360dp"
+        android:layout_height="wrap_content"
         android:divider="@null"
         android:dividerHeight="0dp" />
 
