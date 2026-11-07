@@ -18,6 +18,10 @@ import java.util.List;
 /**
  * Owns the URL-bar TextWatcher, 150 ms debounce, and the ListView adapter.
  * Behaviour matches the previous inline implementation.
+ *
+ * [PERF] The history query used to run on the UI thread; it now runs on a
+ * background thread (HistoryStore.suggestAsync) and its result is applied
+ * only if it is still the latest answer to what is in the URL bar.
  */
 public final class SuggestionsController {
 
@@ -34,6 +38,14 @@ public final class SuggestionsController {
     private Runnable pending;
     private boolean suppress = false;
     private Listener listener;
+
+    /**
+     * Bumped by every new query AND by hide()/dispose(), so an answer that is
+     * still in flight when the dropdown is closed (Enter pressed, page
+     * navigated, activity destroyed, ...) can never re-open it afterwards.
+     * UI thread only.
+     */
+    private int generation = 0;
 
     public SuggestionsController(Activity activity, EditText urlBar, ListView list,
                                  HistoryStore history) {
@@ -67,10 +79,17 @@ public final class SuggestionsController {
                 pending = () -> {
                     if (activity.isFinishing() || activity.isDestroyed()) return;
                     if (!urlBar.getText().toString().trim().equals(q)) return;
-                    List<HistoryStore.Entry> results = history.suggest(q, 8);
-                    if (results.isEmpty()) { hide(); return; }
-                    adapter.setData(results);
-                    list.setVisibility(View.VISIBLE);
+                    final int token = ++generation;
+                    history.suggestAsync(q, 8, results -> {
+                        // UI thread. Drop the answer if anything changed since
+                        // the query started.
+                        if (token != generation) return;
+                        if (activity.isFinishing() || activity.isDestroyed()) return;
+                        if (!urlBar.getText().toString().trim().equals(q)) return;
+                        if (results.isEmpty()) { hide(); return; }
+                        adapter.setData(results);
+                        list.setVisibility(View.VISIBLE);
+                    });
                 };
                 debounce.postDelayed(pending, 150);
             }
@@ -83,7 +102,10 @@ public final class SuggestionsController {
 
     public void setListener(Listener l) { listener = l; }
 
-    public void hide() { list.setVisibility(View.GONE); }
+    public void hide() {
+        generation++;   // invalidate any query still in flight
+        list.setVisibility(View.GONE);
+    }
 
     // [M1] Lets the back handler close the dropdown before page history.
     public boolean isVisible() { return list.getVisibility() == View.VISIBLE; }
@@ -96,6 +118,7 @@ public final class SuggestionsController {
     }
 
     public void dispose() {
+        generation++;
         if (pending != null) {
             debounce.removeCallbacks(pending);
             pending = null;
