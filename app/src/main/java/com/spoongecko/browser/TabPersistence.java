@@ -40,6 +40,16 @@ import java.util.concurrent.TimeUnit;
  *
  * Writing still happens on one shared background thread: persistNow() takes
  * its snapshot on the caller thread and marshals off-thread.
+ *
+ * [PERF] Two things keep the write volume down:
+ *   - Event-driven saves (page-state / page-stop callbacks, which fire in
+ *     bursts) go through saveSoon(): at most one save per SAVE_DEBOUNCE_MS,
+ *     always taken from the state at the moment it runs.
+ *   - Every save is compared with the previous one; when no tab's state, URL
+ *     or title changed (e.g. onPause followed by onStop and onTrimMemory) the
+ *     serialization and the SharedPreferences write are skipped entirely.
+ * Lifecycle saves (pause / stop / exit) still go through save(), which is
+ * immediate, so nothing is ever lost when the app is backgrounded.
  */
 public final class TabPersistence {
 
@@ -54,6 +64,12 @@ public final class TabPersistence {
         t.setDaemon(true);
         return t;
     });
+
+    /** Process-wide instance, so the debounce state is shared by every caller. */
+    private static TabPersistence sharedInstance;
+
+    /** What the most recent write was built from; used to skip identical writes. */
+    private static volatile Snapshot lastSubmitted;
 
     public static final class Restored {
         public final List<GeckoSession.SessionState> states;
@@ -70,9 +86,42 @@ public final class TabPersistence {
         }
     }
 
+    /** Immutable copy of everything one write consists of. */
+    private static final class Snapshot {
+        final List<GeckoSession.SessionState> states;
+        final List<String> urls;
+        final List<String> titles;
+        final int active;
+
+        Snapshot(List<GeckoSession.SessionState> states, List<String> urls,
+                 List<String> titles, int active) {
+            this.states = states;
+            this.urls = urls;
+            this.titles = titles;
+            this.active = active;
+        }
+
+        /**
+         * SessionState instances are immutable and replaced (never mutated)
+         * when a tab's state changes, so reference equality is exact.
+         */
+        boolean sameAs(Snapshot o) {
+            if (o == null || active != o.active || states.size() != o.states.size()) {
+                return false;
+            }
+            for (int i = 0; i < states.size(); i++) {
+                if (states.get(i) != o.states.get(i)) return false;
+                if (!urls.get(i).equals(o.urls.get(i))) return false;
+                if (!titles.get(i).equals(o.titles.get(i))) return false;
+            }
+            return true;
+        }
+    }
+
     private final Context appContext;
     private final Handler main = new Handler(Looper.getMainLooper());
 
+    // Main thread only.
     private Runnable pendingSave;
     private volatile boolean shutdown;
 
@@ -80,24 +129,59 @@ public final class TabPersistence {
         this.appContext = ctx.getApplicationContext();
     }
 
-    public static void save(Context ctx, TabManager tabManager) {
-        new TabPersistence(ctx).persistNow(tabManager);
+    private static synchronized TabPersistence shared(Context ctx) {
+        if (sharedInstance == null) sharedInstance = new TabPersistence(ctx);
+        return sharedInstance;
     }
 
-    /** Debounced save — safe to call from onSessionStateChange storms. */
-    public void scheduleSave(TabManager tabManager) {
-        if (shutdown) return;
-        if (pendingSave != null) main.removeCallbacks(pendingSave);
+    /** Immediate save — use at lifecycle moments (pause, stop, trim, exit). */
+    public static void save(Context ctx, TabManager tabManager) {
+        shared(ctx).persistNow(tabManager);
+    }
+
+    /** Coalesced save — use for event storms (onSessionStateChange, onPageStop). */
+    public static void saveSoon(Context ctx, TabManager tabManager) {
+        shared(ctx).scheduleSave(tabManager);
+    }
+
+    /** Drops a queued coalesced save. Call before the tab set is torn down. */
+    public static void cancelPendingSave() {
+        final TabPersistence p;
+        synchronized (TabPersistence.class) {
+            p = sharedInstance;
+        }
+        if (p != null) p.cancelPending();
+    }
+
+    /**
+     * Coalesced save: the first call schedules a save SAVE_DEBOUNCE_MS later,
+     * further calls in that window are absorbed. The snapshot is taken when
+     * the save actually runs, so it always reflects the latest state. Main
+     * thread only.
+     */
+    public void scheduleSave(final TabManager tabManager) {
+        if (shutdown || tabManager == null || pendingSave != null) return;
         pendingSave = () -> {
             pendingSave = null;
-            persistNow(tabManager);
+            // Zero tabs means the tab set is being torn down — never overwrite
+            // the saved tabs with an empty list from a delayed callback.
+            if (tabManager.count() > 0) persistNow(tabManager);
         };
         main.postDelayed(pendingSave, SAVE_DEBOUNCE_MS);
+    }
+
+    private void cancelPending() {
+        if (pendingSave != null) {
+            main.removeCallbacks(pendingSave);
+            pendingSave = null;
+        }
     }
 
     /** Immediate save — snapshot on the caller thread, heavy work on IO. */
     public void persistNow(TabManager tabManager) {
         if (shutdown || tabManager == null) return;
+        cancelPending();   // this save supersedes a queued one
+
         final List<GeckoSession.SessionState> states = new ArrayList<>();
         final List<String> urls = new ArrayList<>();
         final List<String> titles = new ArrayList<>();
@@ -115,33 +199,35 @@ public final class TabPersistence {
             savedIndex++;
         }
 
-        final int activeToWrite = savedActive;
-        IO.execute(() -> write(states, urls, titles, activeToWrite));
+        final Snapshot snap = new Snapshot(states, urls, titles, savedActive);
+        if (snap.sameAs(lastSubmitted)) return;           // [PERF] nothing changed
+        lastSubmitted = snap;
+        IO.execute(() -> write(snap));
     }
 
-    private void write(List<GeckoSession.SessionState> states,
-                       List<String> urls, List<String> titles, int active) {
+    private void write(Snapshot snap) {
         try {
             JSONArray arr = new JSONArray();
-            for (int i = 0; i < states.size(); i++) {
-                GeckoSession.SessionState s = states.get(i);
+            for (int i = 0; i < snap.states.size(); i++) {
+                GeckoSession.SessionState s = snap.states.get(i);
                 JSONObject obj = new JSONObject();
                 // toString() is the documented serialization; it can return
                 // null for an empty/failed state, in which case JSONObject
                 // drops the "s" key — restore then yields an empty tab.
                 obj.put("s", s != null ? s.toString() : null);
-                obj.put("u", urls.get(i));
-                obj.put("t", titles.get(i));
+                obj.put("u", snap.urls.get(i));
+                obj.put("t", snap.titles.get(i));
                 arr.put(obj);
             }
             JSONObject root = new JSONObject();
             root.put("format", 2);
-            root.put("active", active);
+            root.put("active", snap.active);
             root.put("tabs", arr);
             appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putString(PREF_TABS, root.toString()).apply();
         } catch (Exception e) {
             Log.w(TAG, "persistTabs failed", e);
+            lastSubmitted = null;   // let the next save retry instead of being skipped
         }
     }
 
@@ -183,10 +269,7 @@ public final class TabPersistence {
     /** Stops accepting new saves and lets queued writes drain. */
     public void shutdown() {
         shutdown = true;
-        if (pendingSave != null) {
-            main.removeCallbacks(pendingSave);
-            pendingSave = null;
-        }
+        cancelPending();
         IO.shutdown();
         try {
             // Best effort: don't hang teardown on a slow write.
