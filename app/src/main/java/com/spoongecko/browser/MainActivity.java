@@ -36,7 +36,7 @@ public class MainActivity extends Activity
         implements ComponentCallbacks2, TabManager.Listener,
                    BrowserDelegates.Host, PopupsController.Host,
                    SuggestionsController.Listener, ExtensionManager.Host {
-                
+
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
     private static final int REQ_ANDROID_PERMS = 0x5151;
@@ -46,7 +46,15 @@ public class MainActivity extends Activity
     private static final String KEY_TAB_URLS = "tabs_urls_v2";
     private static final String KEY_TAB_TITLES = "tabs_titles_v2";
     private static final String KEY_ACTIVE_TAB = "tabs_active_v2";
-                
+
+    /**
+     * [PERF] When true, only the selected tab's session is opened (and its
+     * page loaded) while restoring tabs after a restart; every other restored
+     * tab keeps its saved state and is opened the first time it is selected.
+     * Set to false to restore exactly like before (all tabs opened at launch).
+     */
+    private static final boolean LAZY_TAB_RESTORE = true;
+
     private static GeckoRuntime sRuntime;
 
     private TabManager tabManager;
@@ -223,7 +231,7 @@ public class MainActivity extends Activity
         tabManager.notifyActiveChanged();
         return tab;
     }
-                
+
     private void restoreTabs(Bundle savedInstanceState) {
         // [F13] Restore order:
         //   1. savedInstanceState Bundle — survives process death AND activity
@@ -238,6 +246,8 @@ public class MainActivity extends Activity
             ArrayList<String> urls = savedInstanceState.getStringArrayList(KEY_TAB_URLS);
             ArrayList<String> titles = savedInstanceState.getStringArrayList(KEY_TAB_TITLES);
             if (states != null && !states.isEmpty()) {
+                final int active = clampIndex(
+                        savedInstanceState.getInt(KEY_ACTIVE_TAB, 0), states.size());
                 for (int i = 0; i < states.size(); i++) {
                     String s = states.get(i);
                     GeckoSession.SessionState st = null;
@@ -247,10 +257,10 @@ public class MainActivity extends Activity
                     }
                     addRestoredTab(st,
                             urls != null && i < urls.size() ? urls.get(i) : "",
-                            titles != null && i < titles.size() ? titles.get(i) : "");
+                            titles != null && i < titles.size() ? titles.get(i) : "",
+                            !LAZY_TAB_RESTORE || i == active);
                 }
-                tabManager.switchTo(Math.min(savedInstanceState.getInt(KEY_ACTIVE_TAB, 0),
-                        tabManager.count() - 1));
+                tabManager.switchTo(active);
                 screen.showHomePanel(isActiveTabEmpty());
                 return;
             }
@@ -258,15 +268,21 @@ public class MainActivity extends Activity
 
         TabPersistence.Restored disk = TabPersistence.load(this);
         if (!disk.states.isEmpty()) {
+            final int active = clampIndex(disk.activeIndex, disk.states.size());
             for (int i = 0; i < disk.states.size(); i++) {
-                addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i));
+                addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i),
+                        !LAZY_TAB_RESTORE || i == active);
             }
-            tabManager.switchTo(Math.min(disk.activeIndex, tabManager.count() - 1));
+            tabManager.switchTo(active);
             screen.showHomePanel(isActiveTabEmpty());
             return;
         }
         addNewTab(null);
         screen.showHomePanel(true);
+    }
+
+    private static int clampIndex(int index, int count) {
+        return Math.max(0, Math.min(index, count - 1));
     }
 
     private boolean isActiveTabEmpty() {
@@ -280,16 +296,27 @@ public class MainActivity extends Activity
      * and the NEXT disk save are all correct from the very first frame.
      * latestState in particular keeps the save chain unbroken: without it,
      * a quick re-minimize before any page event would lose the tab again.
+     *
+     * [PERF] With openNow == false the session is only prepared (state
+     * restored, delegates attached) and NOT opened: no content process work
+     * and no page load until the tab is first selected — onActiveTabChanged()
+     * opens it then. The tab's saved state is untouched, so it is persisted
+     * again unchanged in the meantime.
      */
-    private Tab addRestoredTab(GeckoSession.SessionState state, String url, String title) {
+    private Tab addRestoredTab(GeckoSession.SessionState state, String url, String title,
+                               boolean openNow) {
         Tab tab = tabManager.createTabWithState(state);
         tab.url = url == null ? "" : url;
         tab.title = title == null ? "" : title;
         tab.latestState = state;
         delegates.attach(tab);
-        tab.session.open(sRuntime);
-        tabManager.notifyTabsChanged();
-        tabManager.notifyActiveChanged();
+        if (openNow) {
+            tab.session.open(sRuntime);
+            tabManager.notifyTabsChanged();
+            tabManager.notifyActiveChanged();
+        } else {
+            tabManager.notifyTabsChanged();
+        }
         return tab;
     }
 
@@ -347,7 +374,7 @@ public class MainActivity extends Activity
         runOnUiThread(() -> {
             boolean fwd = t != null && t.canGoForward;
             forwardButton.setAlpha(fwd ? 1f : 0.35f);
-            forwardButton.setEnabled(fwd);        
+            forwardButton.setEnabled(fwd);
             // [F14] Always mirror tab.url into the bar — also when empty —
             // so a stale "about:blank" can never survive there.
             if (t != null && !urlBar.hasFocus()) {
@@ -369,7 +396,7 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     private void showExitConfirmation() {
         dialogs.showExitConfirmation(() -> {
-            persistAllTabs();
+            persistAllTabsNow();
             finishAndRemoveTask();
         });
     }
@@ -387,6 +414,9 @@ public class MainActivity extends Activity
     @Override
     public void onActiveTabChanged(Tab tab) {
         if (tab == null) return;
+        // [PERF] A lazily restored tab has a session that was never opened;
+        // open it the first time it is shown (open() must precede setSession()).
+        if (!tab.session.isOpen()) tab.session.open(sRuntime);
         geckoView.setSession(tab.session);
         CompositorController cc = tab.session.getCompositorController();
         if (cc != null) cc.setClearColor(android.graphics.Color.BLACK);
@@ -450,9 +480,24 @@ public class MainActivity extends Activity
     @Override public TabManager getTabManager() { return tabManager; }
     @Override public HistoryStore getHistoryStore() { return history; }
 
+    /**
+     * [PERF] Called by the page delegates (onSessionStateChange / onPageStop),
+     * which fire in bursts while a page loads or scrolls. The save is
+     * coalesced (see TabPersistence.saveSoon) instead of re-serializing every
+     * tab on each event. Lifecycle moments use persistAllTabsNow() below.
+     */
     @Override
     public void persistAllTabs() {
-        // Same synchronous call, same threads, same semantics as before.
+        if (destroying) return;
+        TabPersistence.saveSoon(this, tabManager);
+    }
+
+    /**
+     * Immediate save for lifecycle moments (pause, stop, trim, exit): same
+     * synchronous call, same threads, same semantics as before. Unchanged
+     * tabs are skipped inside TabPersistence, so repeated calls are cheap.
+     */
+    private void persistAllTabsNow() {
         TabPersistence.save(this, tabManager);
     }
 
@@ -511,7 +556,7 @@ public class MainActivity extends Activity
             GeckoSession.PermissionDelegate.MediaCallback callback) {
         dialogs.showMediaPermissionDialog(uri, video, audio, callback);
     }
-                
+
     @Override public void onTabLocationChanged(Tab tab, String url) {
         // [F14] url arrives sanitized ("" for about:blank), so an empty value
         // CLEARS the bar instead of leaving "about:blank" sitting in it.
@@ -596,10 +641,10 @@ public class MainActivity extends Activity
     }
 
     // ------------------------------------------------------------------
-    // Lifecycle — persistence calls preserved verbatim
+    // Lifecycle — immediate saves at every moment the process could be lost
     // ------------------------------------------------------------------
-    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabs(); }
-    @Override public void onLowMemory() { super.onLowMemory(); persistAllTabs(); }
+    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabsNow(); }
+    @Override public void onLowMemory() { super.onLowMemory(); persistAllTabsNow(); }
 
     @Override protected void onResume() {
         super.onResume();
@@ -612,7 +657,7 @@ public class MainActivity extends Activity
     }
 
     @Override protected void onPause() {
-        persistAllTabs();
+        persistAllTabsNow();
         ExtensionManager.get().setCurrentActivity(null);
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         if (t != null) {
@@ -622,8 +667,8 @@ public class MainActivity extends Activity
         super.onPause();
     }
 
-    @Override protected void onStop() { persistAllTabs(); super.onStop(); }
-                
+    @Override protected void onStop() { persistAllTabsNow(); super.onStop(); }
+
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         // [F13] Real data in the Bundle: string lists only (see TabPersistence
@@ -651,6 +696,9 @@ public class MainActivity extends Activity
 
     @Override protected void onDestroy() {
         destroying = true;
+        // [PERF] A queued coalesced save must not fire after the tabs below are
+        // closed (it would otherwise be able to overwrite the saved tabs).
+        TabPersistence.cancelPendingSave();
         if (popups != null) popups.dismissAll();
         if (suggestions != null) suggestions.dispose();
         // Fix for the exit crash (C3): GeckoView.setSession() is @NonNull and
