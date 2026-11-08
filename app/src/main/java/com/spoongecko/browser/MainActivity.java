@@ -1,6 +1,7 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ComponentCallbacks2;
 import android.content.Intent;
@@ -11,6 +12,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -40,6 +42,7 @@ public class MainActivity extends Activity
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
     private static final int REQ_ANDROID_PERMS = 0x5151;
+    private static final int REQ_LOCAL_NETWORK = 0x5152;   // [LAN] Android 17 local network access
     // [F13] Keys for the saved-instance-state Bundle (string lists only —
     // parceling SessionState through a Bundle would hit the broken CREATOR).
     private static final String KEY_TAB_STATES = "tabs_states_v2";
@@ -76,6 +79,11 @@ public class MainActivity extends Activity
     private BrowserDelegates delegates;
 
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
+
+    /** [LAN] Address waiting for the local-network permission prompt (null = none showing). */
+    private String pendingLocalNetworkUrl;
+    /** [LAN] Address to load when the user returns from Settings with access granted. */
+    private String retryAfterSettingsUrl;
 
     /** True while this activity is being destroyed — blocks tab revival below. */
     private boolean destroying = false;
@@ -346,19 +354,15 @@ public class MainActivity extends Activity
     }
 
     private void navigateFromInput(String input) {
-        if (looksLikeUrl(input)) {
-            String url = input.contains("://") ? input : "https://" + input;
+        // [LAN] IP addresses and "localhost" (router, modem, NAS ...) default to
+        // http:// because such devices almost never serve HTTPS on the default
+        // port; everything else is handled exactly as before. See LocalAddress.
+        String url = LocalAddress.toNavigableUrl(input);
+        if (url != null) {
             navigateToUrl(url);
         } else {
             navigateToUrl(BRAVE_SEARCH_URL + urlEncode(input));
         }
-    }
-
-    private static boolean looksLikeUrl(String input) {
-        if (input == null || input.isEmpty()) return false;
-        if (input.contains(" ")) return false;
-        if (input.contains("://")) return true;
-        return input.contains(".");
     }
 
     private static String urlEncode(String s) {
@@ -573,6 +577,66 @@ public class MainActivity extends Activity
         }
     }
 
+    // ------------------------------------------------------------------
+    // [LAN] Android 17 "local network" permission
+    // ------------------------------------------------------------------
+
+    /**
+     * Android 17 blocks connections to the user's own network (router, modem,
+     * NAS ...) for apps without the ACCESS_LOCAL_NETWORK runtime permission;
+     * the symptom is a long hang followed by a timeout. Explain, ask, then
+     * load the page the user wanted. A no-op on older Android versions and
+     * once access has been granted (which also keeps a failing load from
+     * ever re-triggering itself).
+     */
+    @Override
+    public void requestLocalNetworkAccess(String uri) {
+        if (uri == null || destroying || isFinishing()) return;
+        if (!LocalNetworkAccess.isMissing(this)) return;
+        if (pendingLocalNetworkUrl != null) {   // a prompt is already showing: keep the newest target
+            pendingLocalNetworkUrl = uri;
+            return;
+        }
+        pendingLocalNetworkUrl = uri;
+        new AlertDialog.Builder(this)
+                .setTitle("Allow local network access?")
+                .setMessage("This address is on your local network, such as your router. "
+                        + "Android needs your permission before SpoonGecko can connect to "
+                        + "devices on it.")
+                .setPositiveButton("Continue", (d, w) -> requestPermissions(
+                        new String[]{LocalNetworkAccess.PERMISSION}, REQ_LOCAL_NETWORK))
+                .setNegativeButton("Not now", (d, w) -> cancelLocalNetworkRequest())
+                .setOnCancelListener(d -> cancelLocalNetworkRequest())
+                .show();
+    }
+
+    private void cancelLocalNetworkRequest() {
+        pendingLocalNetworkUrl = null;
+        // navigateToUrl() hides the home panel before the load is held back; put it back.
+        screen.showHomePanel(isActiveTabEmpty());
+    }
+
+    private void showLocalNetworkDenied(final String url) {
+        if (destroying || isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Local network access is off")
+                .setMessage("Without it Android blocks SpoonGecko from reaching your router and "
+                        + "other devices on your network. You can turn it on under Permissions "
+                        + "\u203a Nearby devices.")
+                .setPositiveButton("Open settings", (d, w) -> {
+                    retryAfterSettingsUrl = url;
+                    try {
+                        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", getPackageName(), null)));
+                    } catch (Exception e) {
+                        Log.w(TAG, "open app settings failed", e);
+                        retryAfterSettingsUrl = null;
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
     @Override public void downloadFile(String url, String mime, String contentDisposition) {
         try {
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
@@ -619,6 +683,25 @@ public class MainActivity extends Activity
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_LOCAL_NETWORK) {
+            final String url = pendingLocalNetworkUrl;
+            pendingLocalNetworkUrl = null;
+            if (grantResults.length == 0) {                  // request interrupted: treat as cancelled
+                screen.showHomePanel(isActiveTabEmpty());
+                return;
+            }
+            if (grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Tab t = tabManager.getActiveTab();
+                if (t != null && url != null) {
+                    screen.showHomePanel(false);
+                    t.session.loadUri(url);
+                }
+            } else {
+                screen.showHomePanel(isActiveTabEmpty());
+                showLocalNetworkDenied(url);
+            }
+            return;
+        }
         if (requestCode != REQ_ANDROID_PERMS || pendingPermissionCallback == null) return;
         boolean granted = grantResults.length > 0;
         for (int r : grantResults) {
@@ -653,6 +736,16 @@ public class MainActivity extends Activity
         if (t != null) {
             t.session.setActive(true);
             t.session.setPriorityHint(GeckoSession.PRIORITY_HIGH);
+        }
+        // [LAN] Back from Settings after being sent there to allow local network access.
+        if (retryAfterSettingsUrl != null) {
+            final String url = retryAfterSettingsUrl;
+            retryAfterSettingsUrl = null;
+            Tab active = tabManager == null ? null : tabManager.getActiveTab();
+            if (active != null && LocalNetworkAccess.isGranted(this)) {
+                screen.showHomePanel(false);
+                active.session.loadUri(url);
+            }
         }
     }
 

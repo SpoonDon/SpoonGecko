@@ -3,12 +3,14 @@ package com.spoongecko.browser;
 import android.app.Activity;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.util.Log;
 
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSession.NavigationDelegate.LoadRequest;
+import org.mozilla.geckoview.WebRequestError;
 import org.mozilla.geckoview.WebResponse;
 
 import java.util.Arrays;
@@ -19,6 +21,8 @@ import java.util.Map;
 import java.util.Set;
 
 public final class BrowserDelegates {
+    private static final String TAG = "SpoonGecko";
+
     /** Schemes Gecko itself can load; everything else goes to the system. */
     // [F10] "moz-extension" and "extension" MUST be in this list: every
     // WebExtension page (uBlock Origin dashboard/options, Dark Reader
@@ -54,6 +58,11 @@ public final class BrowserDelegates {
         void onSessionGone(Tab tab);                                         // [M9]
         void onPageStarted(Tab tab, String url);
         void updateToolbarState();
+        /**
+         * [LAN] Android 17 blocks connections to the user's own network until
+         * "local network" access is granted. Asks for it, then loads uri.
+         */
+        void requestLocalNetworkAccess(String uri);
     }
 
     private final Activity activity;
@@ -86,7 +95,7 @@ public final class BrowserDelegates {
 
             @Override
             public void onPageStart(GeckoSession sess, String url) {
-                if (url == null || url.startsWith("about:")) return;
+                if (url == null || url.startsWith("about:") || ErrorPages.isErrorPageUri(url)) return;
                 tab.url = url;
                 activity.runOnUiThread(() -> host.onPageStarted(tab, url));
             }
@@ -118,7 +127,9 @@ public final class BrowserDelegates {
             @Override
             public void onFirstContentfulPaint(GeckoSession session) {
                 host.removeFlashGuard();
-                if (!TextUtils.isEmpty(tab.url)) {
+                // [LAN] Our own error pages are not visits: keep failed addresses
+                // (e.g. a router IP while off its Wi-Fi) out of history/suggestions.
+                if (!TextUtils.isEmpty(tab.url) && !ErrorPages.isErrorTitle(tab.title)) {
                     host.getHistoryStore().recordVisit(tab.url, tab.title);
                 }
             }
@@ -228,12 +239,15 @@ public final class BrowserDelegates {
             // [H4] onPageStart only fires for top-level document loads; it never
             // fires for redirects already in flight or SPA pushState navigations,
             // so the URL bar used to show stale addresses. onLocationChange is
-            // the authoritative signal.                        
+            // the authoritative signal.
             @Override
             public void onLocationChange(GeckoSession sess, String url,
                     List<GeckoSession.PermissionDelegate.ContentPermission> perms,
                     Boolean hasUserGesture) {
                 if (url == null) return;
+                // [LAN] Never let the data: URI of our own error page leak into the
+                // URL bar / saved tab URL; the failed address stays shown instead.
+                if (ErrorPages.isErrorPageUri(url)) return;
                 // [F14] tab.url is the sanitized value ("" for about:blank);
                 // the URL bar must receive THAT, not the raw url — otherwise
                 // every fresh tab left "about:blank" sitting in the bar.
@@ -251,10 +265,40 @@ public final class BrowserDelegates {
                 final String uri = request.uri;
                 final String scheme = uriScheme(uri);
                 if (scheme == null || BROWSER_SCHEMES.contains(scheme)) {
+                    // [LAN] On Android 17+ a connection to the user's own network is
+                    // blocked until "local network" access is granted, and the failure
+                    // is a long hang followed by a timeout. Ask first instead; the
+                    // host loads the page once the user has answered.
+                    if (LocalNetworkAccess.needsPermissionFor(activity, uri)) {
+                        activity.runOnUiThread(() -> host.requestLocalNetworkAccess(uri));
+                        return GeckoResult.deny();
+                    }
                     return null;   // null == ALLOW (unhandled)
                 }
                 activity.runOnUiThread(() -> host.openExternalUri(uri));
                 return GeckoResult.deny();
+            }
+
+            // [LAN] Without this method GeckoView halts every failed load, so the
+            // user was left with a blank page — including for a router or modem
+            // whose certificate can't be verified. Return an error page instead.
+            // For addresses on the user's own network it offers to continue past
+            // a certificate warning (see ErrorPages for the exact policy).
+            @Override
+            public GeckoResult<String> onLoadError(
+                    GeckoSession sess, String uri, WebRequestError error) {
+                try {
+                    final boolean blocked = ErrorPages.isLocalNetworkBlocked(
+                            LocalNetworkAccess.isMissing(activity), uri, error);
+                    if (blocked && uri != null) {
+                        // The permission is what's missing: ask for it, then reload.
+                        activity.runOnUiThread(() -> host.requestLocalNetworkAccess(uri));
+                    }
+                    return GeckoResult.fromValue(ErrorPages.build(uri, error, blocked));
+                } catch (Exception e) {
+                    Log.w(TAG, "onLoadError failed", e);
+                    return null;   // previous behaviour: halt the load
+                }
             }
 
             @Override
