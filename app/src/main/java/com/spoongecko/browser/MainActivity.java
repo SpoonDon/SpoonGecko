@@ -49,6 +49,10 @@ public class MainActivity extends Activity
     private static final String KEY_TAB_URLS = "tabs_urls_v2";
     private static final String KEY_TAB_TITLES = "tabs_titles_v2";
     private static final String KEY_ACTIVE_TAB = "tabs_active_v2";
+    private static final String KEY_TAB_DESKTOP = "tabs_desktop_v2";    // [DESKTOP] boolean[] per tab
+    private static final int REQ_POST_NOTIFICATIONS = 0x5153;           // [MEDIA] media notification (Android 13+)
+    private static final String PREFS_NAME = "spoongecko_prefs";
+    private static final String PREF_MEDIA_NOTIF_ASKED = "media_notif_asked";
 
     /**
      * [PERF] When true, only the selected tab's session is opened (and its
@@ -87,6 +91,11 @@ public class MainActivity extends Activity
 
     /** True while this activity is being destroyed — blocks tab revival below. */
     private boolean destroying = false;
+
+    /** [MEDIA] True between onResume and onPause. */
+    private boolean resumed = false;
+    /** [MEDIA] The tab that was active before the current one (its priority is lowered on a switch). */
+    private Tab lastActiveTab;
 
     private static synchronized GeckoRuntime ensureRuntime(Activity activity) {
         if (sRuntime == null) {
@@ -138,6 +147,15 @@ public class MainActivity extends Activity
         dialogs = new BrowserDialogs(this, tabManager, history);
         prompts = new BrowserPrompts(this);
         delegates = new BrowserDelegates(this, this, prompts);
+
+        // [MEDIA] Background playback: keep the process priority of playing pages high.
+        MediaPlaybackController.get().setListener(new MediaPlaybackController.Listener() {
+            @Override public void onMediaStateChanged() {
+                if (destroying || tabManager == null) return;
+                for (Tab t : tabManager.getTabs()) updatePriority(t);
+            }
+            @Override public void onMediaStarted() { askForNotificationPermissionOnce(); }
+        });
 
         setupBackHandler();
         setupInputHandlers();
@@ -253,6 +271,7 @@ public class MainActivity extends Activity
             ArrayList<String> states = savedInstanceState.getStringArrayList(KEY_TAB_STATES);
             ArrayList<String> urls = savedInstanceState.getStringArrayList(KEY_TAB_URLS);
             ArrayList<String> titles = savedInstanceState.getStringArrayList(KEY_TAB_TITLES);
+            final boolean[] desktopFlags = savedInstanceState.getBooleanArray(KEY_TAB_DESKTOP);
             if (states != null && !states.isEmpty()) {
                 final int active = clampIndex(
                         savedInstanceState.getInt(KEY_ACTIVE_TAB, 0), states.size());
@@ -266,7 +285,8 @@ public class MainActivity extends Activity
                     addRestoredTab(st,
                             urls != null && i < urls.size() ? urls.get(i) : "",
                             titles != null && i < titles.size() ? titles.get(i) : "",
-                            !LAZY_TAB_RESTORE || i == active);
+                            !LAZY_TAB_RESTORE || i == active,
+                            desktopFlags != null && i < desktopFlags.length && desktopFlags[i]);
                 }
                 tabManager.switchTo(active);
                 screen.showHomePanel(isActiveTabEmpty());
@@ -279,7 +299,8 @@ public class MainActivity extends Activity
             final int active = clampIndex(disk.activeIndex, disk.states.size());
             for (int i = 0; i < disk.states.size(); i++) {
                 addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i),
-                        !LAZY_TAB_RESTORE || i == active);
+                        !LAZY_TAB_RESTORE || i == active,
+                        i < disk.desktop.size() && disk.desktop.get(i));
             }
             tabManager.switchTo(active);
             screen.showHomePanel(isActiveTabEmpty());
@@ -312,11 +333,14 @@ public class MainActivity extends Activity
      * again unchanged in the meantime.
      */
     private Tab addRestoredTab(GeckoSession.SessionState state, String url, String title,
-                               boolean openNow) {
+                               boolean openNow, boolean desktop) {
         Tab tab = tabManager.createTabWithState(state);
         tab.url = url == null ? "" : url;
         tab.title = title == null ? "" : title;
         tab.latestState = state;
+        // [DESKTOP] Must be in place BEFORE the session opens: opening restores
+        // (and so loads) the saved page, which has to use the saved user agent.
+        if (desktop) setDesktopMode(tab, true);
         delegates.attach(tab);
         if (openNow) {
             tab.session.open(sRuntime);
@@ -411,6 +435,7 @@ public class MainActivity extends Activity
     @Override
     public void onTabsChanged() {
         if (destroying) return;   // fix for the destroy-revive loop (C4)
+        MediaPlaybackController.get().prune();   // [MEDIA] drop media of tabs that were closed
         updateTabCount();
         if (tabManager.count() == 0) newTab();
     }
@@ -429,6 +454,27 @@ public class MainActivity extends Activity
         updateToolbarState();
         updateTabCount();
         ExtensionManager.get().setActiveSession(tab.session);   // tabs.onActivated
+        // [MEDIA] Process priority follows the visible tab: raise this one and lower
+        // the previous one, unless that one is playing media.
+        final Tab previous = lastActiveTab;
+        lastActiveTab = tab;
+        if (previous != null && previous != tab) updatePriority(previous);
+        updatePriority(tab);
+    }
+
+    /**
+     * [MEDIA] A tab's process gets high priority while it is the visible one
+     * (app in the foreground) or while it is playing media — even in the
+     * background, which is what keeps playback alive when the app is not on
+     * screen. Everything else stays at the default.
+     */
+    private void updatePriority(Tab t) {
+        if (t == null || !t.session.isOpen()) return;
+        final boolean high = (resumed && t == tabManager.getActiveTab())
+                || MediaPlaybackController.get().wantsHighPriority(t.session);
+        if (high == t.priorityHigh) return;
+        t.priorityHigh = high;
+        t.session.setPriorityHint(high ? GeckoSession.PRIORITY_HIGH : GeckoSession.PRIORITY_DEFAULT);
     }
 
     // ------------------------------------------------------------------
@@ -453,8 +499,39 @@ public class MainActivity extends Activity
     }
     @Override public void onShowExit() { showExitConfirmation(); }
     @Override public void onOpenInNewTab(String url) {
+        final Tab opener = tabManager.getActiveTab();
         Tab t = addNewTab(null);
+        if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
         t.session.loadUri(url);
+    }
+
+    // ------------------------------------------------------------------
+    // [DESKTOP] "Desktop site" toggle
+    // ------------------------------------------------------------------
+
+    /** Sets a tab's mode. Takes effect on that tab's next load. */
+    private void setDesktopMode(Tab t, boolean on) {
+        t.desktopMode = on;
+        DesktopMode.apply(t.session, on);
+    }
+
+    @Override public boolean isDesktopMode() {
+        final Tab t = tabManager.getActiveTab();
+        return t != null && t.desktopMode;
+    }
+
+    @Override public void onToggleDesktopMode() {
+        final Tab t = tabManager.getActiveTab();
+        if (t == null) return;
+        final boolean on = !t.desktopMode;
+        setDesktopMode(t, on);
+        persistAllTabs();   // coalesced save, so the choice survives a restart
+        android.widget.Toast.makeText(this, on ? "Desktop site" : "Mobile site",
+                android.widget.Toast.LENGTH_SHORT).show();
+        if (t.url == null || t.url.isEmpty()) return;     // nothing loaded: applies to the next page
+        // Switching back to mobile: YouTube's "?app=desktop" would keep the desktop layout.
+        final String cleaned = on ? null : DesktopMode.mobileReloadTarget(t.url);
+        DesktopMode.reloadWithNewAgent(t.session, cleaned != null ? cleaned : t.url);
     }
 
     // ------------------------------------------------------------------
@@ -526,7 +603,10 @@ public class MainActivity extends Activity
     // into the returned session itself. Pre-loading it here (the old
     // createTabAndLoad) caused a duplicate load for every target=_blank link.
     @Override public Tab createNewSessionTab() {
-        return addNewTab(null);
+        final Tab opener = tabManager.getActiveTab();
+        final Tab t = addNewTab(null);
+        if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
+        return t;
     }
     @Override public void requestAndroidPermissions(
             String[] permissions, GeckoSession.PermissionDelegate.Callback callback) {
@@ -575,6 +655,25 @@ public class MainActivity extends Activity
         } catch (Exception e) {
             Log.e(TAG, "open external uri failed", e);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // [MEDIA] Notification permission (Android 13+)
+    // ------------------------------------------------------------------
+
+    /**
+     * The playback notification (and its controls) is only shown if the user
+     * allowed notifications. Ask once, the first time something plays while
+     * the app is on screen; playback itself works either way.
+     */
+    private void askForNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < 33 || destroying || isFinishing() || !resumed) return;
+        final String perm = "android.permission.POST_NOTIFICATIONS";
+        if (checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        final android.content.SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_MEDIA_NOTIF_ASKED, false)) return;
+        prefs.edit().putBoolean(PREF_MEDIA_NOTIF_ASKED, true).apply();
+        requestPermissions(new String[]{perm}, REQ_POST_NOTIFICATIONS);
     }
 
     // ------------------------------------------------------------------
@@ -683,6 +782,7 @@ public class MainActivity extends Activity
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_POST_NOTIFICATIONS) return;   // [MEDIA] nothing to do; the next update shows it
         if (requestCode == REQ_LOCAL_NETWORK) {
             final String url = pendingLocalNetworkUrl;
             pendingLocalNetworkUrl = null;
@@ -732,10 +832,11 @@ public class MainActivity extends Activity
     @Override protected void onResume() {
         super.onResume();
         ExtensionManager.get().setCurrentActivity(this);   // for extension prompts/popups
+        resumed = true;
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         if (t != null) {
             t.session.setActive(true);
-            t.session.setPriorityHint(GeckoSession.PRIORITY_HIGH);
+            updatePriority(t);   // HIGH: it is the visible tab (see updatePriority)
         }
         // [LAN] Back from Settings after being sent there to allow local network access.
         if (retryAfterSettingsUrl != null) {
@@ -752,11 +853,15 @@ public class MainActivity extends Activity
     @Override protected void onPause() {
         persistAllTabsNow();
         ExtensionManager.get().setCurrentActivity(null);
+        resumed = false;
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         if (t != null) {
             t.session.setActive(false);
-            t.session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT);
+            // [MEDIA] Back to the default priority — unless this tab is playing media,
+            // in which case it must stay high or Android reclaims it within a minute or two.
+            updatePriority(t);
         }
+        MediaPlaybackController.get().onAppBackgrounded();   // [MEDIA] make sure the service is up
         super.onPause();
     }
 
@@ -772,7 +877,10 @@ public class MainActivity extends Activity
         ArrayList<String> states = new ArrayList<>();
         ArrayList<String> urls = new ArrayList<>();
         ArrayList<String> titles = new ArrayList<>();
-        for (Tab t : tabManager.getTabs()) {
+        final List<Tab> allTabs = tabManager.getTabs();
+        final boolean[] desktopFlags = new boolean[allTabs.size()];
+        for (int i = 0; i < allTabs.size(); i++) desktopFlags[i] = allTabs.get(i).desktopMode;
+        for (Tab t : allTabs) {
             String s = null;
             if (t.latestState != null) {
                 try { s = t.latestState.toString(); } catch (Exception ignored) {}
@@ -785,6 +893,7 @@ public class MainActivity extends Activity
         out.putStringArrayList(KEY_TAB_URLS, urls);
         out.putStringArrayList(KEY_TAB_TITLES, titles);
         out.putInt(KEY_ACTIVE_TAB, tabManager.getActiveIndex());
+        out.putBooleanArray(KEY_TAB_DESKTOP, desktopFlags);
     }
 
     @Override protected void onDestroy() {
@@ -794,6 +903,8 @@ public class MainActivity extends Activity
         TabPersistence.cancelPendingSave();
         if (popups != null) popups.dismissAll();
         if (suggestions != null) suggestions.dispose();
+        // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
+        MediaPlaybackController.get().shutdown();
         // Fix for the exit crash (C3): GeckoView.setSession() is @NonNull and
         // throws on null — the view is being torn down, nothing to detach.
         if (tabManager != null) {

@@ -76,13 +76,21 @@ public final class TabPersistence {
         public final List<String> urls;
         public final List<String> titles;
         public final int activeIndex;
+        /** Per tab: was "Desktop site" on. Same length as states. */
+        public final List<Boolean> desktop;
 
         public Restored(List<GeckoSession.SessionState> states, List<String> urls,
-                        List<String> titles, int activeIndex) {
+                        List<String> titles, int activeIndex, List<Boolean> desktop) {
             this.states = states;
             this.urls = urls;
             this.titles = titles;
             this.activeIndex = activeIndex;
+            this.desktop = desktop;
+        }
+
+        public Restored(List<GeckoSession.SessionState> states, List<String> urls,
+                        List<String> titles, int activeIndex) {
+            this(states, urls, titles, activeIndex, new ArrayList<Boolean>());
         }
     }
 
@@ -91,13 +99,15 @@ public final class TabPersistence {
         final List<GeckoSession.SessionState> states;
         final List<String> urls;
         final List<String> titles;
+        final List<Boolean> desktop;
         final int active;
 
         Snapshot(List<GeckoSession.SessionState> states, List<String> urls,
-                 List<String> titles, int active) {
+                 List<String> titles, List<Boolean> desktop, int active) {
             this.states = states;
             this.urls = urls;
             this.titles = titles;
+            this.desktop = desktop;
             this.active = active;
         }
 
@@ -113,6 +123,7 @@ public final class TabPersistence {
                 if (states.get(i) != o.states.get(i)) return false;
                 if (!urls.get(i).equals(o.urls.get(i))) return false;
                 if (!titles.get(i).equals(o.titles.get(i))) return false;
+                if (!desktop.get(i).equals(o.desktop.get(i))) return false;
             }
             return true;
         }
@@ -185,6 +196,7 @@ public final class TabPersistence {
         final List<GeckoSession.SessionState> states = new ArrayList<>();
         final List<String> urls = new ArrayList<>();
         final List<String> titles = new ArrayList<>();
+        final List<Boolean> desktop = new ArrayList<>();
         final List<Tab> tabs = tabManager.getTabs();
         final int active = tabManager.getActiveIndex();
 
@@ -196,10 +208,11 @@ public final class TabPersistence {
             states.add(t.latestState);                    // null allowed -> empty tab
             urls.add(t.url == null ? "" : t.url);
             titles.add(t.title == null ? "" : t.title);
+            desktop.add(t.desktopMode);
             savedIndex++;
         }
 
-        final Snapshot snap = new Snapshot(states, urls, titles, savedActive);
+        final Snapshot snap = new Snapshot(states, urls, titles, desktop, savedActive);
         if (snap.sameAs(lastSubmitted)) return;           // [PERF] nothing changed
         lastSubmitted = snap;
         IO.execute(() -> write(snap));
@@ -217,6 +230,7 @@ public final class TabPersistence {
                 obj.put("s", s != null ? s.toString() : null);
                 obj.put("u", snap.urls.get(i));
                 obj.put("t", snap.titles.get(i));
+                if (snap.desktop.get(i)) obj.put("d", true);   // only written when on: keeps the data small
                 arr.put(obj);
             }
             JSONObject root = new JSONObject();
@@ -236,11 +250,12 @@ public final class TabPersistence {
         List<GeckoSession.SessionState> out = new ArrayList<>();
         List<String> urls = new ArrayList<>();
         List<String> titles = new ArrayList<>();
+        List<Boolean> desktop = new ArrayList<>();
         int activeIndex = 0;
         try {
             String raw = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .getString(PREF_TABS, null);
-            if (raw == null) return new Restored(out, urls, titles, activeIndex);
+            if (raw == null) return new Restored(out, urls, titles, activeIndex, desktop);
             JSONObject root = new JSONObject(raw);
             JSONArray arr = root.getJSONArray("tabs");
             for (int i = 0; i < arr.length(); i++) {
@@ -258,12 +273,13 @@ public final class TabPersistence {
                 out.add(state);                              // null -> empty tab
                 urls.add(o.optString("u", ""));
                 titles.add(o.optString("t", ""));
+                desktop.add(o.optBoolean("d", false));       // absent in data saved by older versions
             }
             activeIndex = root.optInt("active", 0);
         } catch (Exception e) {
             Log.w(TAG, "loadTabs failed", e);
         }
-        return new Restored(out, urls, titles, activeIndex);
+        return new Restored(out, urls, titles, activeIndex, desktop);
     }
 
     /** Stops accepting new saves and lets queued writes drain. */

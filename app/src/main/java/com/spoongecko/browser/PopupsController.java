@@ -12,6 +12,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -33,6 +34,10 @@ public final class PopupsController {
         void onShowExtensions();
         void onShowExit();
         void onOpenInNewTab(String url);
+        /** [DESKTOP] Whether the current tab is showing the desktop site. */
+        boolean isDesktopMode();
+        /** [DESKTOP] Switch the current tab between the mobile and desktop site. */
+        void onToggleDesktopMode();
     }
 
     private final Activity activity;
@@ -61,14 +66,39 @@ public final class PopupsController {
 
         addMenuItem(container, "New tab", false, host::onNewTab);
         addMenuItem(container, "Reload", false, host::onReload);
+        addMenuItem(container, "Desktop site: " + (host.isDesktopMode() ? "On" : "Off"), false,
+                host::onToggleDesktopMode);
         addMenuItem(container, "Home", false, host::onHome);
         addMenuItem(container, "Share", false, host::onShare);
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
-        menuPopup = new PopupWindow(container, dp(190),
-                ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        // [FIT] With the extra row the menu can be taller than the space below the
+        // button (landscape phones). Scroll instead of letting the last rows
+        // (including Exit) fall off the screen.
+        final int menuWidth = dp(190);
+        container.measure(
+                View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final int wanted = container.getMeasuredHeight();
+        final int[] anchorOnScreen = new int[2];
+        menuAnchor.getLocationOnScreen(anchorOnScreen);
+        final int available = activity.getResources().getDisplayMetrics().heightPixels
+                - (anchorOnScreen[1] + menuAnchor.getHeight()) - dp(16);
+
+        View content = container;
+        int height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        if (available > dp(120) && wanted > available) {
+            ScrollView scroll = new ScrollView(activity);
+            container.setBackground(null);
+            scroll.setBackgroundResource(R.drawable.bg_glass_dialog);
+            scroll.addView(container);
+            content = scroll;
+            height = available;
+        }
+
+        menuPopup = new PopupWindow(content, menuWidth, height, true);
         menuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         menuPopup.setOutsideTouchable(true);
         menuPopup.setElevation(dp(8));

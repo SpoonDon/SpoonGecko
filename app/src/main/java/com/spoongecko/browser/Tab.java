@@ -9,6 +9,10 @@ public class Tab {
     public boolean canGoBack = false;
     public boolean canGoForward = false;
     public GeckoSession.SessionState latestState;
+    /** "Desktop site" for this tab (user agent + viewport); saved with the tab. */
+    public boolean desktopMode = false;
+    /** Last process-priority hint applied to this tab's session (avoids re-sending the same one). */
+    public boolean priorityHigh = false;
 
     public Tab(GeckoSession session) {
         this.session = session;

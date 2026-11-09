@@ -83,6 +83,8 @@ public final class BrowserDelegates {
         // [H1] Without a PromptDelegate, alert()/confirm()/prompt(), <select>
         // menus, <input type=file>, HTTP auth and share requests all did nothing.
         tab.session.setPromptDelegate(prompts);
+        // [MEDIA] Lets audio/video keep playing in the background: see MediaPlaybackController.
+        tab.session.setMediaSessionDelegate(MediaPlaybackController.get().delegateFor(activity, tab));
     }
 
     private void attachProgress(final Tab tab) {
