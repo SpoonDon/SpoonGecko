@@ -16,6 +16,15 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
+    <!--
+        Background playback: a foreground "media playback" service keeps audio/video
+        playing (with notification controls) while the app is not on screen. The wake
+        lock is held only while something is actually playing.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -54,5 +63,11 @@
             android:label="Extensions"
             android:parentActivityName=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Keeps media playing in the background; started only while something plays. -->
+        <service
+            android:name=".MediaPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>
