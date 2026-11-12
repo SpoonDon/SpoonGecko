@@ -54,6 +54,19 @@ public class MainActivity extends Activity
     private static final String KEY_TAB_TITLES = "tabs_titles_v2";
     private static final String KEY_ACTIVE_TAB = "tabs_active_v2";
     private static final String KEY_TAB_DESKTOP = "tabs_desktop_v2";    // [DESKTOP] boolean[] per tab
+    /**
+     * [TTLE] A saved-instance Bundle is shipped through a Binder transaction
+     * when the activity stops ("activityStopped"), and that transaction is
+     * rejected — TransactionTooLargeException, a real crash on minimizing —
+     * once the parcel approaches the ~1 MB shared Binder buffer (a 609 KB
+     * Bundle was observed crashing exactly there). Session data whose
+     * estimated parcel size exceeds this budget stays OUT of the Bundle and
+     * is saved to disk instead (TabPersistence holds the same tabs, so the
+     * restore is identical); smaller sessions keep the instant in-memory
+     * Bundle restore, byte for byte as before. The budget leaves a wide
+     * margin: 1/3 of the observed crashing size, 1/5 of the buffer itself.
+     */
+    private static final long MAX_SAVED_STATE_BUNDLE_BYTES = 200 * 1024;
     private static final int REQ_POST_NOTIFICATIONS = 0x5153;           // [MEDIA] media notification (Android 13+)
     private static final String PREFS_NAME = "spoongecko_prefs";
     private static final String PREF_MEDIA_NOTIF_ASKED = "media_notif_asked";
@@ -1074,26 +1087,58 @@ public class MainActivity extends Activity
         // what brings the session back after the process is killed in the
         // background; the old code stored everything in static fields, which
         // die with the process, and relied on a broken disk restore.
+        //
+        // [TTLE] But the Bundle is NOT free storage: Android hands it to the
+        // system process through a Binder transaction when the activity stops
+        // ("activityStopped"), and one that is too large throws
+        // TransactionTooLargeException from PendingTransactionActions — the
+        // crash report showed tabs_states_v2 alone at 606908 bytes. So the
+        // states are put in ONLY while they fit the budget below; an
+        // oversized session set skips them (and the Bundle restore) and is
+        // saved to disk right here, which restores the same tabs through
+        // TabPersistence (states, urls, titles, desktop flags, active index —
+        // the identical data, written at every pause/stop/trim and on page
+        // events besides this one).
         ArrayList<String> states = new ArrayList<>();
         ArrayList<String> urls = new ArrayList<>();
         ArrayList<String> titles = new ArrayList<>();
+        long parcelBytes = 48;   // the four Bundle entries' own headers and array counts
         final List<Tab> allTabs = tabManager.getTabs();
         final boolean[] desktopFlags = new boolean[allTabs.size()];
         for (int i = 0; i < allTabs.size(); i++) desktopFlags[i] = allTabs.get(i).desktopMode;
+        boolean overBudget = false;
         for (Tab t : allTabs) {
             String s = null;
             if (t.latestState != null) {
                 try { s = t.latestState.toString(); } catch (Exception ignored) {}
             }
+            // Estimated parcel cost of one entry of each list: a String in a
+            // Parcel costs at worst 2 bytes per char (UTF-16) plus its length
+            // header, and each ArrayList entry adds its own small header.
+            parcelBytes += entryBytes(s) + entryBytes(t.url) + entryBytes(t.title);
             states.add(s == null ? "" : s);
             urls.add(t.url == null ? "" : t.url);
             titles.add(t.title == null ? "" : t.title);
+            if (parcelBytes > MAX_SAVED_STATE_BUNDLE_BYTES) { overBudget = true; break; }
+        }
+        if (overBudget) {
+            // Same tabs, same format, same restore path — just written to disk
+            // now instead of riding a Binder transaction that would crash.
+            // (viewHierarchyState stays in the Bundle; only our big lists go.)
+            persistAllTabsNow();
+            return;
         }
         out.putStringArrayList(KEY_TAB_STATES, states);
         out.putStringArrayList(KEY_TAB_URLS, urls);
         out.putStringArrayList(KEY_TAB_TITLES, titles);
         out.putInt(KEY_ACTIVE_TAB, tabManager.getActiveIndex());
         out.putBooleanArray(KEY_TAB_DESKTOP, desktopFlags);
+    }
+
+    /** [TTLE] Worst-case bytes one of our Bundle strings costs inside the parcel. */
+    private static long entryBytes(String s) {
+        if (s == null) return 8;
+        return 16 + 2 * (long) s.length();
     }
 
     @Override protected void onDestroy() {
