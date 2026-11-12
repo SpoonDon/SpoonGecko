@@ -33,6 +33,8 @@ public final class PopupsController {
         void onShowHistory();
         void onShowExtensions();
         void onShowExit();
+        /** [FIND] Open the find-in-page bar for the current page. */
+        void onFindInPage();
         void onOpenInNewTab(String url);
         /** [DESKTOP] Whether the current tab is showing the desktop site. */
         boolean isDesktopMode();
@@ -76,6 +78,7 @@ public final class PopupsController {
         addMenuItem(container, "Share", false, host::onShare);
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
+        addMenuItem(container, "Find in page", false, host::onFindInPage);
         addMenuItem(container, "Downloads", false, host::onShowDownloads);
         addMenuItem(container, "Exit", true, host::onShowExit);
 

@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
@@ -32,13 +33,15 @@ import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebResponse;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends Activity
         implements ComponentCallbacks2, TabManager.Listener,
                    BrowserDelegates.Host, PopupsController.Host,
-                   SuggestionsController.Listener, ExtensionManager.Host {
+                   SuggestionsController.Listener, ExtensionManager.Host,
+                   FindInPageController.Host {
 
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
@@ -82,6 +85,7 @@ public class MainActivity extends Activity
     private BrowserDialogs dialogs;
     private BrowserPrompts prompts;
     private BrowserDelegates delegates;
+    private FindInPageController findInPage;   // [FIND] the find-in-page bar
 
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
 
@@ -148,6 +152,10 @@ public class MainActivity extends Activity
         dialogs = new BrowserDialogs(this, tabManager, history);
         prompts = new BrowserPrompts(this);
         delegates = new BrowserDelegates(this, this, prompts);
+
+        // [FIND] Created before restoreTabs(): switching to the restored tab
+        // (which happens inside restoreTabs) must find the controller in place.
+        findInPage = new FindInPageController(this, this);
 
         // [MEDIA] Background playback: keep the process priority of playing pages high.
         MediaPlaybackController.get().setListener(new MediaPlaybackController.Listener() {
@@ -236,6 +244,12 @@ public class MainActivity extends Activity
         // while the page navigated back underneath it.
         if (suggestions != null && suggestions.isVisible()) {
             suggestions.hide();
+            return;
+        }
+        // [FIND] Close the find bar before anything else — like the suggestions
+        // dropdown, it must not survive the first back press.
+        if (findInPage != null && findInPage.isVisible()) {
+            findInPage.close();
             return;
         }
         Tab t = tabManager.getActiveTab();
@@ -445,6 +459,8 @@ public class MainActivity extends Activity
     @Override
     public void onActiveTabChanged(Tab tab) {
         if (tab == null) return;
+        // [FIND] The find bar belongs to the page it was opened on.
+        if (findInPage != null && findInPage.isVisible()) findInPage.close();
         // [POPUP] A tab handed to GeckoView is attached by showWhenOpened() once GeckoView has opened it.
         // Opening it here would make GeckoView reject it ("Must use an unopened GeckoSession instance").
         if (tab.awaitingOpen) return;
@@ -503,6 +519,13 @@ public class MainActivity extends Activity
         startActivity(new Intent(this, ExtensionsActivity.class));
     }
     @Override public void onShowExit() { showExitConfirmation(); }
+    // [FIND] PopupsController.Host + FindInPageController.Host
+    @Override public void onFindInPage() {
+        if (findInPage != null) findInPage.show();
+    }
+    @Override public Tab activeSearchTab() {
+        return tabManager == null ? null : tabManager.getActiveTab();
+    }
     @Override public void onOpenInNewTab(String url) {
         final Tab opener = tabManager.getActiveTab();
         Tab t = addNewTab(null);
@@ -608,6 +631,8 @@ public class MainActivity extends Activity
         popups.showContextMenu(x, y, element);
     }
     @Override public void setFullScreen(boolean fullScreen) {
+        // [FIND] The find bar must not float over a fullscreen video.
+        if (fullScreen && findInPage != null && findInPage.isVisible()) findInPage.close();
         screen.setFullScreenMode(fullScreen);
     }
     // [F6] Contract of NavigationDelegate.onNewSession(): return a NEW,
@@ -865,12 +890,49 @@ public class MainActivity extends Activity
     }
 
     @Override public void onShowDownloads() {
+        // [DOWNLOAD] Open the folder the files land in with the device's file
+        // manager: the system Files app (and most third-party managers) handle
+        // ACTION_VIEW on a directory document. The system downloads list is only
+        // the fallback now — on several devices it is missing, and on others it
+        // hides the files this app saves through MediaStore.
+        if (openInFileManager(downloadsDocumentId())) return;
         try {
             startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
         } catch (Exception e) {
+            Log.w(TAG, "no app can show the downloads", e);
             android.widget.Toast.makeText(this, "No app can show the downloads list",
                     android.widget.Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** [DOWNLOAD] Shows a folder through any installed file manager; false if none took it. */
+    private boolean openInFileManager(String documentId) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(
+                    DocumentsContract.buildDocumentUri(
+                            "com.android.externalstorage.documents", documentId),
+                    DocumentsContract.Document.MIME_TYPE_DIR));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "no file manager for the Downloads folder", e);
+            return false;
+        }
+    }
+
+    /**
+     * [DOWNLOAD] The folder DownloadEngine writes to, as a document ID of the
+     * external-storage provider ("primary" is the phone's main storage):
+     * Android 10+ saves into the public Downloads folder through MediaStore;
+     * older versions use the app's own external Downloads folder.
+     */
+    private String downloadsDocumentId() {
+        if (Build.VERSION.SDK_INT >= 29) {
+            return "primary:" + Environment.DIRECTORY_DOWNLOADS;
+        }
+        final File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (dir == null) return "primary:" + Environment.DIRECTORY_DOWNLOADS;
+        return "primary:Android/data/" + getPackageName()
+                + "/files/" + Environment.DIRECTORY_DOWNLOADS;
     }
 
     /** Fallback only: Android's DownloadManager can't use cookies, POST bodies or blob: URLs. */
