@@ -48,7 +48,7 @@ android {
             // confirmed launching on your device. Once it starts reliably,
             // set both back to true — app/proguard-rules.pro is already
             // prepared with the complete rule set.
-            minifyEnabled false
+            minifyEnabled true
             shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
