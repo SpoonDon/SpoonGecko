@@ -1,20 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  [C1-fix] Adaptive launcher icon.
-
-  The previous version of this file pointed <foreground> and <monochrome> at
-  "@mipmap/ic_launcher" — which resolves to THIS VERY FILE on every device
-  running Android 8+, because mipmap-anydpi-v26 always wins over the plain
-  density buckets. Inflating the icon therefore recursed into itself
-  infinitely (AdaptiveIconDrawable -> foreground -> AdaptiveIconDrawable -> ...)
-  and blew the stack with a StackOverflowError the moment the launcher or the
-  Android 12+ splash screen tried to draw it. That is why the app installs
-  but never opens.
-
-  All three layer PNGs below exist in mipmap-hdpi .. mipmap-xxxhdpi.
--->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@mipmap/ic_launcher_background"/>
-    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-    <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
+  <background android:drawable="@mipmap/ic_launcher_background"/>
+  <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+  <monochrome android:drawable="@mipmap/ic_launcher_monochrome"/>
 </adaptive-icon>
