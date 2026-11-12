@@ -63,6 +63,16 @@ public final class BrowserDelegates {
          * "local network" access is granted. Asks for it, then loads uri.
          */
         void requestLocalNetworkAccess(String uri);
+        /**
+         * [DOWNLOAD] A page started a download (attachment, download attribute, a type GeckoView
+         * can't show, blob: ...). The response is read directly. Returns false if the app could
+         * not take it, in which case the old URL-only download is used.
+         */
+        boolean onDownloadResponse(Tab tab, WebResponse response);
+        /** [DOWNLOAD] The user followed a link that points at a file: save it instead of opening it. */
+        void onDownloadLink(String url, String referrer);
+        /** [POPUP] The new tab has been handed to GeckoView, which opens its session itself. */
+        void onNewSessionReturned(Tab tab);
     }
 
     private final Activity activity;
@@ -128,6 +138,7 @@ public final class BrowserDelegates {
 
             @Override
             public void onFirstContentfulPaint(GeckoSession session) {
+                tab.hasContent = true;
                 host.removeFlashGuard();
                 // [LAN] Our own error pages are not visits: keep failed addresses
                 // (e.g. a router IP while off its Wi-Fi) out of history/suggestions.
@@ -163,7 +174,11 @@ public final class BrowserDelegates {
                 final String uri = response.uri;
                 final String mime = header(response, "content-type");
                 final String disposition = header(response, "content-disposition");
-                activity.runOnUiThread(() -> host.downloadFile(uri, mime, disposition));
+                activity.runOnUiThread(() -> {
+                    // [DOWNLOAD] The page's own response is read directly, so cookies, POST results
+                    // and blob: files all work. The old URL-only request is just the fallback.
+                    if (!host.onDownloadResponse(tab, response)) host.downloadFile(uri, mime, disposition);
+                });
             }
 
             // [M9] Content process death. The session is closed and unusable;
@@ -275,6 +290,15 @@ public final class BrowserDelegates {
                         activity.runOnUiThread(() -> host.requestLocalNetworkAccess(uri));
                         return GeckoResult.deny();
                     }
+                    // [DOWNLOAD] A link a PAGE started that points at a file (audio, video, text,
+                    // archive ...) is a download, not something for the viewer or player to open.
+                    // Typed addresses and loads the app starts itself are never touched.
+                    if (DownloadPolicy.shouldInterceptNavigation(uri,
+                            !request.isDirectNavigation && request.triggerUri != null)) {
+                        final String referrer = request.triggerUri;
+                        activity.runOnUiThread(() -> host.onDownloadLink(uri, referrer));
+                        return GeckoResult.deny();
+                    }
                     return null;   // null == ALLOW (unhandled)
                 }
                 activity.runOnUiThread(() -> host.openExternalUri(uri));
@@ -305,15 +329,17 @@ public final class BrowserDelegates {
 
             @Override
             public GeckoResult<GeckoSession> onNewSession(GeckoSession source, String finalUri) {
-                // [F6] Per the NavigationDelegate contract: "The URI is provided
-                // only for informational purposes. Do not call load here" —
-                // GeckoView loads finalUri into the returned session itself.
-                // The old code pre-loaded it (createTabAndLoad), producing a
-                // duplicate load for every target=_blank / window.open.
+                // [F6] The URI is informational only: GeckoView loads finalUri into the
+                // returned session itself, so we must not load it here.
+                // [POPUP] The returned session must be NEW AND UNOPENED. GeckoView opens it
+                // itself, attaching it to the window the page asked for; a session that is
+                // already open fails with "Must use an unopened GeckoSession instance" and
+                // crashed the app for every target=_blank link and window.open().
                 final GeckoResult<GeckoSession> result = new GeckoResult<>();
                 activity.runOnUiThread(() -> {
-                    Tab newTab = host.createNewSessionTab();
+                    final Tab newTab = host.createNewSessionTab();
                     result.complete(newTab.session);
+                    host.onNewSessionReturned(newTab);   // shows it once GeckoView has opened it
                 });
                 return result;
             }

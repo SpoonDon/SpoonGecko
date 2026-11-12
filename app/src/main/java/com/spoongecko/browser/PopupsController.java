@@ -38,6 +38,10 @@ public final class PopupsController {
         boolean isDesktopMode();
         /** [DESKTOP] Switch the current tab between the mobile and desktop site. */
         void onToggleDesktopMode();
+        /** [DOWNLOAD] Save this address as a file (long-press menu). */
+        void onDownloadUrl(String url);
+        /** [DOWNLOAD] Show the system list of downloaded files. */
+        void onShowDownloads();
     }
 
     private final Activity activity;
@@ -72,6 +76,7 @@ public final class PopupsController {
         addMenuItem(container, "Share", false, host::onShare);
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
+        addMenuItem(container, "Downloads", false, host::onShowDownloads);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
         // [FIT] With the extra row the menu can be taller than the space below the
@@ -127,12 +132,14 @@ public final class PopupsController {
         if (hasLink) {
             addMenuItem(container, "Open link in new tab", false,
                     () -> host.onOpenInNewTab(link));
+            addMenuItem(container, "Download link", false, () -> host.onDownloadUrl(link));
             addMenuItem(container, "Copy link", false, () -> copyToClipboard(activity, link));
             addMenuItem(container, "Share link", false, () -> shareText(activity, link));
         }
         if (hasSrc) {
             addMenuItem(container, "Open in new tab", false,
                     () -> host.onOpenInNewTab(src));
+            addMenuItem(container, "Download", false, () -> host.onDownloadUrl(src));
             addMenuItem(container, "Copy URL", false, () -> copyToClipboard(activity, src));
             addMenuItem(container, "Share URL", false, () -> shareText(activity, src));
         }

@@ -30,6 +30,7 @@ import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
+import org.mozilla.geckoview.WebResponse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +168,7 @@ public class MainActivity extends Activity
         ExtensionManager.get().setHost(this);
         ExtensionManager.get().attachToolbar(extensionActions);
         ExtensionManager.get().maybeCheckForUpdatesOnStartup();
+        DownloadEngine.get(this).clearStaleNotifications();   // [DOWNLOAD] leftovers of a run that was killed
         // -------------------------------------------------------------------------
 
         restoreTabs(savedInstanceState);
@@ -443,6 +445,9 @@ public class MainActivity extends Activity
     @Override
     public void onActiveTabChanged(Tab tab) {
         if (tab == null) return;
+        // [POPUP] A tab handed to GeckoView is attached by showWhenOpened() once GeckoView has opened it.
+        // Opening it here would make GeckoView reject it ("Must use an unopened GeckoSession instance").
+        if (tab.awaitingOpen) return;
         // [PERF] A lazily restored tab has a session that was never opened;
         // open it the first time it is shown (open() must precede setSession()).
         if (!tab.session.isOpen()) tab.session.open(sRuntime);
@@ -539,8 +544,15 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     @Override
     public GeckoSession openExtensionTab(String url) {
-        Tab t = addNewTab(null);
-        if (url != null && !url.isEmpty()) t.session.loadUri(url);
+        // Two callers look identical from here:
+        //  - an extension's tabs.create: GeckoView takes the returned session, opens it itself and
+        //    Gecko loads the URL ("there is no need to load the URL manually" per the API docs);
+        //  - the app showing an extension page (its options): nobody else will open the session.
+        // The session is therefore returned unopened; if GeckoView has not adopted it after a short
+        // grace period, we open it and load the URL ourselves.
+        final Tab t = createUnopenedTab();
+        t.pendingUrl = url;
+        showWhenOpened(t, true);
         return t.session;
     }
 
@@ -602,12 +614,79 @@ public class MainActivity extends Activity
     // already-open session and DO NOT load the URI — GeckoView loads finalUri
     // into the returned session itself. Pre-loading it here (the old
     // createTabAndLoad) caused a duplicate load for every target=_blank link.
-    @Override public Tab createNewSessionTab() {
+    // ------------------------------------------------------------------
+    // [POPUP] Tabs that GeckoView opens itself
+    // ------------------------------------------------------------------
+    //
+    // When a page asks for a new window (target=_blank, window.open) or an extension calls
+    // tabs.create, GeckoView needs a NEW, UNOPENED GeckoSession. It opens that session itself,
+    // wiring it to the window the page requested (that is what keeps window.opener working).
+    // Handing it a session that is already open fails with
+    // "Must use an unopened GeckoSession instance", which crashed the app for every such link.
+    // So these tabs are created unopened, handed back, and only shown once they are open.
+
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+
+    /** Creates a tab whose session is NOT opened (and not attached to the view) yet. */
+    private Tab createUnopenedTab() {
         final Tab opener = tabManager.getActiveTab();
-        final Tab t = addNewTab(null);
+        final Tab t = tabManager.createTab();
+        t.awaitingOpen = true;
+        t.opener = opener;
         if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
+        delegates.attach(t);
         return t;
     }
+
+    @Override public Tab createNewSessionTab() {
+        final Tab t = createUnopenedTab();
+        t.openedByPage = true;
+        return t;
+    }
+
+    @Override public void onNewSessionReturned(Tab t) {
+        showWhenOpened(t, false);
+    }
+
+    /**
+     * Shows a tab whose session GeckoView is about to open (see SessionAdoption for the timing).
+     *
+     * @param mayOpenItself true when nobody but us can open it (the app asked for the tab, as with
+     *                      an extension's options page): after a short grace period we open it and
+     *                      load {@code pendingUrl}. false when GeckoView must adopt it: if it never
+     *                      does, the empty tab is dropped.
+     */
+    private void showWhenOpened(final Tab t, final boolean mayOpenItself) {
+        SessionAdoption.await(new SessionAdoption.Scheduler() {
+            @Override public void post(Runnable r) { uiHandler.post(r); }
+            @Override public void postDelayed(Runnable r, long delayMs) { uiHandler.postDelayed(r, delayMs); }
+        }, new SessionAdoption.Target() {
+            @Override public boolean isGone() {
+                return destroying || !tabManager.getTabs().contains(t);
+            }
+            @Override public boolean isOpen() {
+                return t.session.isOpen();
+            }
+            @Override public void adopted() {
+                t.awaitingOpen = false;            // GeckoView opened it (and loads the address itself)
+                tabManager.notifyTabsChanged();
+                tabManager.notifyActiveChanged();
+            }
+            @Override public void openItself() {
+                t.awaitingOpen = false;
+                t.session.open(sRuntime);
+                if (t.pendingUrl != null && !t.pendingUrl.isEmpty()) t.session.loadUri(t.pendingUrl);
+                tabManager.notifyTabsChanged();
+                tabManager.notifyActiveChanged();
+            }
+            @Override public void dropped() {
+                t.awaitingOpen = false;            // GeckoView never took the window
+                final int idx = tabManager.getTabs().indexOf(t);
+                if (idx >= 0) tabManager.closeTab(idx);
+            }
+        }, mayOpenItself);
+    }
+
     @Override public void requestAndroidPermissions(
             String[] permissions, GeckoSession.PermissionDelegate.Callback callback) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -736,6 +815,65 @@ public class MainActivity extends Activity
                 .show();
     }
 
+    // ------------------------------------------------------------------
+    // [DOWNLOAD]
+    // ------------------------------------------------------------------
+
+    /** A page started a download (attachment, download attribute, a type GeckoView can't show, blob:). */
+    @Override
+    public boolean onDownloadResponse(final Tab tab, WebResponse response) {
+        try {
+            askForNotificationPermissionOnce();
+            Runnable whenStreamDone = null;
+            if (tab.openedByPage && !tab.hasContent) {
+                // A new window opened only to deliver a file stays empty: return to the page that
+                // opened it now, and close the empty window once the transfer no longer needs it.
+                final Tab opener = tab.opener;
+                if (opener != null && tab == tabManager.getActiveTab()) {
+                    final int at = tabManager.getTabs().indexOf(opener);
+                    if (at >= 0) tabManager.switchTo(at);
+                }
+                whenStreamDone = () -> {
+                    final int idx = tabManager.getTabs().indexOf(tab);
+                    if (idx >= 0 && !tab.hasContent) tabManager.closeTab(idx);
+                };
+            }
+            DownloadEngine.get(this).enqueue(sRuntime,
+                    DownloadEngine.requestFromResponse(response, whenStreamDone));
+            return true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "download engine could not start, using the fallback", e);
+            return false;
+        }
+    }
+
+    /** The user followed a link to a file, or chose Download in the long-press menu. */
+    @Override
+    public void onDownloadLink(String url, String referrer) {
+        try {
+            askForNotificationPermissionOnce();
+            DownloadEngine.get(this).enqueue(sRuntime, DownloadRequest.forUrl(url, referrer));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "download engine could not start, using the fallback", e);
+            downloadFile(url, null, null);
+        }
+    }
+
+    @Override public void onDownloadUrl(String url) {
+        final Tab t = tabManager.getActiveTab();
+        onDownloadLink(url, t == null || t.url == null || t.url.isEmpty() ? null : t.url);
+    }
+
+    @Override public void onShowDownloads() {
+        try {
+            startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
+        } catch (Exception e) {
+            android.widget.Toast.makeText(this, "No app can show the downloads list",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Fallback only: Android's DownloadManager can't use cookies, POST bodies or blob: URLs. */
     @Override public void downloadFile(String url, String mime, String contentDisposition) {
         try {
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
