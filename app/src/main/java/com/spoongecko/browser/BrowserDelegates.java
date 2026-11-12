@@ -6,7 +6,6 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import org.mozilla.geckoview.AllowOrDeny;
-import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoSession.NavigationDelegate.LoadRequest;
@@ -196,10 +195,11 @@ public final class BrowserDelegates {
     }
 
     private void attachPermission(final Tab tab) {
-        tab.session.setContentBlockingDelegate(new ContentBlocking.Delegate() {
-            @Override
-            public void onContentBlocked(GeckoSession session, ContentBlocking.BlockEvent event) {}
-        });
+        // [PERF] No ContentBlocking.Delegate is set on purpose. The old one had an empty
+        // onContentBlocked(), but merely having a delegate makes Gecko report every
+        // content-blocking event into Java for every tab. Tracking protection itself
+        // (ETP STRICT) is configured on the runtime in ExtensionManager and does not
+        // depend on a delegate. Set one again here only if blocked-item UI is ever added.
 
         tab.session.setPermissionDelegate(new GeckoSession.PermissionDelegate() {
             @Override

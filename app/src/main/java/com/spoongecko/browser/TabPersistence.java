@@ -11,6 +11,7 @@ import org.json.JSONObject;
 import org.mozilla.geckoview.GeckoSession;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,13 +42,16 @@ import java.util.concurrent.TimeUnit;
  * Writing still happens on one shared background thread: persistNow() takes
  * its snapshot on the caller thread and marshals off-thread.
  *
- * [PERF] Two things keep the write volume down:
+ * [PERF] Three things keep the write volume down:
  *   - Event-driven saves (page-state / page-stop callbacks, which fire in
  *     bursts) go through saveSoon(): at most one save per SAVE_DEBOUNCE_MS,
  *     always taken from the state at the moment it runs.
  *   - Every save is compared with the previous one; when no tab's state, URL
  *     or title changed (e.g. onPause followed by onStop and onTrimMemory) the
  *     serialization and the SharedPreferences write are skipped entirely.
+ *   - When a write does happen, only the tabs whose SessionState object
+ *     changed are serialized again; the others reuse the string produced by
+ *     the previous write (see {@link #serialized}).
  * Lifecycle saves (pause / stop / exit) still go through save(), which is
  * immediate, so nothing is ever lost when the app is backgrounded.
  */
@@ -70,6 +74,21 @@ public final class TabPersistence {
 
     /** What the most recent write was built from; used to skip identical writes. */
     private static volatile Snapshot lastSubmitted;
+
+    /**
+     * [PERF] The strings produced by the previous write, keyed by the exact
+     * SessionState object they came from. While browsing, only the active
+     * tab's state changes, so every other tab can reuse its string instead of
+     * being serialized again on each save.
+     *
+     * Identity-keyed on purpose: the state objects are replaced (never
+     * mutated) when a tab changes, and an identity map never evaluates
+     * equals()/hashCode() of the state itself. Touched only by the single IO
+     * thread, and replaced wholesale at the end of every successful write, so
+     * it holds at most one entry per open tab and cannot grow.
+     */
+    private static IdentityHashMap<GeckoSession.SessionState, String> serialized =
+            new IdentityHashMap<>();
 
     public static final class Restored {
         public final List<GeckoSession.SessionState> states;
@@ -220,6 +239,11 @@ public final class TabPersistence {
 
     private void write(Snapshot snap) {
         try {
+            // [PERF] Strings from the previous write, and the ones for this write.
+            final IdentityHashMap<GeckoSession.SessionState, String> previous = serialized;
+            final IdentityHashMap<GeckoSession.SessionState, String> current =
+                    new IdentityHashMap<>();
+
             JSONArray arr = new JSONArray();
             for (int i = 0; i < snap.states.size(); i++) {
                 GeckoSession.SessionState s = snap.states.get(i);
@@ -227,7 +251,15 @@ public final class TabPersistence {
                 // toString() is the documented serialization; it can return
                 // null for an empty/failed state, in which case JSONObject
                 // drops the "s" key — restore then yields an empty tab.
-                obj.put("s", s != null ? s.toString() : null);
+                // [PERF] A state object that was already serialized by the
+                // previous write reuses that string (same output, no work).
+                String text = null;
+                if (s != null) {
+                    text = previous.get(s);
+                    if (text == null) text = s.toString();
+                    if (text != null) current.put(s, text);
+                }
+                obj.put("s", text);
                 obj.put("u", snap.urls.get(i));
                 obj.put("t", snap.titles.get(i));
                 if (snap.desktop.get(i)) obj.put("d", true);   // only written when on: keeps the data small
@@ -239,6 +271,7 @@ public final class TabPersistence {
             root.put("tabs", arr);
             appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putString(PREF_TABS, root.toString()).apply();
+            serialized = current;   // only after a successful write; drops strings of closed/replaced states
         } catch (Exception e) {
             Log.w(TAG, "persistTabs failed", e);
             lastSubmitted = null;   // let the next save retry instead of being skipped
