@@ -26,6 +26,16 @@ public class Tab {
     public String pendingUrl;
     /** The tab that opened this one, if any. */
     public Tab opener;
+    /**
+     * [BACK] Back on this tab's first page closes it and shows {@link #opener} again. True for
+     * tabs opened from another tab's link (target=_blank, window.open, "Open link in new tab").
+     */
+    public boolean backReturnsToOpener = false;
+    /**
+     * [BACK] The app just started a Back/Forward step; the next location report is its result.
+     * Lets the home panel follow a step that lands on the blank home entry.
+     */
+    public boolean historyStepPending = false;
     /** Something has actually been shown in this tab (not just an empty window or a download). */
     public boolean hasContent = false;
 
