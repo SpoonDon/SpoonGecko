@@ -236,7 +236,7 @@ public class MainActivity extends Activity
 
         forwardButton.setOnClickListener(v -> {
             Tab t = tabManager.getActiveTab();
-            if (t != null && t.canGoForward) t.session.goForward();
+            if (t != null && t.canGoForward) stepHistory(t, true);   // [BACK]
         });
 
         findViewById(R.id.menu_button).setOnClickListener(v -> popups.showMenu());
@@ -266,8 +266,14 @@ public class MainActivity extends Activity
             return;
         }
         Tab t = tabManager.getActiveTab();
-        if (t != null && t.canGoBack) { t.session.goBack(); return; }
-        if (!screen.isHomePanelVisible()) { goHome(); return; }
+        if (t != null && t.canGoBack) { stepHistory(t, false); return; }   // [BACK]
+        // [BACK] Nothing left to go back to in this tab. A tab that was opened from another tab
+        // (a link, window.open, "Open link in new tab") is closed and the tab that opened it is
+        // shown again, as in other browsers. Any other tab shows the home page IN PLACE of its
+        // first page (see goHomeInPlace): the old goHome() here added a history entry, so the
+        // next Back stepped onto the page again and the exit confirmation was never reached.
+        if (t != null && closeToOpener(t)) return;
+        if (!screen.isHomePanelVisible()) { goHomeInPlace(); return; }
         showExitConfirmation();
     }
 
@@ -390,6 +396,7 @@ public class MainActivity extends Activity
         suggestions.hide();
     }
 
+    /** The menu's "Home": a normal navigation to the blank home page (Back returns to the page). */
     private void goHome() {
         Tab t = tabManager.getActiveTab();
         if (t == null) return;
@@ -397,6 +404,55 @@ public class MainActivity extends Activity
         t.session.loadUri("about:blank");
         suggestions.setText("");
         screen.showHomePanel(true);
+    }
+
+    // ------------------------------------------------------------------
+    // [BACK] History handling for the Back / Forward buttons
+    // ------------------------------------------------------------------
+
+    /**
+     * [BACK] Back on a tab's first page: show the home page IN PLACE of it. goHome() loads
+     * about:blank as a NEW history entry, which turned canGoBack true again, so the next Back
+     * stepped onto the page (it looked like "forward") and the exit confirmation could never be
+     * reached. Replacing the entry keeps the history clean: home panel, then Back, then the exit
+     * confirmation.
+     */
+    private void goHomeInPlace() {
+        Tab t = tabManager.getActiveTab();
+        if (t == null) return;
+        t.url = "";
+        t.session.load(new GeckoSession.Loader().uri("about:blank")
+                .flags(GeckoSession.LOAD_FLAGS_REPLACE_HISTORY));
+        suggestions.setText("");
+        screen.showHomePanel(true);
+    }
+
+    /**
+     * [BACK] One step through the tab's history. The step is remembered so that
+     * onTabLocationChanged() can make the home panel follow it: landing on the blank home entry
+     * shows the panel (it used to leave an empty black page), landing on a page hides it.
+     */
+    private void stepHistory(Tab t, boolean forward) {
+        t.historyStepPending = true;
+        if (forward) t.session.goForward(); else t.session.goBack();
+    }
+
+    /**
+     * [BACK] Closes a tab that was opened from another tab and shows that tab again.
+     *
+     * @return false when this tab does not return to an opener, or the opener is gone (it was
+     *         closed): the caller then treats it like any other tab.
+     */
+    private boolean closeToOpener(Tab t) {
+        if (!t.backReturnsToOpener || t.opener == null) return false;
+        final List<Tab> all = tabManager.getTabs();
+        final int at = all.indexOf(t);
+        final int openerAt = all.indexOf(t.opener);
+        if (at < 0 || openerAt < 0) return false;
+        // Switch first, so the session that is closed next is never the one attached to the view.
+        tabManager.switchTo(openerAt);
+        tabManager.closeTab(at);
+        return true;
     }
 
     private void navigateToUrl(String url) {
@@ -543,6 +599,8 @@ public class MainActivity extends Activity
         final Tab opener = tabManager.getActiveTab();
         Tab t = addNewTab(null);
         if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
+        // [BACK] Back on this tab's first page returns to the tab the link was opened from.
+        if (opener != null) { t.opener = opener; t.backReturnsToOpener = true; }
         t.session.loadUri(url);
     }
 
@@ -679,6 +737,7 @@ public class MainActivity extends Activity
     @Override public Tab createNewSessionTab() {
         final Tab t = createUnopenedTab();
         t.openedByPage = true;
+        t.backReturnsToOpener = t.opener != null;   // [BACK] Back on its first page returns to the opener
         return t;
     }
 
@@ -759,11 +818,16 @@ public class MainActivity extends Activity
     }
 
     @Override public void onTabLocationChanged(Tab tab, String url) {
+        // [BACK] Set by stepHistory(); consumed by the location report that ends that step.
+        final boolean afterHistoryStep = tab.historyStepPending;
+        tab.historyStepPending = false;
+        if (tab != tabManager.getActiveTab()) return;
         // [F14] url arrives sanitized ("" for about:blank), so an empty value
         // CLEARS the bar instead of leaving "about:blank" sitting in it.
-        if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
-            suggestions.setText(url == null ? "" : url);
-        }
+        if (!urlBar.hasFocus()) suggestions.setText(url == null ? "" : url);
+        // [BACK] A Back/Forward step that lands on the blank home entry shows the home panel
+        // (it used to leave an empty black page); landing on a page hides it.
+        if (afterHistoryStep) screen.showHomePanel(url == null || url.isEmpty());
     }
 
     @Override public void openExternalUri(String uri) {
@@ -986,7 +1050,9 @@ public class MainActivity extends Activity
             suggestions.setText(url);
         }
         suggestions.hide();
-        screen.showHomePanel(false);
+        // [BACK] Only the tab on screen may take the home panel away: a page that starts loading
+        // in a background tab used to hide the panel of the (empty) tab being shown.
+        if (tab == tabManager.getActiveTab()) screen.showHomePanel(false);
         screen.removeFlashGuard();
         screen.setProgress(0);
     }
