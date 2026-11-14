@@ -115,6 +115,13 @@ public class MainActivity extends Activity
     /** [MEDIA] The tab that was active before the current one (its priority is lowered on a switch). */
     private Tab lastActiveTab;
 
+    /**
+     * [FULLSCREEN] The tab whose page is in fullscreen (a manga reader, a video), or null.
+     * While it is set the toolbar is hidden, and Back must take the page out of fullscreen
+     * instead of navigating: see leaveFullScreen().
+     */
+    private Tab fullScreenTab;
+
     private static synchronized GeckoRuntime ensureRuntime(Activity activity) {
         if (sRuntime == null) {
             // Runtime creation (and its settings) lives in ExtensionManager so
@@ -253,6 +260,13 @@ public class MainActivity extends Activity
     }
 
     private void handleBackAction() {
+        // [FULLSCREEN] While a page is fullscreen nothing else is on screen, so Back first takes
+        // the page out of fullscreen and stays on it (like other browsers). Without this, Back
+        // navigated the history instead and fullscreen only ended because the page was left.
+        if (fullScreenTab != null) {
+            leaveFullScreen();
+            return;
+        }
         // [M1-fix] Close the suggestion dropdown first — it used to stay open
         // while the page navigated back underneath it.
         if (suggestions != null && suggestions.isVisible()) {
@@ -533,6 +547,10 @@ public class MainActivity extends Activity
         // [POPUP] A tab handed to GeckoView is attached by showWhenOpened() once GeckoView has opened it.
         // Opening it here would make GeckoView reject it ("Must use an unopened GeckoSession instance").
         if (tab.awaitingOpen) return;
+        // [FULLSCREEN] Fullscreen belongs to one tab. When another tab is shown (a link opened a
+        // new tab, the fullscreen tab was closed or crashed) the toolbar must come back, or the
+        // new tab would have none and no way to reach it.
+        if (fullScreenTab != null && fullScreenTab != tab) leaveFullScreen();
         // [PERF] A lazily restored tab has a session that was never opened;
         // open it the first time it is shown (open() must precede setSession()).
         if (!tab.session.isOpen()) tab.session.open(sRuntime);
@@ -704,7 +722,29 @@ public class MainActivity extends Activity
     @Override public void setFullScreen(boolean fullScreen) {
         // [FIND] The find bar must not float over a fullscreen video.
         if (fullScreen && findInPage != null && findInPage.isVisible()) findInPage.close();
+        // [FULLSCREEN] Remember which tab is in fullscreen so Back can take it out of it.
+        fullScreenTab = fullScreen ? tabManager.getActiveTab() : null;
         screen.setFullScreenMode(fullScreen);
+    }
+
+    /**
+     * [FULLSCREEN] Takes the page that is in fullscreen out of it and brings the toolbar back.
+     * GeckoView never leaves fullscreen by itself (there is no Esc key on a phone): the app has
+     * to ask with exitFullScreen(), and the page then reports onFullScreen(false). The toolbar is
+     * restored here at once rather than waiting for that report, so it can never stay hidden;
+     * the report that follows finds nothing left to do.
+     */
+    private void leaveFullScreen() {
+        final Tab fs = fullScreenTab;
+        fullScreenTab = null;
+        screen.setFullScreenMode(false);
+        if (fs != null && fs.session.isOpen()) {
+            try {
+                fs.session.exitFullScreen();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "exitFullScreen failed", e);
+            }
+        }
     }
     // [F6] Contract of NavigationDelegate.onNewSession(): return a NEW,
     // already-open session and DO NOT load the URI — GeckoView loads finalUri
