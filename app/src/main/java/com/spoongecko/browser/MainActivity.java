@@ -30,6 +30,7 @@ import android.widget.TextView;
 import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.GeckoPreferenceController;
 import org.mozilla.geckoview.GeckoRuntime;
+import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.WebResponse;
@@ -913,7 +914,39 @@ public class MainActivity extends Activity
     }
     @Override public void showContentPermissionDialog(
             String uri, int type, org.mozilla.geckoview.GeckoResult<Integer> result) {
+        // [AUTOPLAY] GeckoView asks the app about autoplay whenever a page starts media that
+        // is not allowed to play by itself (no tap on the page yet): "play video" and "play
+        // audio", on practically every site (ads, banner videos). It expects the app to
+        // answer from its own autoplay setting, not to ask the user: the two dialogs that
+        // appeared one after the other on every page load were exactly these requests.
+        // Every other permission (location, notifications ...) still gets its dialog.
+        if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
+                || type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE) {
+            result.complete(autoplayAnswer(type));
+            return;
+        }
         dialogs.showContentPermissionDialog(uri, type, result);
+    }
+
+    /**
+     * [AUTOPLAY] The answer to an autoplay request, with no dialog. Follows the runtime's
+     * autoplay setting; when that blocks autoplay (GeckoView's default) it does what other
+     * browsers do: muted video may start by itself, sound may not until the user taps the
+     * page. A tap on the page lifts the restriction for that page, so playing a video on
+     * purpose is never affected.
+     */
+    private static Integer autoplayAnswer(int type) {
+        boolean allowedByDefault = false;
+        try {
+            allowedByDefault = sRuntime != null && sRuntime.getSettings().getAutoplayDefault()
+                    == GeckoRuntimeSettings.AUTOPLAY_DEFAULT_ALLOWED;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not read the autoplay setting, using the safe default", e);
+        }
+        final boolean allow = allowedByDefault
+                || type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE;
+        return allow ? GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
+                     : GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY;
     }
 
     @Override public void showMediaPermissionDialog(String uri,
