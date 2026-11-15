@@ -913,7 +913,31 @@ public class MainActivity extends Activity
     }
     @Override public void showContentPermissionDialog(
             String uri, int type, org.mozilla.geckoview.GeckoResult<Integer> result) {
+        // [AUTOPLAY] GeckoView asks the app about autoplay whenever a page starts media that
+        // is not allowed to play by itself (no tap on the page yet): "play video" and "play
+        // audio", on practically every site (ads, banner videos). It expects the app to
+        // answer from its own autoplay setting, not to ask the user: the two dialogs that
+        // appeared one after the other on every page load were exactly these requests.
+        // Every other permission (location, notifications ...) still gets its dialog.
+        if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
+                || type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE) {
+            result.complete(autoplayAnswer(type));
+            return;
+        }
         dialogs.showContentPermissionDialog(uri, type, result);
+    }
+
+    /**
+     * [AUTOPLAY] The answer to an autoplay request, with no dialog. It does what other
+     * browsers do: muted video may start by itself, sound may not until the user taps the
+     * page. A tap on the page lifts the restriction for that page, so playing a video on
+     * purpose is never affected. To allow sound autoplay as well, return VALUE_ALLOW for
+     * every autoplay request here.
+     */
+    private static Integer autoplayAnswer(int type) {
+        return type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
+                ? GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
+                : GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY;
     }
 
     @Override public void showMediaPermissionDialog(String uri,
