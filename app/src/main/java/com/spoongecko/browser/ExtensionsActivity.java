@@ -37,6 +37,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * The "Add-ons manager" screen: list installed extensions with on/off
@@ -367,6 +368,10 @@ public class ExtensionsActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
+        if (!isTrustedContentUri(uri)) {
+            toast("Untrusted file source");
+            return;
+        }
         if (requestCode == REQ_BACKUP) {
             writeBackup(uri);
         } else if (requestCode == REQ_RESTORE) {
@@ -380,6 +385,14 @@ public class ExtensionsActivity extends Activity {
                 toast("Could not read the selected file");
             }
         }
+    }
+
+    private boolean isTrustedContentUri(Uri uri) {
+        if (uri == null) return false;
+        String scheme = uri.getScheme();
+        if (TextUtils.isEmpty(scheme)) return false;
+        String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
+        return "content".equals(normalizedScheme);
     }
 
     private void writeBackup(Uri uri) {
