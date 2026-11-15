@@ -28,6 +28,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import org.mozilla.geckoview.CompositorController;
+import org.mozilla.geckoview.GeckoPreferenceController;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
@@ -45,6 +46,13 @@ public class MainActivity extends Activity
 
     private static final String TAG = "SpoonGecko";
     private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
+    /**
+     * [SELECT] Background of selected text. On Android Gecko draws the selection as the app's
+     * colorAccent at only ~31% opacity, which is invisible on a black page when the accent is
+     * dark. Gecko reads this "ui.highlight" override first, so the highlight is a clear blue on
+     * every page (the text keeps its own colour). Alpha: see applySelectionColor().
+     */
+    private static final String SELECTION_HIGHLIGHT_COLOR = "rgba(10, 132, 255, 0.55)";
     private static final int REQ_ANDROID_PERMS = 0x5151;
     private static final int REQ_LOCAL_NETWORK = 0x5152;   // [LAN] Android 17 local network access
     // [F13] Keys for the saved-instance-state Bundle (string lists only —
@@ -190,6 +198,7 @@ public class MainActivity extends Activity
         setupInputHandlers();
 
         sRuntime = ensureRuntime(this);
+        applySelectionColor();   // [SELECT] visible text-selection highlight on dark pages
 
         // --- Extension support -------------------------------------------------
         ExtensionManager.get().initialize(this);
@@ -288,6 +297,10 @@ public class MainActivity extends Activity
         // next Back stepped onto the page again and the exit confirmation was never reached.
         if (t != null && closeToOpener(t)) return;
         if (!screen.isHomePanelVisible()) { goHomeInPlace(); return; }
+        // [BACK] The tab is at the home page with no history left. With other tabs open it is
+        // closed and a remaining tab is shown (that tab's own Back then works the same way);
+        // only when it is the last tab does Back ask whether to exit.
+        if (t != null && closeTabShowRemaining(t)) return;
         showExitConfirmation();
     }
 
@@ -297,10 +310,48 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     // Tab lifecycle
     // ------------------------------------------------------------------
+    /**
+     * [SELECT] Attaches every delegate a tab needs: the normal browser delegates plus the
+     * text-selection menu that has an extra "Search" item. One place, so no tab (restored,
+     * opened by a link, created by an extension) can miss it.
+     */
+    private void attachDelegates(Tab tab) {
+        delegates.attach(tab);
+        tab.session.setSelectionActionDelegate(
+                new SearchSelectionDelegate(this, this::searchSelectedText));
+    }
+
+    /** [SELECT] "Search" in the selection menu: the selected text is searched in a new tab. */
+    private void searchSelectedText(String text) {
+        if (destroying || text == null || text.isEmpty()) return;
+        // A new tab like "Open link in new tab": Back on its first page returns to this tab.
+        onOpenInNewTab(BRAVE_SEARCH_URL + urlEncode(text));
+    }
+
+    /**
+     * [SELECT] Sets Gecko's selection highlight colour. Gecko checks the "ui.highlight"
+     * override before the platform value, and restyles open pages when it changes. 55% opacity
+     * keeps text readable on both white and black pages: on white it gives a light blue (black
+     * text on it), on black a deep blue (white text on it), and both stand out from the page.
+     */
+    private void applySelectionColor() {
+        try {
+            GeckoPreferenceController.setGeckoPref(
+                    "ui.highlight", SELECTION_HIGHLIGHT_COLOR,
+                    GeckoPreferenceController.PREF_BRANCH_USER)
+                    .exceptionally(e -> {
+                        Log.w(TAG, "could not set the text selection colour", e);
+                        return null;
+                    });
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not set the text selection colour", e);
+        }
+    }
+
     private Tab addNewTab(GeckoSession.SessionState state) {
         Tab tab = (state != null) ? tabManager.createTabWithState(state)
                                   : tabManager.createTab();
-        delegates.attach(tab);
+        attachDelegates(tab);   // [SELECT]
         tab.session.open(sRuntime);
         tabManager.notifyTabsChanged();
         tabManager.notifyActiveChanged();
@@ -390,7 +441,7 @@ public class MainActivity extends Activity
         // [DESKTOP] Must be in place BEFORE the session opens: opening restores
         // (and so loads) the saved page, which has to use the saved user agent.
         if (desktop) setDesktopMode(tab, true);
-        delegates.attach(tab);
+        attachDelegates(tab);   // [SELECT]
         if (openNow) {
             tab.session.open(sRuntime);
             tabManager.notifyTabsChanged();
@@ -466,6 +517,21 @@ public class MainActivity extends Activity
         // Switch first, so the session that is closed next is never the one attached to the view.
         tabManager.switchTo(openerAt);
         tabManager.closeTab(at);
+        return true;
+    }
+
+    /**
+     * [BACK] Closes a tab whose history has run out and shows one of the remaining tabs (the
+     * neighbouring one, exactly as when a tab is closed from the tab list).
+     *
+     * @return false when this is the only tab: the caller then asks whether to exit.
+     */
+    private boolean closeTabShowRemaining(Tab t) {
+        final List<Tab> all = tabManager.getTabs();
+        final int at = all.indexOf(t);
+        if (at < 0 || all.size() < 2) return false;
+        tabManager.closeTab(at);
+        persistAllTabs();   // coalesced save: the closed tab must not come back after a restart
         return true;
     }
 
@@ -770,7 +836,7 @@ public class MainActivity extends Activity
         t.awaitingOpen = true;
         t.opener = opener;
         if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
-        delegates.attach(t);
+        attachDelegates(t);   // [SELECT]
         return t;
     }
 
