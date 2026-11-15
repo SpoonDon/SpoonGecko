@@ -367,6 +367,13 @@ public class MainActivity extends Activity
         //   2. Disk (TabPersistence) — survives the task being swiped away
         //      and cold starts. Previously broken (Parcel round-trip), fixed.
         //   3. Fresh tab with the home panel.
+        //
+        // [PERF] The saved states arrive as raw strings and are parsed ONLY
+        // for the tab that is opened now (the active one when lazy restore is
+        // on); background tabs keep the string (Tab.pendingStateText) and are
+        // parsed the first time they are selected — see addRestoredTab and
+        // onActiveTabChanged. Parsing a SessionState is the expensive part of
+        // a restore, and N-1 parses no longer sit on the startup path.
         if (savedInstanceState != null && savedInstanceState.containsKey(KEY_TAB_STATES)) {
             ArrayList<String> states = savedInstanceState.getStringArrayList(KEY_TAB_STATES);
             ArrayList<String> urls = savedInstanceState.getStringArrayList(KEY_TAB_URLS);
@@ -376,13 +383,7 @@ public class MainActivity extends Activity
                 final int active = clampIndex(
                         savedInstanceState.getInt(KEY_ACTIVE_TAB, 0), states.size());
                 for (int i = 0; i < states.size(); i++) {
-                    String s = states.get(i);
-                    GeckoSession.SessionState st = null;
-                    if (s != null && !s.isEmpty()) {
-                        try { st = GeckoSession.SessionState.fromString(s); }
-                        catch (Exception ignored) {}
-                    }
-                    addRestoredTab(st,
+                    addRestoredTab(states.get(i),
                             urls != null && i < urls.size() ? urls.get(i) : "",
                             titles != null && i < titles.size() ? titles.get(i) : "",
                             !LAZY_TAB_RESTORE || i == active,
@@ -419,6 +420,45 @@ public class MainActivity extends Activity
         return t == null || t.url == null || t.url.isEmpty();
     }
 
+    /** [PERF] Parses a saved session state; null for empty or unparseable input (an empty tab). */
+    private static GeckoSession.SessionState parseSessionState(String s) {
+        if (s == null || s.isEmpty()) return null;
+        try {
+            // fromString() — NOT the broken Parcelable CREATOR (see TabPersistence).
+            return GeckoSession.SessionState.fromString(s);
+        } catch (Exception e) {
+            Log.w(TAG, "session state parse failed", e);
+            return null;
+        }
+    }
+
+    /**
+     * [PERF] Turns a lazily restored tab's raw saved state into a real
+     * SessionState and feeds it to the session — right before that session is
+     * opened, so the restoreState-before-open order is the same as for a tab
+     * that was opened at startup. Called at most once per tab: the pending
+     * text is cleared first, so a parse that throws still leaves an ordinary
+     * empty tab (exactly what an unparseable state produced before). The parsed
+     * state becomes the tab's latestState, so the next save serializes it
+     * exactly as it did when states were parsed eagerly at restore time.
+     */
+    private void restorePendingState(Tab tab) {
+        final String raw = tab.pendingStateText;
+        if (raw == null) return;
+        tab.pendingStateText = null;
+        final GeckoSession.SessionState st = parseSessionState(raw);
+        if (st == null) return;   // unparseable/empty: an ordinary empty tab, exactly as before
+        // latestState first, so the save chain stays unbroken even if
+        // restoreState throws (TabManager.createTabWithState has the same
+        // catch-and-continue behaviour for the tabs opened at startup).
+        tab.latestState = st;
+        try {
+            tab.session.restoreState(st);
+        } catch (Exception e) {
+            Log.w(TAG, "restoreState failed", e);
+        }
+    }
+
     /**
      * [F13] Creates a tab from a saved state and immediately restores its
      * url / title / latestState, so the URL bar, the home-panel visibility
@@ -426,18 +466,28 @@ public class MainActivity extends Activity
      * latestState in particular keeps the save chain unbroken: without it,
      * a quick re-minimize before any page event would lose the tab again.
      *
-     * [PERF] With openNow == false the session is only prepared (state
-     * restored, delegates attached) and NOT opened: no content process work
-     * and no page load until the tab is first selected — onActiveTabChanged()
-     * opens it then. The tab's saved state is untouched, so it is persisted
-     * again unchanged in the meantime.
+     * [PERF] With openNow == false the state is not even parsed: the raw
+     * string is kept on the tab (pendingStateText) and parsed the first time
+     * the tab is selected (restorePendingState in onActiveTabChanged). The
+     * saved data round-trips unchanged — TabPersistence writes the raw string
+     * back out for a tab that has not been opened — and the memory for a
+     * parsed state is not held for tabs the user has not visited.
      */
-    private Tab addRestoredTab(GeckoSession.SessionState state, String url, String title,
+    private Tab addRestoredTab(String rawState, String url, String title,
                                boolean openNow, boolean desktop) {
-        Tab tab = tabManager.createTabWithState(state);
+        GeckoSession.SessionState state = null;
+        if (openNow) state = parseSessionState(rawState);   // only the tab opened now pays for the parse
+        final Tab tab;
+        if (state != null) {
+            tab = tabManager.createTabWithState(state);
+            tab.latestState = state;
+        } else {
+            tab = tabManager.createTab();
+            tab.pendingStateText = openNow || rawState == null || rawState.isEmpty()
+                    ? null : rawState;
+        }
         tab.url = url == null ? "" : url;
         tab.title = title == null ? "" : title;
-        tab.latestState = state;
         // [DESKTOP] Must be in place BEFORE the session opens: opening restores
         // (and so loads) the saved page, which has to use the saved user agent.
         if (desktop) setDesktopMode(tab, true);
@@ -618,8 +668,14 @@ public class MainActivity extends Activity
         // new tab would have none and no way to reach it.
         if (fullScreenTab != null && fullScreenTab != tab) leaveFullScreen();
         // [PERF] A lazily restored tab has a session that was never opened;
-        // open it the first time it is shown (open() must precede setSession()).
-        if (!tab.session.isOpen()) tab.session.open(sRuntime);
+        // open it the first time it is shown (open() must precede
+        // setSession()). Its saved state is parsed here too — right before the
+        // open, replacing the eager parse of every tab at restore time — so a
+        // background tab costs nothing at startup until the user visits it.
+        if (!tab.session.isOpen()) {
+            restorePendingState(tab);
+            tab.session.open(sRuntime);
+        }
         geckoView.setSession(tab.session);
         CompositorController cc = tab.session.getCompositorController();
         if (cc != null) cc.setClearColor(android.graphics.Color.BLACK);
@@ -1283,6 +1339,11 @@ public class MainActivity extends Activity
             String s = null;
             if (t.latestState != null) {
                 try { s = t.latestState.toString(); } catch (Exception ignored) {}
+            } else {
+                // [PERF] A lazily restored tab that was never opened: its raw
+                // saved string is exactly what toString() would produce, so
+                // hand it over without the parse/serialize round-trip.
+                s = t.pendingStateText;
             }
             // Estimated parcel cost of one entry of each list: a String in a
             // Parcel costs at worst 2 bytes per char (UTF-16) plus its length
