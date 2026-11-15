@@ -113,6 +113,8 @@ public final class ExtensionManager {
     private LinearLayout toolbarContainer;
     private GeckoSession activeSession;
     private int toolbarGeneration = 0;
+    /** [PERF] Set while one rebuild is already queued for this main-loop pass. UI thread only. */
+    private boolean rebuildScheduled = false;
 
     // ------------------------------------------------------------------
     // Runtime
@@ -707,53 +709,75 @@ public final class ExtensionManager {
         rebuildToolbar();
     }
 
+    /**
+     * [PERF] Action callbacks arrive in bursts — every extension fires
+     * onBrowserAction for a tab switch, so E extensions used to trigger E
+     * synchronous rebuilds (each re-creating every button and re-decoding
+     * every icon, E in total E² decodes per switch). The requests are now
+     * coalesced: rebuilds posted within the same main-loop pass run once,
+     * after the last of them was queued, so the toolbar still reflects the
+     * newest state of every action — with 1/E of the view churn. The
+     * generation counter below already protects buttons whose icon arrives
+     * after a later rebuild replaced them.
+     */
     private void rebuildToolbar() {
         final LinearLayout container = toolbarContainer;
         if (container == null) return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (rebuildScheduled) return;   // a rebuild is already queued; it will see this change too
+            rebuildScheduled = true;
+            main.post(() -> {
+                rebuildScheduled = false;
+                doRebuildToolbar();
+            });
+        } else {
+            main.post(this::rebuildToolbar);
+        }
+    }
+
+    private void doRebuildToolbar() {
+        final LinearLayout container = toolbarContainer;
+        if (container == null) return;
         final int generation = ++toolbarGeneration;
-        Runnable rebuild = () -> {
-            try {
-                Context c = container.getContext();
-                container.removeAllViews();
-                boolean any = false;
-                for (Map.Entry<String, WebExtension.Action> entry : toolbarActions.entrySet()) {
-                    WebExtension ext = installed.get(entry.getKey());
-                    if (ext != null && ext.metaData != null && !ext.metaData.enabled) continue;
-                    final WebExtension.Action action = entry.getValue();
-                    final ImageButton button = new ImageButton(c);
-                    button.setBackgroundResource(R.drawable.bg_glass_button);
-                    button.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                    button.setPadding(dp(c, 8), dp(c, 8), dp(c, 8), dp(c, 8));
-                    button.setContentDescription(action.title != null
-                            ? action.title : "Extension action");
-                    button.setAlpha(action.enabled == null || action.enabled ? 1f : 0.4f);
-                    button.setImageResource(R.drawable.ic_extension);
-                    if (action.icon != null) {
-                        action.icon.getBitmap(48).accept(bitmap -> {
-                            if (bitmap != null && generation == toolbarGeneration) {
-                                button.setImageBitmap(bitmap);
-                            }
-                        });
-                    }
-                    button.setOnClickListener(v -> {
-                        try {
-                            action.click();   // opens the popup via onTogglePopup if defined
-                        } catch (Exception e) {
-                            Log.w(TAG, "action click failed", e);
+        try {
+            Context c = container.getContext();
+            container.removeAllViews();
+            boolean any = false;
+            for (Map.Entry<String, WebExtension.Action> entry : toolbarActions.entrySet()) {
+                WebExtension ext = installed.get(entry.getKey());
+                if (ext != null && ext.metaData != null && !ext.metaData.enabled) continue;
+                final WebExtension.Action action = entry.getValue();
+                final ImageButton button = new ImageButton(c);
+                button.setBackgroundResource(R.drawable.bg_glass_button);
+                button.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                button.setPadding(dp(c, 8), dp(c, 8), dp(c, 8), dp(c, 8));
+                button.setContentDescription(action.title != null
+                        ? action.title : "Extension action");
+                button.setAlpha(action.enabled == null || action.enabled ? 1f : 0.4f);
+                button.setImageResource(R.drawable.ic_extension);
+                if (action.icon != null) {
+                    action.icon.getBitmap(48).accept(bitmap -> {
+                        if (bitmap != null && generation == toolbarGeneration) {
+                            button.setImageBitmap(bitmap);
                         }
                     });
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
-                    lp.setMarginEnd(dp(c, 6));
-                    container.addView(button, lp);
-                    any = true;
                 }
-                container.setVisibility(any ? View.VISIBLE : View.GONE);
-            } catch (Exception e) {
-                Log.w(TAG, "rebuildToolbar failed", e);
+                button.setOnClickListener(v -> {
+                    try {
+                        action.click();   // opens the popup via onTogglePopup if defined
+                    } catch (Exception e) {
+                        Log.w(TAG, "action click failed", e);
+                    }
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
+                lp.setMarginEnd(dp(c, 6));
+                container.addView(button, lp);
+                any = true;
             }
-        };
-        if (Looper.myLooper() == Looper.getMainLooper()) rebuild.run();
-        else main.post(rebuild);
+            container.setVisibility(any ? View.VISIBLE : View.GONE);
+        } catch (Exception e) {
+            Log.w(TAG, "rebuildToolbar failed", e);
+        }
     }
 
     /**

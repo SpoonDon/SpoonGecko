@@ -9,6 +9,18 @@ public class Tab {
     public boolean canGoBack = false;
     public boolean canGoForward = false;
     public GeckoSession.SessionState latestState;
+    /**
+     * [PERF] The raw saved session state of a restored tab that has not been
+     * opened yet. Parsing a SessionState is expensive (it holds a tab's whole
+     * serialized history), so with lazy restore a background tab keeps only
+     * this string until it is first selected; MainActivity parses it and
+     * feeds it to the session right before opening it (the same
+     * restoreState-before-open order as before). Null once parsed, or when
+     * the tab never had a state. While set, TabPersistence writes the string
+     * out unchanged — the exact bytes the state was loaded from — so a tab
+     * saved again before being opened survives a restart exactly as before.
+     */
+    public String pendingStateText;
     /** "Desktop site" for this tab (user agent + viewport); saved with the tab. */
     public boolean desktopMode = false;
     /** Last process-priority hint applied to this tab's session (avoids re-sending the same one). */

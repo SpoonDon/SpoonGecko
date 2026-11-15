@@ -39,6 +39,19 @@ import java.util.concurrent.TimeUnit;
  * stored with an empty state, so they survive as empty tabs instead of
  * disappearing.
  *
+ * [PERF] Startup: load() no longer parses the saved session states at
+ * all. Parsing a SessionState (a tab's whole serialized history) is the
+ * single most expensive step of a multi-tab restore, and with lazy tab
+ * restore only the tab that is actually shown needs its state right away.
+ * load() therefore returns the RAW strings; MainActivity parses one only
+ * when the tab is opened (the active tab at startup, every other tab the
+ * first time it is selected). The strings round-trip unchanged, so the
+ * on-disk format, the saved bytes and the restore result are identical.
+ *
+ * [PERF] A tab that was restored but never opened has no SessionState yet;
+ * its raw string is written back out unchanged when saving (no parse, no
+ * re-serialization), which also keeps the identity cache below valid.
+ *
  * Writing still happens on one shared background thread: persistNow() takes
  * its snapshot on the caller thread and marshals off-thread.
  *
@@ -91,14 +104,15 @@ public final class TabPersistence {
             new IdentityHashMap<>();
 
     public static final class Restored {
-        public final List<GeckoSession.SessionState> states;
+        /** Raw session-state strings (NOT parsed — see the class comment); empty string for a tab without a state. */
+        public final List<String> states;
         public final List<String> urls;
         public final List<String> titles;
         public final int activeIndex;
         /** Per tab: was "Desktop site" on. Same length as states. */
         public final List<Boolean> desktop;
 
-        public Restored(List<GeckoSession.SessionState> states, List<String> urls,
+        public Restored(List<String> states, List<String> urls,
                         List<String> titles, int activeIndex, List<Boolean> desktop) {
             this.states = states;
             this.urls = urls;
@@ -107,7 +121,7 @@ public final class TabPersistence {
             this.desktop = desktop;
         }
 
-        public Restored(List<GeckoSession.SessionState> states, List<String> urls,
+        public Restored(List<String> states, List<String> urls,
                         List<String> titles, int activeIndex) {
             this(states, urls, titles, activeIndex, new ArrayList<Boolean>());
         }
@@ -115,15 +129,19 @@ public final class TabPersistence {
 
     /** Immutable copy of everything one write consists of. */
     private static final class Snapshot {
+        /** Parsed state of a tab that has been opened, or null. */
         final List<GeckoSession.SessionState> states;
+        /** Raw saved state of a tab that has NOT been opened yet, or null. */
+        final List<String> raws;
         final List<String> urls;
         final List<String> titles;
         final List<Boolean> desktop;
         final int active;
 
-        Snapshot(List<GeckoSession.SessionState> states, List<String> urls,
-                 List<String> titles, List<Boolean> desktop, int active) {
+        Snapshot(List<GeckoSession.SessionState> states, List<String> raws,
+                 List<String> urls, List<String> titles, List<Boolean> desktop, int active) {
             this.states = states;
+            this.raws = raws;
             this.urls = urls;
             this.titles = titles;
             this.desktop = desktop;
@@ -132,7 +150,10 @@ public final class TabPersistence {
 
         /**
          * SessionState instances are immutable and replaced (never mutated)
-         * when a tab's state changes, so reference equality is exact.
+         * when a tab's state changes, so reference equality is exact. The raw
+         * strings are likewise replaced only when the tab is actually opened
+         * (set once, cleared to null) — never re-assigned to another string —
+         * so reference equality is exact for them as well.
          */
         boolean sameAs(Snapshot o) {
             if (o == null || active != o.active || states.size() != o.states.size()) {
@@ -140,6 +161,7 @@ public final class TabPersistence {
             }
             for (int i = 0; i < states.size(); i++) {
                 if (states.get(i) != o.states.get(i)) return false;
+                if (raws.get(i) != o.raws.get(i)) return false;
                 if (!urls.get(i).equals(o.urls.get(i))) return false;
                 if (!titles.get(i).equals(o.titles.get(i))) return false;
                 if (!desktop.get(i).equals(o.desktop.get(i))) return false;
@@ -213,6 +235,7 @@ public final class TabPersistence {
         cancelPending();   // this save supersedes a queued one
 
         final List<GeckoSession.SessionState> states = new ArrayList<>();
+        final List<String> raws = new ArrayList<>();
         final List<String> urls = new ArrayList<>();
         final List<String> titles = new ArrayList<>();
         final List<Boolean> desktop = new ArrayList<>();
@@ -224,14 +247,15 @@ public final class TabPersistence {
         for (int i = 0; i < tabs.size(); i++) {
             Tab t = tabs.get(i);
             if (i == active) savedActive = savedIndex;    // [M5] index in saved array
-            states.add(t.latestState);                    // null allowed -> empty tab
+            states.add(t.latestState);                    // null allowed -> not opened yet
+            raws.add(t.pendingStateText);                  // [PERF] set only while not parsed
             urls.add(t.url == null ? "" : t.url);
             titles.add(t.title == null ? "" : t.title);
             desktop.add(t.desktopMode);
             savedIndex++;
         }
 
-        final Snapshot snap = new Snapshot(states, urls, titles, desktop, savedActive);
+        final Snapshot snap = new Snapshot(states, raws, urls, titles, desktop, savedActive);
         if (snap.sameAs(lastSubmitted)) return;           // [PERF] nothing changed
         lastSubmitted = snap;
         IO.execute(() -> write(snap));
@@ -253,11 +277,16 @@ public final class TabPersistence {
                 // drops the "s" key — restore then yields an empty tab.
                 // [PERF] A state object that was already serialized by the
                 // previous write reuses that string (same output, no work).
+                // [PERF] A tab that was restored but never opened has no
+                // state object; its raw saved string is written back out
+                // byte for byte — no parse, no re-serialization.
                 String text = null;
                 if (s != null) {
                     text = previous.get(s);
                     if (text == null) text = s.toString();
                     if (text != null) current.put(s, text);
+                } else {
+                    text = snap.raws.get(i);
                 }
                 obj.put("s", text);
                 obj.put("u", snap.urls.get(i));
@@ -278,9 +307,15 @@ public final class TabPersistence {
         }
     }
 
-    /** Called once at startup; synchronous by design. */
+    /**
+     * Called once at startup; synchronous by design. [PERF] Returns the raw
+     * state strings WITHOUT parsing them — MainActivity parses the active
+     * tab's state immediately and each background tab's the first time it is
+     * selected (see Tab.pendingStateText), which keeps the expensive
+     * SessionState.fromJson work off the startup path for every tab but one.
+     */
     public static Restored load(Context ctx) {
-        List<GeckoSession.SessionState> out = new ArrayList<>();
+        List<String> out = new ArrayList<>();
         List<String> urls = new ArrayList<>();
         List<String> titles = new ArrayList<>();
         List<Boolean> desktop = new ArrayList<>();
@@ -293,17 +328,7 @@ public final class TabPersistence {
             JSONArray arr = root.getJSONArray("tabs");
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
-                String s = o.optString("s", "");
-                GeckoSession.SessionState state = null;
-                if (s != null && !s.isEmpty()) {
-                    try {
-                        // fromString() — NOT the broken Parcelable CREATOR.
-                        state = GeckoSession.SessionState.fromString(s);
-                    } catch (Exception e) {
-                        Log.w(TAG, "session state parse failed", e);
-                    }
-                }
-                out.add(state);                              // null -> empty tab
+                out.add(o.optString("s", ""));                   // raw text; parsed lazily
                 urls.add(o.optString("u", ""));
                 titles.add(o.optString("t", ""));
                 desktop.add(o.optBoolean("d", false));       // absent in data saved by older versions
