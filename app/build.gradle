@@ -44,12 +44,17 @@ android {
 
     buildTypes {
         release {
-            // [STARTUP FIX] Code shrinking stays OFF until the app is
-            // confirmed launching on your device. Once it starts reliably,
-            // set both back to true — app/proguard-rules.pro is already
-            // prepared with the complete rule set.
-            minifyEnabled false
-            shrinkResources false
+            // [PERF] R8 code shrinking + resource shrinking are ON for release
+            // builds. app/proguard-rules.pro keeps the complete rule set:
+            // GeckoView (org.mozilla.gecko.** is reached from native code by
+            // name), WorkManager's reflective Worker instantiation and
+            // SnakeYAML. The APK gets smaller, cold-start class loading gets
+            // cheaper and unused resources are dropped.
+            // To compare against a non-shrunk build (the diagnostic the CI
+            // debug APK provides), set both flags back to false — nothing
+            // else changes.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

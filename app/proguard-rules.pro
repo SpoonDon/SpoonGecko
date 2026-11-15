@@ -19,6 +19,13 @@
 }
 
 # ------------------------------------------------------------
+# Keep signatures/annotations/inner-class metadata: GeckoView's JNI
+# surface and androidx consumer rules read them, and R8 full mode
+# otherwise drops the parts they need.
+# ------------------------------------------------------------
+-keepattributes Signature, InnerClasses, EnclosingMethod, *Annotation*, Exceptions
+
+# ------------------------------------------------------------
 # WorkManager instantiates Worker subclasses reflectively by class name.
 # (work-runtime ships equivalent consumer rules; belt and braces.)
 # ------------------------------------------------------------
