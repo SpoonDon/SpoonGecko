@@ -106,8 +106,8 @@ public class MainActivity extends Activity
     private BrowserDialogs dialogs;
     private BrowserPrompts prompts;
     private BrowserDelegates delegates;
-    private FindInPageController findInPage;   // [FIND] the find-in-page bar
-
+    private FindInPageController findInPage; // [FIND] the find-in-page bar
+    private TabSwitcher tabSwitcher; // [TABS] Chrome-style tab switcher
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
 
     /** [LAN] Address waiting for the local-network permission prompt (null = none showing). */
@@ -180,6 +180,13 @@ public class MainActivity extends Activity
         dialogs = new BrowserDialogs(this, tabManager, history);
         prompts = new BrowserPrompts(this);
         delegates = new BrowserDelegates(this, this, prompts);
+        
+        // [TABS] Chrome-style tab switcher, opened by the tab button.
+        tabSwitcher = new TabSwitcher(this, tabManager, geckoView, new TabSwitcher.Host() {
+            @Override public void openNewTab() { newTab(); }
+            @Override public void tabsEdited() { persistAllTabs(); }
+            @Override public boolean isHomePanelShown() { return screen.isHomePanelVisible(); }
+        });    
 
         // [FIND] Created before restoreTabs(): switching to the restored tab
         // (which happens inside restoreTabs) must find the controller in place.
@@ -246,10 +253,8 @@ public class MainActivity extends Activity
             }
             return false;
         });
-
-        tabButton.setOnClickListener(v -> dialogs.showTabList(
-                idx -> tabManager.switchTo(idx), this::newTab));
-
+            
+        tabButton.setOnClickListener(v -> tabSwitcher.open());   // [TABS]
         forwardButton.setOnClickListener(v -> {
             Tab t = tabManager.getActiveTab();
             if (t != null && t.canGoForward) stepHistory(t, true);   // [BACK]
@@ -602,6 +607,7 @@ public class MainActivity extends Activity
         if (destroying) return;   // fix for the destroy-revive loop (C4)
         MediaPlaybackController.get().prune();   // [MEDIA] drop media of tabs that were closed
         updateTabCount();
+        if (tabSwitcher != null) tabSwitcher.refresh();   // [TABS]
         if (tabManager.count() == 0) newTab();
     }
 
@@ -1342,7 +1348,8 @@ public class MainActivity extends Activity
         // [PERF] A queued coalesced save must not fire after the tabs below are
         // closed (it would otherwise be able to overwrite the saved tabs).
         TabPersistence.cancelPendingSave();
-        if (popups != null) popups.dismissAll();
+        if (popups != null) popups.dismissAll();                
+        if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (suggestions != null) suggestions.dispose();
         // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
         MediaPlaybackController.get().shutdown();
