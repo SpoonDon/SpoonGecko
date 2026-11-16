@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TABS] One card in the tab switcher (see TabSwitcher.java). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_tab_card"
+    android:foreground="@drawable/bg_tab_card_border"
+    android:clipToOutline="true"
+    android:clickable="true"
+    android:focusable="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="10dp">
+
+            <TextView
+                android:id="@+id/card_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:gravity="center"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/card_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp" />
+
+            <ImageButton
+                android:id="@+id/card_close"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="10dp"
+                android:src="@drawable/ic_close"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:contentDescription="Close tab" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/card_preview"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:background="#FF0C0C0C">
+
+            <ImageView
+                android:id="@+id/card_thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:id="@+id/card_placeholder"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:gravity="center"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textColor="#66FFFFFF"
+                android:textSize="13sp" />
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

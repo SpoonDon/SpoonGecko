@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TABS] Full-screen tab switcher (see TabSwitcher.java). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ts_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FF000000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp">
+
+        <ImageButton
+            android:id="@+id/ts_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_back"
+            android:background="@drawable/bg_glass_button"
+            android:scaleType="centerInside"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:id="@+id/ts_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:text="Tabs"
+            android:textColor="#FFFFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/ts_close_all"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="6dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:gravity="center"
+            android:text="Close all"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:background="@drawable/bg_glass_button"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <ImageButton
+            android:id="@+id/ts_new"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@drawable/ic_add"
+            android:background="@drawable/bg_glass_button"
+            android:scaleType="centerInside"
+            android:contentDescription="New tab" />
+    </LinearLayout>
+
+    <GridView
+        android:id="@+id/ts_grid"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:numColumns="auto_fit"
+        android:columnWidth="150dp"
+        android:stretchMode="columnWidth"
+        android:horizontalSpacing="12dp"
+        android:verticalSpacing="12dp"
+        android:padding="12dp"
+        android:clipToPadding="false"
+        android:scrollbars="none"
+        android:listSelector="@android:color/transparent"
+        android:drawSelectorOnTop="false" />
+</LinearLayout>
