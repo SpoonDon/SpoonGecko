@@ -391,7 +391,7 @@ public final class TabSwitcher {
 
             final TextView title = v.findViewById(R.id.card_title);
             title.setText(blank ? "New tab"
-                    : !isEmpty(t.title) ? t.title
+                    : !isBlank(t.title) ? t.title
                     : !site.isEmpty() ? site : t.url);
 
             final TextView icon = v.findViewById(R.id.card_icon);
@@ -520,7 +520,7 @@ public final class TabSwitcher {
         return Math.round(v * activity.getResources().getDisplayMetrics().density);
     }
 
-    private static boolean isEmpty(String s) {
+    private static boolean isBlank(String s) {
         return s == null || s.trim().isEmpty();
     }
 
