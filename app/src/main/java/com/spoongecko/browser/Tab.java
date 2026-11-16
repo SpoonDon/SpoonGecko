@@ -38,6 +38,12 @@ public class Tab {
     public boolean historyStepPending = false;
     /** Something has actually been shown in this tab (not just an empty window or a download). */
     public boolean hasContent = false;
+    /**
+     * [TABS] Small screenshot of the page, shown on this tab's card in the tab switcher. Kept in
+     * memory only (never saved to disk, never part of the saved tab state) and taken when the
+     * switcher is opened. Null until then, or for a tab that shows the home page.
+     */
+    public android.graphics.Bitmap thumbnail;
 
     public Tab(GeckoSession session) {
         this.session = session;
