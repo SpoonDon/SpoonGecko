@@ -108,6 +108,9 @@ public class MainActivity extends Activity
     private BrowserDelegates delegates;
     private FindInPageController findInPage; // [FIND] the find-in-page bar
     private TabSwitcher tabSwitcher; // [TABS] Chrome-style tab switcher
+    private HistoryDialog historyDialog;   // [HISTORY] history with Newest / Oldest / Site order
+    /** [TABS] Set once the last tab was closed from the tab switcher and the browser is exiting. */
+    private boolean leavingWithNoTabs = false;
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
 
     /** [LAN] Address waiting for the local-network permission prompt (null = none showing). */
@@ -186,8 +189,10 @@ public class MainActivity extends Activity
             @Override public void openNewTab() { newTab(); }
             @Override public void tabsEdited() { persistAllTabs(); }
             @Override public boolean isHomePanelShown() { return screen.isHomePanelVisible(); }
-        });    
+            @Override public void closeAllTabsAndExit() { leaveWithNoTabs(); }
+        });
 
+        historyDialog = new HistoryDialog(this, history);   // [HISTORY]
         // [FIND] Created before restoreTabs(): switching to the restored tab
         // (which happens inside restoreTabs) must find the controller in place.
         findInPage = new FindInPageController(this, this);
@@ -599,6 +604,20 @@ public class MainActivity extends Activity
         });
     }
 
+    /**
+     * [TABS] The last tab was closed from the tab switcher: close every tab and leave the browser
+     * at once, with no question (showExitConfirmation is the question that Back asks).
+     * The saved tab list is written empty, so the next start opens the home page instead of
+     * bringing back the tab that was just closed.
+     */
+    private void leaveWithNoTabs() {
+        if (destroying) return;
+        leavingWithNoTabs = true;      // onTabsChanged() must not open a replacement tab
+        tabManager.closeAll();
+        persistAllTabsNow();
+        finishAndRemoveTask();
+    }                
+
     // ------------------------------------------------------------------
     // TabManager.Listener
     // ------------------------------------------------------------------
@@ -608,12 +627,13 @@ public class MainActivity extends Activity
         MediaPlaybackController.get().prune();   // [MEDIA] drop media of tabs that were closed
         updateTabCount();
         if (tabSwitcher != null) tabSwitcher.refresh();   // [TABS]
-        if (tabManager.count() == 0) newTab();
+        if (tabManager.count() == 0 && !leavingWithNoTabs) newTab();
     }
 
     @Override
     public void onActiveTabChanged(Tab tab) {
         if (tab == null) return;
+        if (tabSwitcher != null) tabSwitcher.refresh();   // [TABS]
         // [FIND] The find bar belongs to the page it was opened on.
         if (findInPage != null && findInPage.isVisible()) findInPage.close();
         // [POPUP] A tab handed to GeckoView is attached by showWhenOpened() once GeckoView has opened it.
@@ -672,7 +692,7 @@ public class MainActivity extends Activity
         PopupsController.shareText(this, t.url);
     }
     @Override public void onShowHistory() {
-        dialogs.showHistory(this::navigateToUrl);
+        historyDialog.show(this::navigateToUrl);   // [HISTORY]
     }
     @Override public void onShowExtensions() {
         startActivity(new Intent(this, ExtensionsActivity.class));
@@ -1350,6 +1370,7 @@ public class MainActivity extends Activity
         TabPersistence.cancelPendingSave();
         if (popups != null) popups.dismissAll();                
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
+        if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
         if (suggestions != null) suggestions.dispose();
         // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
         MediaPlaybackController.get().shutdown();
