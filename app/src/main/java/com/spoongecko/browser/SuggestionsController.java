@@ -22,6 +22,11 @@ import java.util.List;
  * [PERF] The history query used to run on the UI thread; it now runs on a
  * background thread (HistoryStore.suggestAsync) and its result is applied
  * only if it is still the latest answer to what is in the URL bar.
+ *
+ * [SUGGEST] What is matched and in which order is decided by HistoryStore.suggest() with
+ * SuggestionRanker (several words, better matches first, one line per page). This class also
+ * ignores text that is too long to be a search (a pasted address) and no longer runs a query
+ * that was still waiting out its 150 ms when the URL bar lost focus (Enter pressed).
  */
 public final class SuggestionsController {
 
@@ -75,9 +80,16 @@ public final class SuggestionsController {
                 if (suppress) return;
                 final String q = s.toString().trim();
                 if (pending != null) debounce.removeCallbacks(pending);
-                if (q.length() < 1) { hide(); return; }
+                // [SUGGEST] Text this long is a pasted address, not a search: nothing to look up.
+                if (q.length() < 1 || q.length() > SuggestionRanker.MAX_QUERY_CHARS) {
+                    hide();
+                    return;
+                }
                 pending = () -> {
                     if (activity.isFinishing() || activity.isDestroyed()) return;
+                    // [SUGGEST] The bar lost focus while this was waiting (Enter was pressed):
+                    // the dropdown must not open again behind the page that is loading.
+                    if (!urlBar.hasFocus()) return;
                     if (!urlBar.getText().toString().trim().equals(q)) return;
                     final int token = ++generation;
                     history.suggestAsync(q, 8, results -> {
@@ -142,11 +154,15 @@ public final class SuggestionsController {
             View v = cv != null ? cv
                     : activity.getLayoutInflater().inflate(R.layout.row_item, parent, false);
             HistoryStore.Entry e = data.get(pos);
+            // [SUGGEST] The address is shown without "https://", "www." and a trailing "/", so
+            // more of it fits on the line and pages saved under several spellings read alike.
+            // Picking a row still opens the full address.
+            final String shown = SuggestionRanker.shortUrl(e.url);
             TextView title = v.findViewById(R.id.row_title);
             TextView sub = v.findViewById(R.id.row_subtitle);
-            title.setText(e.title == null || e.title.isEmpty() ? e.url : e.title);
+            title.setText(e.title == null || e.title.trim().isEmpty() ? shown : e.title);
             title.setTextColor(0xFFFFFFFF);
-            sub.setText(e.url);
+            sub.setText(shown);
             sub.setTextColor(0x66FFFFFF);
             return v;
         }

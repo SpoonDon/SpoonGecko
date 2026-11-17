@@ -1,7 +1,6 @@
 package com.spoongecko.browser;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.Dialog;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -42,6 +41,10 @@ import java.util.Locale;
  * that tab, swipe it sideways (or tap its X) to close it. The top bar has "Close all" and
  * "New tab". The tab being viewed is outlined.
  *
+ * Closing the LAST tab, by any route, leaves the browser at once and without a question (see
+ * {@link Host#closeAllTabsAndExit()}). "Close all" asks first, in the app's own dialog style,
+ * because it can close many tabs with one tap.
+ *
  * Design rules, so that nothing that already works is touched:
  *  - It only uses the existing {@link TabManager} API (switchTo / closeTab / closeAll). Tabs,
  *    sessions, delegates, extensions, media playback and saving of tabs are all handled by the
@@ -75,6 +78,12 @@ public final class TabSwitcher {
         void tabsEdited();
         /** True while the home page (search box) covers the page area. */
         boolean isHomePanelShown();
+        /**
+         * Close every tab that is left and leave the browser, with no question asked. Called when
+         * the last tab is closed. The saved tab list is emptied, so the next start opens the home
+         * page rather than bringing back a tab the user closed.
+         */
+        void closeAllTabsAndExit();
     }
 
     private final Activity activity;
@@ -84,7 +93,7 @@ public final class TabSwitcher {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private Dialog dialog;
-    private AlertDialog confirm;
+    private Dialog confirm;
     private CardAdapter adapter;
     private TextView titleText;
     /** A preview is being taken before the switcher opens. */
@@ -271,7 +280,7 @@ public final class TabSwitcher {
     public void dismiss() {
         handler.removeCallbacksAndMessages(null);
         opening = false;
-        final AlertDialog c = confirm;
+        final Dialog c = confirm;
         confirm = null;
         if (c != null) {
             try { c.dismiss(); } catch (RuntimeException ignored) { }
@@ -321,6 +330,10 @@ public final class TabSwitcher {
             reload();
             return;
         }
+        if (all.size() == 1) {
+            closeEverythingAndExit();      // the last tab: leave the browser, no question asked
+            return;
+        }
         if (all.size() > 1 && t == tabManager.getActiveTab()) {
             tabManager.switchTo(at + 1 < all.size() ? at + 1 : at - 1);
         }
@@ -330,23 +343,52 @@ public final class TabSwitcher {
         reload();
     }
 
+    /**
+     * "Close all": with one tab it is simply closing the last tab (no question); with several it
+     * asks first, in the same style as the exit dialog (layout dialog_confirm).
+     */
     private void confirmCloseAll() {
         final int n = tabManager.count();
         if (n == 0 || activity.isFinishing() || activity.isDestroyed()) return;
+        if (n == 1) {
+            closeEverythingAndExit();
+            return;
+        }
         if (confirm != null && confirm.isShowing()) return;
-        confirm = new AlertDialog.Builder(activity)
-                .setTitle(n == 1 ? "Close this tab?" : "Close all " + n + " tabs?")
-                .setMessage("Closed tabs can't be brought back.")
-                .setPositiveButton("Close", (x, which) -> closeAllTabs())
-                .setNegativeButton("Cancel", null)
-                .show();
+
+        final Dialog c = new Dialog(activity);
+        c.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        c.setContentView(R.layout.dialog_confirm);
+        final Window w = c.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.setDimAmount(0.7f);
+            w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels * 0.85),
+                    WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        final TextView title = c.findViewById(R.id.confirm_title);
+        final TextView message = c.findViewById(R.id.confirm_message);
+        final TextView ok = c.findViewById(R.id.confirm_ok);
+        title.setText("Close all " + n + " tabs?");
+        message.setText("All tabs will be closed and SpoonGecko will exit.");
+        ok.setText("Close all");
+        c.findViewById(R.id.confirm_cancel).setOnClickListener(v -> c.dismiss());
+        ok.setOnClickListener(v -> {
+            c.dismiss();
+            closeEverythingAndExit();
+        });
+        c.setOnDismissListener(x -> {
+            if (confirm == c) confirm = null;
+        });
+        confirm = c;
+        c.show();
     }
 
-    private void closeAllTabs() {
+    /** Hides the switcher, then hands over to the screen, which closes the tabs and exits. */
+    private void closeEverythingAndExit() {
         final Dialog d = dialog;
         if (d != null) d.dismiss();
-        tabManager.closeAll();   // the screen opens a fresh empty tab by itself (onTabsChanged)
-        host.tabsEdited();
+        host.closeAllTabsAndExit();
     }
 
     private void reload() {
