@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [HISTORY] Same panel as dialog_list.xml, plus a row of sort chips and an empty-state line. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_glass_dialog"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/dlg_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="History"
+        android:textColor="#FFFFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:paddingBottom="10dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/sort_newest"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="Newest"
+            android:textSize="13sp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/sort_oldest"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="Oldest"
+            android:textSize="13sp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/sort_site"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:gravity="center"
+            android:text="Site"
+            android:textSize="13sp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!-- wrap_content: the real cap is applied in code (ListView ignores android:maxHeight). -->
+    <ListView
+        android:id="@+id/dlg_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:divider="@null"
+        android:dividerHeight="0dp" />
+
+    <TextView
+        android:id="@+id/dlg_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:gravity="center"
+        android:paddingTop="24dp"
+        android:paddingBottom="24dp"
+        android:text="No history yet"
+        android:textColor="#66FFFFFF"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="10dp">
+
+        <TextView
+            android:id="@+id/dlg_negative"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="Close"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:background="@drawable/bg_glass_button"
+            android:layout_marginEnd="6dp"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/dlg_positive"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="Clear"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:background="@drawable/bg_glass_button"
+            android:layout_marginStart="6dp"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+</LinearLayout>

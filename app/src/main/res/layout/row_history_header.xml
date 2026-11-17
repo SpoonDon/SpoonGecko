@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [HISTORY] Section heading in the history list (a day, or a site). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hdr_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="6dp"
+    android:textColor="#99FFFFFF"
+    android:textSize="12sp"
+    android:textStyle="bold"
+    android:singleLine="true"
+    android:ellipsize="end" />
