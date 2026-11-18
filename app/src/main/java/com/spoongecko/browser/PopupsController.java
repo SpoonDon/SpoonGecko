@@ -44,6 +44,10 @@ public final class PopupsController {
         void onDownloadUrl(String url);
         /** [DOWNLOAD] Show the system list of downloaded files. */
         void onShowDownloads();
+        /** [PDF] Menu entry for the page on screen ("Download PDF" / "Save page as PDF"), or null for none. */
+        String pdfMenuLabel();
+        /** [PDF] The user chose that entry. */
+        void onPdfMenuAction();        
     }
 
     private final Activity activity;
@@ -76,6 +80,8 @@ public final class PopupsController {
                 host::onToggleDesktopMode);
         addMenuItem(container, "Home", false, host::onHome);
         addMenuItem(container, "Share", false, host::onShare);
+        final String pdfLabel = host.pdfMenuLabel();   // [PDF]
+        if (pdfLabel != null) addMenuItem(container, pdfLabel, false, host::onPdfMenuAction);        
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Find in page", false, host::onFindInPage);
