@@ -211,6 +211,7 @@ public class MainActivity extends Activity
 
         sRuntime = ensureRuntime(this);
         applySelectionColor();   // [SELECT] visible text-selection highlight on dark pages
+        PdfSupport.enableViewer();   // [PDF] GeckoView ships its PDF viewer switched off
 
         // --- Extension support -------------------------------------------------
         ExtensionManager.get().initialize(this);
@@ -1183,6 +1184,30 @@ public class MainActivity extends Activity
         }
     }
 
+    // ------------------------------------------------------------------
+    // [PDF] "Download PDF" / "Save page as PDF" in the menu
+    // ------------------------------------------------------------------
+
+    /** The menu entry for the page on screen, or null when there is nothing to offer. */
+    @Override public String pdfMenuLabel() {
+        final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+        if (t == null || t.url == null || screen.isHomePanelVisible()) return null;
+        final String lower = t.url.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) return null;
+        if (ErrorPages.isErrorTitle(t.title)) return null;
+        return PdfSupport.looksLikePdfUrl(t.url) ? "Download PDF" : "Save page as PDF";
+    }
+
+    @Override public void onPdfMenuAction() {
+        final Tab t = tabManager.getActiveTab();
+        if (t == null || t.url == null || t.url.isEmpty()) return;
+        if (PdfSupport.looksLikePdfUrl(t.url)) {
+            onDownloadLink(t.url, null);   // the original file, through the normal downloader
+        } else {
+            PdfSupport.savePageAsPdf(this, sRuntime, t.session, t.title, t.url);
+        }
+    }
+                
     @Override public void onSessionGone(Tab tab) {
         // [FIX] The old code unconditionally created a new tab here, but
         // onTabsChanged() already auto-creates a replacement when the LAST tab
@@ -1371,6 +1396,7 @@ public class MainActivity extends Activity
         if (popups != null) popups.dismissAll();                
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
+        if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting            
         if (suggestions != null) suggestions.dispose();
         // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
         MediaPlaybackController.get().shutdown();
