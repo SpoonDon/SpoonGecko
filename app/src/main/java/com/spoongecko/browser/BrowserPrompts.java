@@ -3,7 +3,6 @@ package com.spoongecko.browser;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.net.Uri;
 import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -42,20 +41,20 @@ import java.util.List;
  * All callbacks are invoked by GeckoView on the UI thread, so dialogs can be
  * shown directly. Every result is completed exactly once (BasePrompt throws
  * "Cannot confirm/dismiss a Prompt twice" otherwise).
+ *
+ * [UPLOAD] File inputs are handled by {@link FilePicker}.
  */
 public final class BrowserPrompts implements GeckoSession.PromptDelegate {
-
-    private static final int REQ_FILE_PICKER = 0x7111;
 
     private final Activity activity;
     private final List<AlertDialog> activeDialogs = new ArrayList<>();   // [M8]
 
-    // One file picker at a time; results arrive via Activity.onActivityResult.
-    private FilePrompt pendingFilePrompt;
-    private GeckoResult<PromptResponse> pendingFileResult;
+    // [UPLOAD] <input type=file>: the picker, the copying and the hand-over to the page.
+    private final FilePicker filePicker;
 
     public BrowserPrompts(Activity activity) {
         this.activity = activity;
+        this.filePicker = new FilePicker(activity);
     }
 
     /** Lets a GeckoResult be completed exactly once. */
@@ -87,14 +86,7 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
             }
         }
         activeDialogs.clear();
-        if (pendingFilePrompt != null && pendingFileResult != null) {
-            try {
-                pendingFileResult.complete(pendingFilePrompt.dismiss());
-            } catch (Exception ignored) {
-            }
-            pendingFilePrompt = null;
-            pendingFileResult = null;
-        }
+        filePicker.dismissPending();   // [UPLOAD]
     }
 
     private int dp(int px) {
@@ -323,37 +315,7 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
     @Override
     public GeckoResult<PromptResponse> onFilePrompt(
             GeckoSession session, final FilePrompt prompt) {
-        final GeckoResult<PromptResponse> result = new GeckoResult<>();
-        if (prompt.type == FilePrompt.Type.FOLDER) {
-            // Directory uploads need ACTION_OPEN_DOCUMENT_TREE; not needed by
-            // the vast majority of content — dismiss for now.
-            result.complete(prompt.dismiss());
-            return result;
-        }
-        if (pendingFilePrompt != null) {
-            // Only one picker at a time; dismiss the newer request.
-            result.complete(prompt.dismiss());
-            return result;
-        }
-
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        if (prompt.mimeTypes != null && prompt.mimeTypes.length > 0) {
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, prompt.mimeTypes);
-        }
-        if (prompt.type == FilePrompt.Type.MULTIPLE) {
-            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        }
-
-        try {
-            activity.startActivityForResult(intent, REQ_FILE_PICKER);
-            pendingFilePrompt = prompt;
-            pendingFileResult = result;
-        } catch (Exception e) {
-            result.complete(prompt.dismiss());
-        }
-        return result;
+        return filePicker.onFilePrompt(prompt);   // [UPLOAD]
     }
 
     /**
@@ -361,33 +323,7 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
      * result belongs to the file picker.
      */
     public boolean handleActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode != REQ_FILE_PICKER) return false;
-
-        final FilePrompt prompt = pendingFilePrompt;
-        final GeckoResult<PromptResponse> result = pendingFileResult;
-        pendingFilePrompt = null;
-        pendingFileResult = null;
-        if (prompt == null || result == null) return true;
-
-        final List<Uri> uris = new ArrayList<>();
-        if (resultCode == Activity.RESULT_OK && data != null) {
-            if (data.getData() != null) uris.add(data.getData());
-            if (data.getClipData() != null) {
-                for (int i = 0; i < data.getClipData().getItemCount(); i++) {
-                    Uri u = data.getClipData().getItemAt(i).getUri();
-                    if (u != null && !uris.contains(u)) uris.add(u);
-                }
-            }
-        }
-
-        // FilePrompt.confirm() requires exactly one URI for single-file inputs.
-        if (uris.isEmpty()
-                || (prompt.type != FilePrompt.Type.MULTIPLE && uris.size() != 1)) {
-            result.complete(prompt.dismiss());
-        } else {
-            result.complete(prompt.confirm(activity, uris.toArray(new Uri[0])));
-        }
-        return true;
+        return filePicker.handleActivityResult(requestCode, resultCode, data);   // [UPLOAD]
     }
 
     // ------------------------------------------------------------------
