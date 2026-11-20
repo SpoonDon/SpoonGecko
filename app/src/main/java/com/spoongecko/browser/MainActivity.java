@@ -193,6 +193,8 @@ public class MainActivity extends Activity
         });
 
         historyDialog = new HistoryDialog(this, history);   // [HISTORY]
+        // [TRANSLATE] Page translation. Its banner floats over the page; bound before any tab is attached.
+        PageTranslator.get().bind(this, (FrameLayout) findViewById(R.id.content_container), tabManager);            
         // [FIND] Created before restoreTabs(): switching to the restored tab
         // (which happens inside restoreTabs) must find the controller in place.
         findInPage = new FindInPageController(this, this);
@@ -212,6 +214,7 @@ public class MainActivity extends Activity
         sRuntime = ensureRuntime(this);
         applySelectionColor();   // [SELECT] visible text-selection highlight on dark pages
         PdfSupport.enableViewer();   // [PDF] GeckoView ships its PDF viewer switched off
+        PageTranslator.enableOffers(sRuntime);   // [TRANSLATE] the engine may offer to translate pages
 
         // --- Extension support -------------------------------------------------
         ExtensionManager.get().initialize(this);
@@ -330,6 +333,7 @@ public class MainActivity extends Activity
         delegates.attach(tab);
         tab.session.setSelectionActionDelegate(
                 new SearchSelectionDelegate(this, this::searchSelectedText));
+        PageTranslator.get().attach(tab);   // [TRANSLATE]            
     }
 
     /** [SELECT] "Search" in the selection menu: the selected text is searched in a new tab. */
@@ -634,6 +638,7 @@ public class MainActivity extends Activity
     @Override
     public void onActiveTabChanged(Tab tab) {
         if (tab == null) return;
+        PageTranslator.get().onActiveTabChanged(tab);   // [TRANSLATE]            
         if (tabSwitcher != null) tabSwitcher.refresh();   // [TABS]
         // [FIND] The find bar belongs to the page it was opened on.
         if (findInPage != null && findInPage.isVisible()) findInPage.close();
@@ -818,6 +823,7 @@ public class MainActivity extends Activity
         // [FULLSCREEN] Remember which tab is in fullscreen so Back can take it out of it.
         fullScreenTab = fullScreen ? tabManager.getActiveTab() : null;
         screen.setFullScreenMode(fullScreen);
+        PageTranslator.get().setFullScreen(fullScreen);   // [TRANSLATE]            
     }
 
     /**
@@ -831,6 +837,7 @@ public class MainActivity extends Activity
         final Tab fs = fullScreenTab;
         fullScreenTab = null;
         screen.setFullScreenMode(false);
+        PageTranslator.get().setFullScreen(false);   // [TRANSLATE]            
         if (fs != null && fs.session.isOpen()) {
             try {
                 fs.session.exitFullScreen();
@@ -1207,6 +1214,10 @@ public class MainActivity extends Activity
             PdfSupport.savePageAsPdf(this, sRuntime, t.session, t.title, t.url);
         }
     }
+
+    // [TRANSLATE] "Translate..." in the menu
+    @Override public String translateMenuLabel() { return PageTranslator.get().menuLabel(); }
+    @Override public void onTranslateMenuAction() { PageTranslator.get().onMenuAction(); }
                 
     @Override public void onSessionGone(Tab tab) {
         // [FIX] The old code unconditionally created a new tab here, but
@@ -1227,6 +1238,7 @@ public class MainActivity extends Activity
     }
 
     @Override public void onPageStarted(Tab tab, String url) {
+        PageTranslator.get().onPageStarted(tab);   // [TRANSLATE] what was known about the old page is void            
         if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
             suggestions.setText(url);
         }
@@ -1396,7 +1408,8 @@ public class MainActivity extends Activity
         if (popups != null) popups.dismissAll();                
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
-        if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting            
+        if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting
+        PageTranslator.get().unbind();   // [TRANSLATE]            
         if (suggestions != null) suggestions.dispose();
         // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
         MediaPlaybackController.get().shutdown();
