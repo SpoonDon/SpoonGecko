@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [TRANSLATE] Pick one of three options (the rule for a language). Texts are set in code. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_glass_dialog"
+    android:padding="20dp">
+
+    <TextView
+        android:id="@+id/ch_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="16dp" />
+
+    <TextView
+        android:id="@+id/ch_opt1"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:gravity="center"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:background="@drawable/bg_chip"
+        android:clickable="true"
+        android:focusable="true" />
+
+    <TextView
+        android:id="@+id/ch_opt2"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:background="@drawable/bg_chip"
+        android:clickable="true"
+        android:focusable="true" />
+
+    <TextView
+        android:id="@+id/ch_opt3"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:background="@drawable/bg_chip"
+        android:clickable="true"
+        android:focusable="true" />
+
+    <TextView
+        android:id="@+id/ch_cancel"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="16dp"
+        android:gravity="center"
+        android:text="Cancel"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:background="@drawable/bg_glass_button"
+        android:clickable="true"
+        android:focusable="true" />
+</LinearLayout>
