@@ -48,6 +48,10 @@ public final class PopupsController {
         String pdfMenuLabel();
         /** [PDF] The user chose that entry. */
         void onPdfMenuAction();        
+        /** [TRANSLATE] Menu entry for page translation, or null when this device cannot translate. */
+        String translateMenuLabel();
+        /** [TRANSLATE] The user chose that entry. */
+        void onTranslateMenuAction();
     }
 
     private final Activity activity;
@@ -82,6 +86,8 @@ public final class PopupsController {
         addMenuItem(container, "Share", false, host::onShare);
         final String pdfLabel = host.pdfMenuLabel();   // [PDF]
         if (pdfLabel != null) addMenuItem(container, pdfLabel, false, host::onPdfMenuAction);        
+        final String translateLabel = host.translateMenuLabel();   // [TRANSLATE]
+        if (translateLabel != null) addMenuItem(container, translateLabel, false, host::onTranslateMenuAction);
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Find in page", false, host::onFindInPage);
