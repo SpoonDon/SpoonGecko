@@ -52,6 +52,31 @@ public class TabManager {
         return tab;
     }
 
+    /**
+     * [KILL] Gives a tab whose content process died a brand-new, UNOPENED session that carries
+     * the tab's last saved page state, exactly like createTabWithState() does for a tab restored
+     * after a restart. The tab itself (its place in the list, its opener, its url and title) is
+     * untouched, so nothing in the tab list changes.
+     *
+     * The caller must attach the delegates to the new session and open it when the tab is shown.
+     * The dead session is closed here (GeckoView has normally closed it already).
+     */
+    public GeckoSession replaceSession(Tab tab, GeckoSession.SessionState state) {
+        final GeckoSession old = tab.session;
+        final GeckoSession fresh = new GeckoSession();
+        if (state != null) {
+            try {
+                // Same rule as in createTabWithState(): restoreState MUST precede open().
+                fresh.restoreState(state);
+            } catch (Exception e) {
+                Log.w(TAG, "restoreState failed", e);
+            }
+        }
+        tab.session = fresh;
+        try { old.close(); } catch (Exception e) { Log.w(TAG, "close", e); }
+        return fresh;
+    }
+
     public void switchTo(int index) {
         if (index < 0 || index >= tabs.size() || index == activeIndex) return;
         activeIndex = index;

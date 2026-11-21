@@ -3,7 +3,13 @@ package com.spoongecko.browser;
 import org.mozilla.geckoview.GeckoSession;
 
 public class Tab {
-    public final GeckoSession session;
+    /**
+     * The tab's GeckoSession. Not final any more: when the page's content process dies (Android
+     * reclaimed it in the background, or the page crashed it) the dead session is unusable, so
+     * TabManager.replaceSession() gives the SAME tab a fresh session that carries its saved state.
+     * Always read it through the tab, never keep your own reference to it.
+     */
+    public GeckoSession session;
     public String title = "New tab";
     public String url = "";
     public boolean canGoBack = false;
@@ -44,6 +50,20 @@ public class Tab {
      * switcher is opened. Null until then, or for a tab that shows the home page.
      */
     public android.graphics.Bitmap thumbnail;
+
+    /**
+     * [KILL] Address to load right after the app opens this tab's session, for a tab that has an
+     * address but no saved page state to restore (the state was never reported, or could not be
+     * read back). Consumed by MainActivity.openSessionIfNeeded().
+     */
+    public String reloadOnOpen;
+    /**
+     * [KILL] How many times this tab's page process died within a short time, and when it last
+     * did. A page that keeps killing its process must not be reloaded forever
+     * (see MainActivity.onSessionGone).
+     */
+    public int deaths = 0;
+    public long lastDeathAt = 0L;
 
     public Tab(GeckoSession session) {
         this.session = session;

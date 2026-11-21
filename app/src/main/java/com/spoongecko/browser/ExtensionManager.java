@@ -11,13 +11,17 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -50,7 +54,8 @@ import java.util.concurrent.TimeUnit;
  *  - creates the shared GeckoRuntime (extension settings enabled)
  *  - installs / uninstalls / enables / disables / updates extensions
  *  - shows the install / update / optional-permission prompts
- *  - renders browser/page action buttons in the toolbar and their popups
+ *  - renders ONE extensions button in the toolbar; it opens a list of the active extensions
+ *    (their browser/page actions) and their popups
  *  - backs up and restores the set of installed extensions
  *  - schedules automatic update checks (WorkManager, 12 h period)
  *
@@ -113,6 +118,11 @@ public final class ExtensionManager {
     private LinearLayout toolbarContainer;
     private GeckoSession activeSession;
     private int toolbarGeneration = 0;
+
+    /** [EXTMENU] The list of active extensions opened by the toolbar's extensions button (null when closed). */
+    private PopupWindow extensionMenu;
+    /** [EXTMENU] The rows inside {@link #extensionMenu}, kept so an open list can follow changes. */
+    private LinearLayout extensionMenuRows;
 
     // ------------------------------------------------------------------
     // Runtime
@@ -703,10 +713,17 @@ public final class ExtensionManager {
     // ------------------------------------------------------------------
 
     public void attachToolbar(LinearLayout container) {
+        dismissExtensionMenu();   // an open list belongs to the previous toolbar
         toolbarContainer = container;
         rebuildToolbar();
     }
 
+    /**
+     * [EXTMENU] The toolbar shows ONE extensions button (the puzzle-piece icon) instead of one
+     * button per extension, so any number of extensions takes the room of a single button. It
+     * opens a list of the active extensions (see toggleExtensionMenu). With no active extension
+     * the button is hidden, as the old row of buttons was.
+     */
     private void rebuildToolbar() {
         final LinearLayout container = toolbarContainer;
         if (container == null) return;
@@ -715,45 +732,174 @@ public final class ExtensionManager {
             try {
                 Context c = container.getContext();
                 container.removeAllViews();
-                boolean any = false;
-                for (Map.Entry<String, WebExtension.Action> entry : toolbarActions.entrySet()) {
-                    WebExtension ext = installed.get(entry.getKey());
-                    if (ext != null && ext.metaData != null && !ext.metaData.enabled) continue;
-                    final WebExtension.Action action = entry.getValue();
-                    final ImageButton button = new ImageButton(c);
-                    button.setBackgroundResource(R.drawable.bg_glass_button);
-                    button.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                    button.setPadding(dp(c, 8), dp(c, 8), dp(c, 8), dp(c, 8));
-                    button.setContentDescription(action.title != null
-                            ? action.title : "Extension action");
-                    button.setAlpha(action.enabled == null || action.enabled ? 1f : 0.4f);
-                    button.setImageResource(R.drawable.ic_extension);
-                    if (action.icon != null) {
-                        action.icon.getBitmap(48).accept(bitmap -> {
-                            if (bitmap != null && generation == toolbarGeneration) {
-                                button.setImageBitmap(bitmap);
-                            }
-                        });
-                    }
-                    button.setOnClickListener(v -> {
-                        try {
-                            action.click();   // opens the popup via onTogglePopup if defined
-                        } catch (Exception e) {
-                            Log.w(TAG, "action click failed", e);
-                        }
-                    });
-                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40));
-                    lp.setMarginEnd(dp(c, 6));
-                    container.addView(button, lp);
-                    any = true;
+                if (activeToolbarActions().isEmpty()) {
+                    dismissExtensionMenu();
+                    container.setVisibility(View.GONE);
+                    return;
                 }
-                container.setVisibility(any ? View.VISIBLE : View.GONE);
+                final ImageButton button = new ImageButton(c);
+                button.setBackgroundResource(R.drawable.bg_glass_button);
+                button.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                button.setPadding(dp(c, 8), dp(c, 8), dp(c, 8), dp(c, 8));
+                button.setContentDescription("Extensions");
+                button.setImageResource(R.drawable.ic_extension);
+                button.setOnClickListener(v -> toggleExtensionMenu(v));
+                container.addView(button, new LinearLayout.LayoutParams(dp(c, 40), dp(c, 40)));
+                container.setVisibility(View.VISIBLE);
+                // A list that is open while an extension changes (new icon, extension turned
+                // off ...) follows the change instead of showing stale rows.
+                if (extensionMenu != null && extensionMenu.isShowing() && extensionMenuRows != null) {
+                    fillExtensionMenu(extensionMenuRows, c, generation);
+                }
             } catch (Exception e) {
                 Log.w(TAG, "rebuildToolbar failed", e);
             }
         };
         if (Looper.myLooper() == Looper.getMainLooper()) rebuild.run();
         else main.post(rebuild);
+    }
+
+    /** [EXTMENU] The toolbar actions that are shown: those of extensions that are not turned off. */
+    private List<Map.Entry<String, WebExtension.Action>> activeToolbarActions() {
+        final List<Map.Entry<String, WebExtension.Action>> out = new ArrayList<>();
+        for (Map.Entry<String, WebExtension.Action> entry : toolbarActions.entrySet()) {
+            if (entry.getValue() == null) continue;
+            WebExtension ext = installed.get(entry.getKey());
+            if (ext != null && ext.metaData != null && !ext.metaData.enabled) continue;
+            out.add(entry);
+        }
+        return out;
+    }
+
+    /** [EXTMENU] Opens (or closes) the list of active extensions under the extensions button. */
+    private void toggleExtensionMenu(View anchor) {
+        if (extensionMenu != null && extensionMenu.isShowing()) {
+            dismissExtensionMenu();
+            return;
+        }
+        final Context c = anchor.getContext();
+        final LinearLayout rows = new LinearLayout(c);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        final int pad = dp(c, 6);
+        rows.setPadding(pad, pad, pad, pad);
+        fillExtensionMenu(rows, c, toolbarGeneration);
+        if (rows.getChildCount() == 0) return;
+
+        final int width = Math.min(dp(c, 260),
+                (int) (c.getResources().getDisplayMetrics().widthPixels * 0.92f));
+        // With many extensions the list can be taller than the space under the button
+        // (landscape phones): scroll instead of letting the last rows fall off the screen.
+        rows.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final int wanted = rows.getMeasuredHeight();
+        final int[] anchorOnScreen = new int[2];
+        anchor.getLocationOnScreen(anchorOnScreen);
+        final int available = c.getResources().getDisplayMetrics().heightPixels
+                - (anchorOnScreen[1] + anchor.getHeight()) - dp(c, 16);
+        int height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        if (available > dp(c, 120) && wanted > available) height = available;
+
+        final ScrollView scroll = new ScrollView(c);
+        scroll.setBackgroundResource(R.drawable.bg_glass_dialog);
+        scroll.addView(rows);
+
+        final PopupWindow popup = new PopupWindow(scroll, width, height, true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(dp(c, 8));
+        popup.setOnDismissListener(() -> {
+            if (extensionMenu == popup) {
+                extensionMenu = null;
+                extensionMenuRows = null;
+            }
+        });
+        extensionMenu = popup;
+        extensionMenuRows = rows;
+        try {
+            // Right edge of the list under the right edge of the button, like the main menu.
+            popup.showAsDropDown(anchor, 0, dp(c, 8), Gravity.END);
+        } catch (Exception e) {
+            Log.w(TAG, "could not show the extensions list", e);
+            extensionMenu = null;
+            extensionMenuRows = null;
+        }
+    }
+
+    /** [EXTMENU] (Re)builds the rows of the list: icon + name of every active extension. */
+    private void fillExtensionMenu(LinearLayout rows, Context c, int generation) {
+        rows.removeAllViews();
+        for (Map.Entry<String, WebExtension.Action> entry : activeToolbarActions()) {
+            final View row = extensionMenuRow(c, installed.get(entry.getKey()),
+                    entry.getValue(), generation);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(c, 2);
+            lp.bottomMargin = dp(c, 2);
+            rows.addView(row, lp);
+        }
+    }
+
+    /** [EXTMENU] One row of the list. Tapping it does what the old toolbar button did. */
+    private View extensionMenuRow(Context c, WebExtension ext, final WebExtension.Action action,
+                                  final int generation) {
+        final LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(c, 12), dp(c, 8), dp(c, 14), dp(c, 8));
+        row.setBackgroundResource(R.drawable.bg_glass_button);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setAlpha(action.enabled == null || action.enabled ? 1f : 0.4f);
+
+        final ImageView icon = new ImageView(c);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setImageResource(R.drawable.ic_extension);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(c, 28), dp(c, 28)));
+        if (action.icon != null) {
+            action.icon.getBitmap(48).accept(bitmap -> main.post(() -> {
+                if (bitmap != null && generation == toolbarGeneration) {
+                    icon.setImageBitmap(bitmap);
+                }
+            }));
+        }
+
+        final TextView label = new TextView(c);
+        label.setText(extensionLabel(ext, action));
+        label.setTextColor(0xFFFFFFFF);
+        label.setTextSize(14);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.setMarginStart(dp(c, 12));
+        row.addView(label, lp);
+
+        row.setOnClickListener(v -> {
+            dismissExtensionMenu();
+            try {
+                action.click();   // opens the popup via onTogglePopup if defined
+            } catch (Exception e) {
+                Log.w(TAG, "action click failed", e);
+            }
+        });
+        return row;
+    }
+
+    /** [EXTMENU] The name shown for an extension in the list. */
+    private static String extensionLabel(WebExtension ext, WebExtension.Action action) {
+        if (ext != null) return displayName(ext);
+        if (action != null && action.title != null && !action.title.isEmpty()) return action.title;
+        return "Extension";
+    }
+
+    private void dismissExtensionMenu() {
+        final PopupWindow p = extensionMenu;
+        extensionMenu = null;
+        extensionMenuRows = null;
+        if (p != null) {
+            try { p.dismiss(); } catch (Exception ignored) {}
+        }
     }
 
     /**
@@ -798,13 +944,22 @@ public final class ExtensionManager {
     public void setActiveSession(GeckoSession session) {
         GeckoSession old = activeSession;
         activeSession = session;
-        try {
-            if (controller != null) {
-                if (old != null && old != session) controller.setTabActive(old, false);
-                if (session != null) controller.setTabActive(session, true);
+        if (controller == null) return;
+        // [KILL] Two separate guards: the previous session may already be closed (a tab that was
+        // closed, or whose page process died), and that must not stop the new one being activated.
+        if (old != null && old != session) {
+            try {
+                controller.setTabActive(old, false);
+            } catch (Exception e) {
+                Log.w(TAG, "setTabActive(false) failed", e);
             }
-        } catch (Exception e) {
-            Log.w(TAG, "setTabActive failed", e);
+        }
+        if (session != null) {
+            try {
+                controller.setTabActive(session, true);
+            } catch (Exception e) {
+                Log.w(TAG, "setTabActive failed", e);
+            }
         }
     }
 
@@ -824,6 +979,7 @@ public final class ExtensionManager {
         }
         if (currentActivity == a) currentActivity = null;
         if (toolbarContainer != null && toolbarContainer.getContext() == a) {
+            dismissExtensionMenu();   // [EXTMENU] a showing PopupWindow would leak its window
             toolbarContainer = null;
         }
     }

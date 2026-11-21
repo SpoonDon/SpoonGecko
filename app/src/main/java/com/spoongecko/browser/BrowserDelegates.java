@@ -180,16 +180,24 @@ public final class BrowserDelegates {
                 });
             }
 
-            // [M9] Content process death. The session is closed and unusable;
-            // the host re-opens it and reloads the last URL.
+            // [M9] Content process death. The session is closed and unusable.
+            // [KILL] The host KEEPS the tab and gives it a fresh session that carries its saved
+            // state (see MainActivity.onSessionGone): closing it here is what used to empty the
+            // tab list whenever Android reclaimed the page processes of a backgrounded app.
+            // A report from a session the tab no longer uses (it was already replaced) is stale
+            // and must not touch the tab again.
             @Override
             public void onCrash(GeckoSession sess) {
-                activity.runOnUiThread(() -> host.onSessionGone(tab));
+                activity.runOnUiThread(() -> {
+                    if (sess == tab.session) host.onSessionGone(tab);
+                });
             }
 
             @Override
             public void onKill(GeckoSession sess) {
-                activity.runOnUiThread(() -> host.onSessionGone(tab));
+                activity.runOnUiThread(() -> {
+                    if (sess == tab.session) host.onSessionGone(tab);
+                });
             }
         });
     }

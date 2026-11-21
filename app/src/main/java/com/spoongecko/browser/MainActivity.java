@@ -12,6 +12,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -86,6 +87,14 @@ public class MainActivity extends Activity
      * Set to false to restore exactly like before (all tabs opened at launch).
      */
     private static final boolean LAZY_TAB_RESTORE = true;
+
+    /**
+     * [KILL] A tab whose page process dies is brought back (see onSessionGone). A page that keeps
+     * killing its process must not be reloaded for ever: when the same tab dies more than
+     * MAX_QUICK_DEATHS times within DEATH_WINDOW_MS the tab is closed, as it always used to be.
+     */
+    private static final int MAX_QUICK_DEATHS = 3;
+    private static final long DEATH_WINDOW_MS = 30_000L;
 
     private static GeckoRuntime sRuntime;
 
@@ -373,6 +382,20 @@ public class MainActivity extends Activity
         return tab;
     }
 
+    /**
+     * [KILL] Opens a tab's session if it is not open yet. A session that was prepared but never
+     * opened (a tab restored lazily after a restart, or revived after its page process died) is
+     * opened the first time the tab is shown. When the tab has an address but no saved page state
+     * (see Tab.reloadOnOpen) the address is loaded, so the tab is never left blank.
+     */
+    private void openSessionIfNeeded(Tab tab) {
+        if (tab.session.isOpen()) return;
+        tab.session.open(sRuntime);
+        final String url = tab.reloadOnOpen;
+        tab.reloadOnOpen = null;
+        if (url != null && !url.isEmpty()) tab.session.loadUri(url);
+    }
+
     private void restoreTabs(Bundle savedInstanceState) {
         // [F13] Restore order:
         //   1. savedInstanceState Bundle — survives process death AND activity
@@ -453,12 +476,16 @@ public class MainActivity extends Activity
         tab.url = url == null ? "" : url;
         tab.title = title == null ? "" : title;
         tab.latestState = state;
+        // [KILL] A tab that has an address but no page state to restore (the state was never
+        // reported before the save, or could not be read back) loads its address when it is
+        // opened, instead of coming back as a blank page that hides the home panel.
+        if (state == null && !tab.url.isEmpty()) tab.reloadOnOpen = tab.url;
         // [DESKTOP] Must be in place BEFORE the session opens: opening restores
         // (and so loads) the saved page, which has to use the saved user agent.
         if (desktop) setDesktopMode(tab, true);
         attachDelegates(tab);   // [SELECT]
         if (openNow) {
-            tab.session.open(sRuntime);
+            openSessionIfNeeded(tab);
             tabManager.notifyTabsChanged();
             tabManager.notifyActiveChanged();
         } else {
@@ -651,7 +678,8 @@ public class MainActivity extends Activity
         if (fullScreenTab != null && fullScreenTab != tab) leaveFullScreen();
         // [PERF] A lazily restored tab has a session that was never opened;
         // open it the first time it is shown (open() must precede setSession()).
-        if (!tab.session.isOpen()) tab.session.open(sRuntime);
+        // [KILL] The same goes for a tab revived after its page process died.
+        openSessionIfNeeded(tab);
         geckoView.setSession(tab.session);
         CompositorController cc = tab.session.getCompositorController();
         if (cc != null) cc.setClearColor(android.graphics.Color.BLACK);
@@ -1219,7 +1247,58 @@ public class MainActivity extends Activity
     @Override public String translateMenuLabel() { return PageTranslator.get().menuLabel(); }
     @Override public void onTranslateMenuAction() { PageTranslator.get().onMenuAction(); }
                 
+    /**
+     * [KILL] A tab's page (content) process died. Either Android reclaimed it while the app sat
+     * in the background (the usual case, and exactly what happens to an app that is kept in RAM:
+     * the app process lives on but its page processes are the first thing the system takes
+     * back), or the page crashed it.
+     *
+     * The old code CLOSED the tab here. After one such reclaim every tab of the app was closed
+     * one by one, the last close opened an empty replacement tab, and the next save wrote that
+     * empty list over the saved tabs: opening the app from its icon then showed the home page
+     * with all tabs gone, and not even a restart could bring them back.
+     *
+     * The tab is now KEPT. It gets a fresh session that carries its last saved page state and
+     * stays unopened, like a tab restored lazily after a restart; it is opened and its page
+     * reloaded when it is shown (onActiveTabChanged) or when the app comes back to the front
+     * (onResume). Its saved state is never touched, so the saved tab list stays complete.
+     */
     @Override public void onSessionGone(Tab tab) {
+        if (destroying || tab == null) return;
+        if (!tabManager.getTabs().contains(tab)) return;
+        final long now = SystemClock.elapsedRealtime();
+        if (tab.lastDeathAt == 0L || now - tab.lastDeathAt > DEATH_WINDOW_MS) tab.deaths = 0;
+        tab.lastDeathAt = now;
+        tab.deaths++;
+        // A page that keeps killing its process must not be reloaded for ever, and a tab that
+        // GeckoView is still about to open has no state to bring back: both keep the old
+        // behaviour (the tab is closed).
+        if (tab.awaitingOpen || tab.deaths > MAX_QUICK_DEATHS) {
+            dropGoneTab(tab);
+            return;
+        }
+        reviveGoneTab(tab);
+    }
+
+    /** [KILL] Gives a tab whose page process died a fresh, unopened session holding its saved state. */
+    private void reviveGoneTab(Tab tab) {
+        // The page that was fullscreen is gone: bring the toolbar back before its session is replaced.
+        if (fullScreenTab == tab) leaveFullScreen();
+        final GeckoSession.SessionState state = tab.latestState;
+        tabManager.replaceSession(tab, state);
+        tab.priorityHigh = false;          // the new session starts at the default priority
+        tab.historyStepPending = false;
+        tab.reloadOnOpen = (state == null && tab.url != null && !tab.url.isEmpty()) ? tab.url : null;
+        if (tab.desktopMode) DesktopMode.apply(tab.session, true);   // before the session opens
+        attachDelegates(tab);
+        tabManager.notifyTabsChanged();    // the tab switcher and the media bookkeeping follow
+        // The tab on screen comes back at once; while the app is in the background nothing is
+        // opened (that would start a page process again for nobody): onResume does it.
+        if (resumed && tab == tabManager.getActiveTab()) tabManager.notifyActiveChanged();
+    }
+
+    /** [KILL] The old reaction to a dead page process: close the tab. Only the fallback now. */
+    private void dropGoneTab(Tab tab) {
         // [FIX] The old code unconditionally created a new tab here, but
         // onTabsChanged() already auto-creates a replacement when the LAST tab
         // closes — so a content-process crash used to leave one extra empty
@@ -1306,6 +1385,12 @@ public class MainActivity extends Activity
         ExtensionManager.get().setCurrentActivity(this);   // for extension prompts/popups
         resumed = true;
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
+        // [KILL] The page process of the tab on screen was reclaimed while the app was in the
+        // background (see onSessionGone): it was kept as an unopened tab, so open it again now
+        // and put it on screen, restoring its page. Nothing happens for a tab that is open.
+        if (t != null && !t.awaitingOpen && !t.session.isOpen()) {
+            tabManager.notifyActiveChanged();
+        }
         if (t != null) {
             t.session.setActive(true);
             updatePriority(t);   // HIGH: it is the visible tab (see updatePriority)
