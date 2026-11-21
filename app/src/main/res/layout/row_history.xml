@@ -1,48 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- [HISTORY] One visited page: title, address, and when it was visited. -->
+<!--
+    [HISTORY] One visited page: title, address, and when it was visited, with a button that
+    removes just this page from the history. The text column keeps the old 10dp top/bottom
+    padding, so the row is as tall as it was before the button was added.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
     android:background="?android:attr/selectableItemBackground"
     android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:paddingEnd="4dp">
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/row_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FFFFFFFF"
+                android:textSize="15sp"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/row_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:textColor="#66FFFFFF"
+                android:textSize="12sp"
+                android:singleLine="true" />
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/row_title"
-            android:layout_width="0dp"
+            android:id="@+id/row_subtitle"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textColor="#FFFFFFFF"
-            android:textSize="15sp"
-            android:singleLine="true"
-            android:ellipsize="end" />
-
-        <TextView
-            android:id="@+id/row_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
             android:textColor="#66FFFFFF"
-            android:textSize="12sp"
-            android:singleLine="true" />
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="middle"
+            android:layout_marginTop="2dp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/row_subtitle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="#66FFFFFF"
-        android:textSize="13sp"
-        android:singleLine="true"
-        android:ellipsize="middle"
-        android:layout_marginTop="2dp" />
+    <!-- Not focusable: a tap on the row itself must still open the page (the list's item click). -->
+    <ImageButton
+        android:id="@+id/row_delete"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="4dp"
+        android:padding="11dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_close"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Remove from history"
+        android:focusable="false" />
 </LinearLayout>
