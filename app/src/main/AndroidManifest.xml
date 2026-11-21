@@ -46,15 +46,43 @@
             place for orientation/screenSize, so nothing else needs to change.
             uiMode, density, fontScale, locale and layoutDirection are
             deliberately NOT handled: those still recreate the activity as before.
+
+            [DEFAULT] launchMode singleTask: a link opened from another app is delivered to
+            the browser that is already running (MainActivity.onNewIntent) instead of
+            starting a second MainActivity, which would restore the same tabs again next
+            to the first one. The launcher icon and the media notification still just
+            bring the existing browser to the front.
         -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+                [DEFAULT] This is what makes Android list the app as a web browser: an
+                activity that can open http and https links. It makes the app selectable
+                under Settings > Apps > Default apps > Browser app, and offered in the
+                "Open with" list for links. (MainActivity only ever loads http and https
+                from such an intent, see MainActivity.linkFromIntent.)
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+
+            <!-- [DEFAULT] Marks the app as a browser for "open the browser" requests. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.APP_BROWSER" />
             </intent-filter>
         </activity>
 
