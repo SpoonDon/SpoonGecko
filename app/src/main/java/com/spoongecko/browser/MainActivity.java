@@ -236,6 +236,69 @@ public class MainActivity extends Activity
         restoreTabs(savedInstanceState);
 
         updateTabCount();
+
+        // [DEFAULT] The app was started by a link from another app (it is the default browser, or
+        // was picked in "Open with"). Only on a fresh start: when Android re-creates the activity
+        // it hands back savedInstanceState, and the same intent must not open the page again.
+        if (savedInstanceState == null) openLinkFromIntent(getIntent());
+    }
+
+    // ------------------------------------------------------------------
+    // [DEFAULT] Links from other apps
+    // ------------------------------------------------------------------
+
+    /**
+     * A link arrives while the app is already running (MainActivity is singleTask, so Android
+     * delivers it here instead of starting a second copy, which would restore the same tabs a
+     * second time). The launcher icon, a notification or "up" navigation arrive here too, as
+     * intents without a link: they are not ours to act on.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (destroying || tabManager == null) return;
+        if (linkFromIntent(intent) == null) return;
+        setIntent(intent);
+        openLinkFromIntent(intent);
+    }
+
+    /**
+     * [DEFAULT] The web address of an "open this link" intent, or null for anything else. Only
+     * http and https are accepted: the activity is exported, so any app can send it an intent,
+     * and a javascript:, file: or content: address from outside must never be loaded.
+     */
+    private static String linkFromIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return null;
+        final Uri data = intent.getData();
+        if (data == null || data.getScheme() == null) return null;
+        final String scheme = data.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) return null;
+        final String url = data.toString();
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * [DEFAULT] Opens a link from another app. An empty home tab is used as it is; otherwise the
+     * link gets a tab of its own, so the pages already open are left alone.
+     */
+    private void openLinkFromIntent(Intent intent) {
+        final String url = linkFromIntent(intent);
+        if (url == null || destroying || tabManager == null) return;
+        // What was open on top of the page (tab list, menu, history) is not what the user is
+        // waiting for now.
+        if (tabSwitcher != null) tabSwitcher.dismiss();
+        if (popups != null) popups.dismissAll();
+        if (historyDialog != null) historyDialog.dismiss();
+        final Tab active = tabManager.getActiveTab();
+        // A tab whose session is not open (revived after its page process died, see
+        // onSessionGone) cannot be loaded into: it gets the same treatment as a tab in use.
+        if (active == null || active.awaitingOpen || !active.session.isOpen() || !isActiveTabEmpty()) {
+            addNewTab(null);
+            suggestions.setText("");
+        }
+        navigateToUrl(url);
+        updateToolbarState();
+        updateTabCount();
     }
 
     // ------------------------------------------------------------------

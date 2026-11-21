@@ -238,6 +238,27 @@ public class HistoryStore extends SQLiteOpenHelper {
     public void clear() { getWritableDatabase().delete(TABLE, null, null); }
 
     /**
+     * [HISTORY] Removes ONE page from the history, and with it from the address-bar suggestions.
+     * The address is the row's key, so this deletes exactly the entry that was shown. Runs on the
+     * same write thread as recordVisit(), so the UI thread never waits for the database and a
+     * removal can't overtake or be overtaken by a visit being recorded.
+     */
+    public void remove(final String url) {
+        if (url == null) return;
+        try {
+            io.execute(() -> {
+                try {
+                    getWritableDatabase().delete(TABLE, "url = ?", new String[]{url});
+                } catch (Exception e) {
+                    Log.w(TAG, "remove failed", e);
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Store already closed (activity is going away) — the pending writes were drained.
+        }
+    }
+
+    /**
      * [FIX] Drains pending writes before closing the database.
      *
      * [PERF] This method used to be declared synchronized. The queued writes
