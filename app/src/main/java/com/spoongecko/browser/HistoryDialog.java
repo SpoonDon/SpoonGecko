@@ -44,12 +44,32 @@ final class HistoryDialog {
     /** Pages loaded per list. The old dialog showed the latest 100; this is enough to sort. */
     private static final int LIMIT = 1000;
     private static final int LIST_MAX_DP = 360;
+    /** The list never gets shorter than this, however small the window becomes. */
+    private static final int LIST_MIN_DP = 96;
+    /**
+     * Height of everything in the dialog except the list (title, order chips, buttons, padding),
+     * with some room for a larger font. Subtracted from the window height to find how tall the
+     * list may be.
+     */
+    private static final int CHROME_DP = 180;
+    /** The dialog is this fraction of the app window's width, and of its height at most. */
+    private static final float WIDTH_FRACTION = 0.9f;
+    private static final float HEIGHT_FRACTION = 0.92f;
     private static final String PREFS_NAME = "spoongecko_prefs";
     private static final String PREF_SORT = "history_sort";
 
     private final Activity activity;
     private final HistoryStore history;
     private Dialog dialog;
+
+    /**
+     * [RESIZE] Watches the app window while the dialog is open (see followWindowSize). The
+     * dialog is a window of its own: when the app window changes size (split screen, a resized
+     * freeform window, fold/unfold, rotation) Android does not resize it, so its size, worked
+     * out once when it opened, had to be worked out again.
+     */
+    private View.OnLayoutChangeListener windowWatcher;
+    private boolean refitQueued;
 
     HistoryDialog(Activity activity, HistoryStore history) {
         this.activity = activity;
@@ -67,8 +87,7 @@ final class HistoryDialog {
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.7f);
-            w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels * 0.9f),
-                    WindowManager.LayoutParams.WRAP_CONTENT);
+            w.setLayout(dialogWidthPx(), WindowManager.LayoutParams.WRAP_CONTENT);
         }
 
         final ListView list = d.findViewById(R.id.dlg_list);
@@ -138,16 +157,88 @@ final class HistoryDialog {
 
         d.setOnDismissListener(x -> {
             if (dialog == d) dialog = null;
+            stopFollowingWindowSize();
         });
         dialog = d;
         load.run();
         d.show();
+        followWindowSize(d, list, adapter);
+    }
+
+    // ------------------------------------------------------------------
+    // [RESIZE] Keeping the dialog the right size when the app window changes size
+    // ------------------------------------------------------------------
+
+    /** Width of the app window in pixels (its real size, which a split screen or freeform window changes). */
+    private int windowWidthPx() {
+        final int w = activity.getWindow().getDecorView().getWidth();
+        return w > 0 ? w : activity.getResources().getDisplayMetrics().widthPixels;
+    }
+
+    private int windowHeightPx() {
+        final int h = activity.getWindow().getDecorView().getHeight();
+        return h > 0 ? h : activity.getResources().getDisplayMetrics().heightPixels;
+    }
+
+    private int dialogWidthPx() {
+        return (int) (windowWidthPx() * WIDTH_FRACTION);
+    }
+
+    /**
+     * The tallest the list may be: the usual 360dp on a normal screen, less when the window is
+     * short (split screen, landscape), so the buttons below the list stay on the screen.
+     */
+    private int maxListHeightPx() {
+        final int room = (int) (windowHeightPx() * HEIGHT_FRACTION) - dp(CHROME_DP);
+        return Math.max(dp(LIST_MIN_DP), Math.min(dp(LIST_MAX_DP), room));
+    }
+
+    /**
+     * Starts watching the app window. When its size changes the dialog is fitted to the new size.
+     * The work is posted and coalesced: dragging the edge of a freeform window reports every
+     * pixel, and the dialog is a separate window that must not be changed in the middle of the
+     * app window's own layout pass.
+     */
+    private void followWindowSize(final Dialog d, final ListView list, final RowAdapter adapter) {
+        stopFollowingWindowSize();
+        final View decor = activity.getWindow().getDecorView();
+        final View.OnLayoutChangeListener watcher = (v, l, t, r, b, ol, ot, or, ob) -> {
+            if ((r - l) == (or - ol) && (b - t) == (ob - ot)) return;   // moved, not resized
+            if (refitQueued) return;
+            refitQueued = true;
+            v.post(() -> {
+                refitQueued = false;
+                if (dialog == d) fitToWindow(d, list, adapter);
+            });
+        };
+        windowWatcher = watcher;
+        decor.addOnLayoutChangeListener(watcher);
+    }
+
+    private void stopFollowingWindowSize() {
+        final View.OnLayoutChangeListener watcher = windowWatcher;
+        windowWatcher = null;
+        refitQueued = false;
+        if (watcher != null) {
+            activity.getWindow().getDecorView().removeOnLayoutChangeListener(watcher);
+        }
+    }
+
+    /** Sets the dialog's width and the list's height again from the window's current size. */
+    private void fitToWindow(Dialog d, ListView list, RowAdapter adapter) {
+        if (!d.isShowing()) return;
+        final Window w = d.getWindow();
+        if (w != null) w.setLayout(dialogWidthPx(), WindowManager.LayoutParams.WRAP_CONTENT);
+        if (list.getVisibility() == View.VISIBLE && adapter.getCount() > 0) {
+            fitListHeight(list, adapter);
+        }
     }
 
     /** Closes the dialog if it is showing (called when the activity is destroyed). */
     void dismiss() {
         final Dialog d = dialog;
         dialog = null;
+        stopFollowingWindowSize();
         if (d != null) {
             try { d.dismiss(); } catch (RuntimeException ignored) { }
         }
@@ -195,10 +286,11 @@ final class HistoryDialog {
     /**
      * ListView ignores android:maxHeight, so the height is measured from the rows and capped
      * here (the same approach as BrowserDialogs.capListHeight). Done again whenever the order
-     * changes, because headings change how tall the list is.
+     * changes, because headings change how tall the list is, and again when the window is
+     * resized (see maxListHeightPx).
      */
     private void fitListHeight(ListView list, RowAdapter adapter) {
-        final int max = dp(LIST_MAX_DP);
+        final int max = maxListHeightPx();
         int total = 0;
         for (int i = 0; i < adapter.getCount() && total < max; i++) {
             final View row = adapter.getView(i, null, list);
