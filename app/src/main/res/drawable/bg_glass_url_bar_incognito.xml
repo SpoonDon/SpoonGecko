@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    [INCOGNITO] The bar at the top while an incognito tab is on screen: the normal bar
+    (bg_glass_url_bar) with a dark purple tint, so it is always clear which kind of tab it is.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners
+        android:bottomLeftRadius="18dp"
+        android:bottomRightRadius="18dp" />
+    <gradient
+        android:startColor="#FF1A1030"
+        android:endColor="#CC2A1850"
+        android:angle="270" />
+</shape>
