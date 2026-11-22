@@ -140,9 +140,9 @@ public final class BrowserDialogs {
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.7f);
-            w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels * 0.85),
-                    WindowManager.LayoutParams.WRAP_CONTENT);
         }
+        // [RESIZE] 85% of the app window's width, and again whenever the window is resized.
+        DialogFit.fitAndFollow(activity, d, 0.85f, 0f, null);
         TextView cancel = d.findViewById(R.id.btn_cancel);
         TextView exit = d.findViewById(R.id.btn_exit);
         cancel.setOnClickListener(v -> d.dismiss());
@@ -287,8 +287,8 @@ public final class BrowserDialogs {
         if (w == null) return;
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         w.setDimAmount(0.7f);
-        w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels * widthFraction),
-                WindowManager.LayoutParams.WRAP_CONTENT);
+        // [RESIZE] A fraction of the app window's width, kept in step when the window is resized.
+        DialogFit.fitAndFollow(activity, d, widthFraction, 0f, null);
 
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);

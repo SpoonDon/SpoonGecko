@@ -71,7 +71,23 @@ public final class PopupsController {
 
     public void showMenu() {
         if (menuPopup != null && menuPopup.isShowing()) { menuPopup.dismiss(); return; }
+        openMenu();
+    }
 
+    /**
+     * [RESIZE] The app window changed size while the menu was open: build it again for the new
+     * size, under the button, which has moved with the layout. (A PopupWindow keeps the size it
+     * was given, so without this the menu could be taller than the window, or cut off.)
+     */
+    private void reopenMenu() {
+        final PopupWindow p = menuPopup;
+        if (p == null || !p.isShowing()) return;
+        p.dismiss();
+        menuPopup = null;
+        openMenu();
+    }
+
+    private void openMenu() {
         LinearLayout container = new LinearLayout(activity);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setBackgroundResource(R.drawable.bg_glass_dialog);
@@ -102,10 +118,12 @@ public final class PopupsController {
                 View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         final int wanted = container.getMeasuredHeight();
-        final int[] anchorOnScreen = new int[2];
-        menuAnchor.getLocationOnScreen(anchorOnScreen);
-        final int available = activity.getResources().getDisplayMetrics().heightPixels
-                - (anchorOnScreen[1] + menuAnchor.getHeight()) - dp(16);
+        // [RESIZE] Measured inside the app window, not on the screen: in a split screen or a
+        // freeform window the two differ by the window's own position.
+        final int[] anchorInWindow = new int[2];
+        menuAnchor.getLocationInWindow(anchorInWindow);
+        final int available = DialogFit.windowHeight(activity)
+                - (anchorInWindow[1] + menuAnchor.getHeight()) - dp(16);
 
         View content = container;
         int height = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -122,6 +140,10 @@ public final class PopupsController {
         menuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         menuPopup.setOutsideTouchable(true);
         menuPopup.setElevation(dp(8));
+        // [RESIZE] Rebuilt for the new size if the window is resized while the menu is open; the
+        // watcher belongs to this popup and stops when the popup is dismissed, however that happens.
+        final Runnable stopWatching = DialogFit.watch(activity, this::reopenMenu);
+        menuPopup.setOnDismissListener(stopWatching::run);
         menuPopup.showAsDropDown(menuAnchor, 0, dp(8));
     }
 
@@ -165,6 +187,11 @@ public final class PopupsController {
         contextMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         contextMenuPopup.setOutsideTouchable(true);
         contextMenuPopup.setElevation(dp(8));
+        // [RESIZE] The menu sits at the spot that was pressed. When the app window is resized that
+        // spot is somewhere else (or gone), so the menu is closed rather than left in the wrong
+        // place; the watcher stops when the popup is dismissed, however that happens.
+        final Runnable stopWatching = DialogFit.watch(activity, this::dismissContextMenu);
+        contextMenuPopup.setOnDismissListener(stopWatching::run);
         // [F9] onContextMenu delivers *screen* coordinates (screenX/screenY per
         // the ContentDelegate javadoc), but PopupWindow.showAtLocation() takes
         // window-relative offsets. The old code passed them through unchanged
@@ -181,6 +208,10 @@ public final class PopupsController {
 
     public void dismissAll() {
         if (menuPopup != null) { menuPopup.dismiss(); menuPopup = null; }
+        dismissContextMenu();
+    }
+
+    private void dismissContextMenu() {
         if (contextMenuPopup != null) { contextMenuPopup.dismiss(); contextMenuPopup = null; }
     }
 

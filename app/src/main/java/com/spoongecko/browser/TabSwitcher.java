@@ -363,9 +363,9 @@ public final class TabSwitcher {
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.7f);
-            w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels * 0.85),
-                    WindowManager.LayoutParams.WRAP_CONTENT);
         }
+        // [RESIZE] 85% of the app window's width, and again whenever the window is resized.
+        DialogFit.fitAndFollow(activity, c, 0.85f, 0f, null);
         final TextView title = c.findViewById(R.id.confirm_title);
         final TextView message = c.findViewById(R.id.confirm_message);
         final TextView ok = c.findViewById(R.id.confirm_ok);

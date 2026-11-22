@@ -33,6 +33,10 @@ final class TranslateDialogs {
 
     private static final int WRAP = WindowManager.LayoutParams.WRAP_CONTENT;
     private static final int LIST_MAX_DP = 260;
+    /** The list of rules never gets shorter than this, however small the window becomes. */
+    private static final int LIST_MIN_DP = 96;
+    /** Everything in the rules dialog except its list (title, text, buttons, padding), with room to spare. */
+    private static final int RULES_CHROME_DP = 200;
 
     private final Activity activity;
     private final PageTranslator translator;
@@ -59,7 +63,14 @@ final class TranslateDialogs {
         return activity.isFinishing() || activity.isDestroyed();
     }
 
-    private Dialog newDialog(int layout, float widthFraction, int height) {
+    /**
+     * @param widthFraction  the dialog's width as a fraction of the app window's width
+     * @param heightFraction its height as a fraction of the app window's height, or 0 to let the
+     *                       content decide. Both are worked out again whenever the app window is
+     *                       resized (split screen, freeform window, rotation) while the dialog is
+     *                       showing; see DialogFit.
+     */
+    private Dialog newDialog(int layout, float widthFraction, float heightFraction) {
         final Dialog d = new Dialog(activity);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         d.setContentView(layout);
@@ -68,9 +79,8 @@ final class TranslateDialogs {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.7f);
             w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-            w.setLayout((int) (activity.getResources().getDisplayMetrics().widthPixels
-                    * widthFraction), height);
         }
+        DialogFit.fitAndFollow(activity, d, widthFraction, heightFraction, null);
         open.add(d);
         d.setOnDismissListener(x -> open.remove(d));
         return d;
@@ -107,7 +117,7 @@ final class TranslateDialogs {
         final PageTranslator.PageInfo page = translator.currentPage();
         final List<String> fromCodes = codes(translator.fromLanguages());
         final List<String> toCodes = codes(translator.toLanguages());
-        final Dialog d = newDialog(R.layout.dialog_translate, 0.92f, WRAP);
+        final Dialog d = newDialog(R.layout.dialog_translate, 0.92f, 0f);
 
         final TextView status = d.findViewById(R.id.tr_status);
         final View pageGroup = d.findViewById(R.id.tr_page_group);
@@ -259,8 +269,9 @@ final class TranslateDialogs {
     private void pickLanguage(String title, List<TranslationLanguages.Lang> options,
                               String selectedCode, final Consumer<TranslationLanguages.Lang> onPick) {
         if (finishing()) return;
-        final int height = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.75f);
-        final Dialog d = newDialog(R.layout.dialog_language_picker, 0.92f, height);
+        // Three quarters of the app window's height (the list takes what is left), kept in step
+        // when the window is resized.
+        final Dialog d = newDialog(R.layout.dialog_language_picker, 0.92f, 0.75f);
         ((TextView) d.findViewById(R.id.lp_title)).setText(title);
         final EditText search = d.findViewById(R.id.lp_search);
         final ListView list = d.findViewById(R.id.lp_list);
@@ -340,7 +351,7 @@ final class TranslateDialogs {
 
     private void buildRules() {
         if (finishing()) return;
-        final Dialog d = newDialog(R.layout.dialog_language_rules, 0.92f, WRAP);
+        final Dialog d = newDialog(R.layout.dialog_language_rules, 0.92f, 0f);
         final ListView list = d.findViewById(R.id.lr_list);
         final TextView empty = d.findViewById(R.id.lr_empty);
         final RuleAdapter adapter = new RuleAdapter();
@@ -354,6 +365,10 @@ final class TranslateDialogs {
             fitHeight(list, adapter);
         };
         reload.run();
+        // [RESIZE] How tall the list may be depends on the window: work it out again on a resize.
+        DialogFit.followResize(activity, d, () -> {
+            if (list.getVisibility() == View.VISIBLE) fitHeight(list, adapter);
+        });
 
         list.setOnItemClickListener((parent, view, position, id) -> {
             final RuleRow row = adapter.getItem(position);
@@ -427,9 +442,18 @@ final class TranslateDialogs {
         }
     }
 
+    /**
+     * The tallest the list of rules may be: the usual 260dp on a normal screen, less when the
+     * window is short (split screen, landscape), so the buttons under the list stay in view.
+     */
+    private int maxListHeight() {
+        final int room = (int) (DialogFit.windowHeight(activity) * 0.92f) - dp(RULES_CHROME_DP);
+        return Math.max(dp(LIST_MIN_DP), Math.min(dp(LIST_MAX_DP), room));
+    }
+
     /** The list is as tall as its rows, up to a limit (a ListView ignores maxHeight). */
     private void fitHeight(ListView list, BaseAdapter adapter) {
-        final int max = dp(LIST_MAX_DP);
+        final int max = maxListHeight();
         int total = 0;
         for (int i = 0; i < adapter.getCount() && total < max; i++) {
             final View row = adapter.getView(i, null, list);
@@ -444,7 +468,7 @@ final class TranslateDialogs {
     /** Pick one of the three rules for a language. */
     private void chooseRule(String languageName, String current, final Consumer<String> onChosen) {
         if (finishing()) return;
-        final Dialog d = newDialog(R.layout.dialog_choice, 0.85f, WRAP);
+        final Dialog d = newDialog(R.layout.dialog_choice, 0.85f, 0f);
         ((TextView) d.findViewById(R.id.ch_title)).setText("When a page is in " + languageName);
         final String[] rules = {RuntimeTranslation.ALWAYS, RuntimeTranslation.NEVER, RuntimeTranslation.OFFER};
         final int[] ids = {R.id.ch_opt1, R.id.ch_opt2, R.id.ch_opt3};

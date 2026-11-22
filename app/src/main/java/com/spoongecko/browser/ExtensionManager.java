@@ -785,18 +785,23 @@ public final class ExtensionManager {
         fillExtensionMenu(rows, c, toolbarGeneration);
         if (rows.getChildCount() == 0) return;
 
-        final int width = Math.min(dp(c, 260),
-                (int) (c.getResources().getDisplayMetrics().widthPixels * 0.92f));
+        // [RESIZE] Sizes come from the app window, not the screen, so they are right in a split
+        // screen or a freeform window; the list is built again if the window is resized.
+        final Activity owner = c instanceof Activity ? (Activity) c : currentActivity;
+        final int windowW = owner != null ? DialogFit.windowWidth(owner)
+                : c.getResources().getDisplayMetrics().widthPixels;
+        final int windowH = owner != null ? DialogFit.windowHeight(owner)
+                : c.getResources().getDisplayMetrics().heightPixels;
+        final int width = Math.min(dp(c, 260), (int) (windowW * 0.92f));
         // With many extensions the list can be taller than the space under the button
         // (landscape phones): scroll instead of letting the last rows fall off the screen.
         rows.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         final int wanted = rows.getMeasuredHeight();
-        final int[] anchorOnScreen = new int[2];
-        anchor.getLocationOnScreen(anchorOnScreen);
-        final int available = c.getResources().getDisplayMetrics().heightPixels
-                - (anchorOnScreen[1] + anchor.getHeight()) - dp(c, 16);
+        final int[] anchorInWindow = new int[2];
+        anchor.getLocationInWindow(anchorInWindow);
+        final int available = windowH - (anchorInWindow[1] + anchor.getHeight()) - dp(c, 16);
         int height = ViewGroup.LayoutParams.WRAP_CONTENT;
         if (available > dp(c, 120) && wanted > available) height = available;
 
@@ -808,7 +813,11 @@ public final class ExtensionManager {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
         popup.setElevation(dp(c, 8));
+        // The watcher belongs to this popup and stops when it is dismissed, however that happens.
+        final Runnable stopWatching = owner != null
+                ? DialogFit.watch(owner, this::reopenExtensionMenu) : null;
         popup.setOnDismissListener(() -> {
+            if (stopWatching != null) stopWatching.run();
             if (extensionMenu == popup) {
                 extensionMenu = null;
                 extensionMenuRows = null;
@@ -903,6 +912,20 @@ public final class ExtensionManager {
     }
 
     /**
+     * [RESIZE] The app window changed size while the list was open: build it again for the new
+     * size, under the extensions button (which has moved with the layout). A PopupWindow keeps the
+     * size it was given, so without this the list could be taller than the window or cut off.
+     */
+    private void reopenExtensionMenu() {
+        final PopupWindow p = extensionMenu;
+        if (p == null || !p.isShowing()) return;
+        final LinearLayout container = toolbarContainer;
+        final View anchor = container == null ? null : container.getChildAt(0);
+        dismissExtensionMenu();
+        if (anchor != null && anchor.isAttachedToWindow()) toggleExtensionMenu(anchor);
+    }
+
+    /**
      * Popup display follows GeckoView's contract: the embedder supplies an
      * already-open GeckoSession; GeckoView then calls loadUri(popupUri) on it.
      */
@@ -920,14 +943,14 @@ public final class ExtensionManager {
             if (dialog.getWindow() != null) {
                 dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             }
-            int width = Math.min(dp(activity, 340),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.9));
-            int height = dp(activity, 420);
 
             surface.setSession(popupSession);
             popupSession.open(runtime);
             dialog.show();
-            if (dialog.getWindow() != null) dialog.getWindow().setLayout(width, height);
+            // [RESIZE] 340dp x 420dp, but never more than 90% of the app window, and worked out
+            // again if the window is resized while the popup is open.
+            fitActionPopup(activity, dialog);
+            DialogFit.followResize(activity, dialog, () -> fitActionPopup(activity, dialog));
             // [P3] One tracker owns the dismiss event: it closes the popup
             // session AND removes the dialog from dialogsByActivity.
             trackDialog(activity, dialog, () -> {
@@ -938,6 +961,18 @@ public final class ExtensionManager {
             Log.w(TAG, "could not open extension popup", e);
             return null;
         }
+    }
+
+    /**
+     * [RESIZE] Window size of an extension's popup: its usual 340dp x 420dp, but never wider or
+     * taller than 90% of the app window, so it still fits after the window has been made smaller.
+     */
+    private static void fitActionPopup(Activity activity, Dialog dialog) {
+        final Window w = dialog.getWindow();
+        if (w == null) return;
+        final int width = Math.min(dp(activity, 340), (int) (DialogFit.windowWidth(activity) * 0.9f));
+        final int height = Math.min(dp(activity, 420), (int) (DialogFit.windowHeight(activity) * 0.9f));
+        w.setLayout(width, height);
     }
 
     /** Notifies extensions about the active tab (tabs.onActivated). */
