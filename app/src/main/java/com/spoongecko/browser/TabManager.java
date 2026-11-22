@@ -2,6 +2,7 @@ package com.spoongecko.browser;
 
 import android.util.Log;
 import org.mozilla.geckoview.GeckoSession;
+import org.mozilla.geckoview.GeckoSessionSettings;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,11 +30,26 @@ public class TabManager {
     }
 
     public Tab createTab() {
-        GeckoSession session = new GeckoSession();
+        return createTab(false);
+    }
+
+    /**
+     * [INCOGNITO] Creates a tab; with {@code privateMode} its session is a private one. That is
+     * decided here, before the session exists: GeckoView cannot make an existing session private.
+     */
+    public Tab createTab(boolean privateMode) {
+        GeckoSession session = newSession(privateMode);
         Tab tab = new Tab(session);
+        tab.isPrivate = privateMode;
         tabs.add(tab);
         activeIndex = tabs.size() - 1;
         return tab;
+    }
+
+    /** [INCOGNITO] The one place a GeckoSession is made, so private and normal ones can't be mixed up. */
+    private static GeckoSession newSession(boolean privateMode) {
+        if (!privateMode) return new GeckoSession();
+        return new GeckoSession(new GeckoSessionSettings.Builder().usePrivateMode(true).build());
     }
 
     public Tab createTabWithState(GeckoSession.SessionState state) {
@@ -63,7 +79,7 @@ public class TabManager {
      */
     public GeckoSession replaceSession(Tab tab, GeckoSession.SessionState state) {
         final GeckoSession old = tab.session;
-        final GeckoSession fresh = new GeckoSession();
+        final GeckoSession fresh = newSession(tab.isPrivate);   // [INCOGNITO] same kind as before
         if (state != null) {
             try {
                 // Same rule as in createTabWithState(): restoreState MUST precede open().

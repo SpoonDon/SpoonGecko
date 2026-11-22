@@ -65,6 +65,13 @@ public final class TabSwitcher {
     /** The switcher opens at once if the page screenshot has not arrived within this time. */
     private static final long CAPTURE_TIMEOUT_MS = 350L;
 
+    /** [INCOGNITO] Colours of an incognito card; the NORMAL_ ones are what item_tab_card.xml uses. */
+    private static final int INCOGNITO_DOT = 0xFF6E4BD8;
+    private static final int INCOGNITO_PREVIEW_BG = 0xFF1E1535;
+    private static final int INCOGNITO_PLACEHOLDER = 0xAAC8B6FF;
+    private static final int NORMAL_PREVIEW_BG = 0xFF0C0C0C;
+    private static final int NORMAL_PLACEHOLDER = 0x66FFFFFF;
+
     private static final int[] AVATAR_COLORS = {
             0xFF5E5CE6, 0xFF0A84FF, 0xFF30B0C7, 0xFF32A852,
             0xFFD99A00, 0xFFE8590C, 0xFFD6336C, 0xFF7048E8
@@ -146,6 +153,11 @@ public final class TabSwitcher {
      */
     private boolean startCapture(final Tab tab, final Runnable onDone) {
         if (tab == null || tab.awaitingOpen) return false;
+        // [INCOGNITO] No screenshot of an incognito page is taken or kept, not even in memory.
+        if (tab.isPrivate) {
+            tab.thumbnail = null;
+            return false;
+        }
         if (tab.url == null || tab.url.isEmpty() || host.isHomePanelShown()) {
             tab.thumbnail = null;      // the card shows its placeholder
             return false;
@@ -215,6 +227,10 @@ public final class TabSwitcher {
                     WindowManager.LayoutParams.MATCH_PARENT);
             w.setStatusBarColor(Color.BLACK);
             w.setNavigationBarColor(Color.BLACK);
+            // [INCOGNITO] This window lists the titles of incognito tabs, and it is a window of its
+            // own (the protection of the main window does not cover it): keep it out of screenshots
+            // and the recent-apps preview whenever an incognito tab exists.
+            if (privateTabCount() > 0) w.addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         }
 
         // Keep the content clear of the system bars, whether or not this window is edge-to-edge.
@@ -304,7 +320,16 @@ public final class TabSwitcher {
     private void updateTitle() {
         if (titleText == null) return;
         final int n = tabManager.count();
-        titleText.setText(n == 1 ? "1 tab" : n + " tabs");
+        final int incognito = privateTabCount();
+        final String base = n == 1 ? "1 tab" : n + " tabs";
+        titleText.setText(incognito > 0 ? base + " \u00b7 " + incognito + " incognito" : base);
+    }
+
+    /** [INCOGNITO] How many of the open tabs are incognito tabs. */
+    private int privateTabCount() {
+        int count = 0;
+        for (Tab t : tabManager.getTabs()) if (t.isPrivate) count++;
+        return count;
     }
 
     // ------------------------------------------------------------------
@@ -432,14 +457,18 @@ public final class TabSwitcher {
             final boolean blank = t.url == null || t.url.isEmpty();
 
             final TextView title = v.findViewById(R.id.card_title);
-            title.setText(blank ? "New tab"
+            title.setText(blank ? (t.isPrivate ? "Incognito tab" : "New tab")
                     : !isBlank(t.title) ? t.title
                     : !site.isEmpty() ? site : t.url);
 
             final TextView icon = v.findViewById(R.id.card_icon);
             final GradientDrawable dot = new GradientDrawable();
             dot.setShape(GradientDrawable.OVAL);
-            if (blank || site.isEmpty()) {
+            if (t.isPrivate) {
+                // [INCOGNITO] Every incognito card carries the same purple "I", whatever the site.
+                dot.setColor(INCOGNITO_DOT);
+                icon.setText("I");
+            } else if (blank || site.isEmpty()) {
                 dot.setColor(0xFF3A3A3C);
                 icon.setText("");
             } else {
@@ -461,7 +490,16 @@ public final class TabSwitcher {
             }
             final ImageView thumb = v.findViewById(R.id.card_thumb);
             final TextView placeholder = v.findViewById(R.id.card_placeholder);
-            if (t.thumbnail != null && !blank) {
+            // [INCOGNITO] Tinted preview area and placeholder text for an incognito card, and the
+            // normal colours put back for any other card (a recycled view may have been incognito).
+            preview.setBackgroundColor(t.isPrivate ? INCOGNITO_PREVIEW_BG : NORMAL_PREVIEW_BG);
+            placeholder.setTextColor(t.isPrivate ? INCOGNITO_PLACEHOLDER : NORMAL_PLACEHOLDER);
+            if (t.isPrivate) {
+                thumb.setImageDrawable(null);
+                thumb.setVisibility(View.GONE);
+                placeholder.setText("Incognito");
+                placeholder.setVisibility(View.VISIBLE);
+            } else if (t.thumbnail != null && !blank) {
                 thumb.setImageBitmap(t.thumbnail);
                 thumb.setVisibility(View.VISIBLE);
                 placeholder.setVisibility(View.GONE);

@@ -10,6 +10,15 @@ public class Tab {
      * Always read it through the tab, never keep your own reference to it.
      */
     public GeckoSession session;
+    /**
+     * [INCOGNITO] This tab is an incognito tab: its session was created in GeckoView's private
+     * mode (cookies, cache and site data are kept apart from normal tabs and are gone when the
+     * tab closes), and the app records nothing about it: no history, no saved tab, no preview.
+     * Set once when the tab is created. GeckoView cannot switch a session between private and
+     * normal after it exists, so a tab never changes kind, and a replacement session made for it
+     * (see TabManager.replaceSession) is private too.
+     */
+    public boolean isPrivate = false;
     public String title = "New tab";
     public String url = "";
     public boolean canGoBack = false;

@@ -27,6 +27,12 @@ public final class PopupsController {
 
     public interface Host {
         void onNewTab();
+        /** [INCOGNITO] A new tab that leaves no trace: no history, no saved tab, cookies kept apart. */
+        void onNewIncognitoTab();
+        /** [WINDOW] Another browser window, with its own tabs. */
+        void onNewWindow();
+        /** [WINDOW] [INCOGNITO] Another browser window whose first tab is an incognito tab. */
+        void onNewIncognitoWindow();
         void onReload();
         void onHome();
         void onShare();
@@ -95,6 +101,9 @@ public final class PopupsController {
         container.setPadding(pad, pad, pad, pad);
 
         addMenuItem(container, "New tab", false, host::onNewTab);
+        addMenuItem(container, "New incognito tab", false, host::onNewIncognitoTab);   // [INCOGNITO]
+        addMenuItem(container, "New window", false, host::onNewWindow);                // [WINDOW]
+        addMenuItem(container, "New incognito window", false, host::onNewIncognitoWindow);
         addMenuItem(container, "Reload", false, host::onReload);
         addMenuItem(container, "Desktop site: " + (host.isDesktopMode() ? "On" : "Off"), false,
                 host::onToggleDesktopMode);

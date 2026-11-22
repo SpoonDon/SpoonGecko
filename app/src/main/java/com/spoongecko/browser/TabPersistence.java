@@ -223,6 +223,12 @@ public final class TabPersistence {
         int savedActive = 0;
         for (int i = 0; i < tabs.size(); i++) {
             Tab t = tabs.get(i);
+            // [INCOGNITO] An incognito tab is never saved, so it leaves nothing on the device.
+            // When it is the tab on screen, the saved "active" tab is the saved tab just before it.
+            if (t.isPrivate) {
+                if (i == active) savedActive = Math.max(0, savedIndex - 1);
+                continue;
+            }
             if (i == active) savedActive = savedIndex;    // [M5] index in saved array
             states.add(t.latestState);                    // null allowed -> empty tab
             urls.add(t.url == null ? "" : t.url);

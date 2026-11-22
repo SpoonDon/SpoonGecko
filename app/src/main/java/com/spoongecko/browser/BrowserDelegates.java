@@ -141,7 +141,8 @@ public final class BrowserDelegates {
                 host.removeFlashGuard();
                 // [LAN] Our own error pages are not visits: keep failed addresses
                 // (e.g. a router IP while off its Wi-Fi) out of history/suggestions.
-                if (!TextUtils.isEmpty(tab.url) && !ErrorPages.isErrorTitle(tab.title)) {
+                // [INCOGNITO] Pages of an incognito tab are never recorded, anywhere.
+                if (!tab.isPrivate && !TextUtils.isEmpty(tab.url) && !ErrorPages.isErrorTitle(tab.title)) {
                     host.getHistoryStore().recordVisit(tab.url, tab.title);
                 }
             }

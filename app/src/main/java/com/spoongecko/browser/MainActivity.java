@@ -19,6 +19,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.URLUtil;
 import android.widget.EditText;
@@ -98,6 +99,23 @@ public class MainActivity extends Activity
 
     private static GeckoRuntime sRuntime;
 
+    /** [INCOGNITO] Intent extra of a new window: its first tab is an incognito tab. */
+    static final String EXTRA_START_PRIVATE = "com.spoongecko.browser.START_PRIVATE";
+
+    /**
+     * [WINDOW] Every browser window that exists: the MainActivity and any BrowserWindowActivity
+     * opened with "New window". They share one engine (GeckoRuntime) but each has its own tabs.
+     * Main thread only.
+     */
+    private static final List<MainActivity> WINDOWS = new ArrayList<>();
+    /**
+     * [WINDOW] The window that the translation banner and the extension buttons are currently set
+     * up for. Each of those exists once for the whole app, so they follow the window that was
+     * last in front (see onResume); a window that is destroyed gives them up.
+     */
+    private static MainActivity translatorOwner;
+    private static MainActivity extensionOwner;
+
     private TabManager tabManager;
     private GeckoView geckoView;
     private HistoryStore history;
@@ -151,9 +169,24 @@ public class MainActivity extends Activity
         return sRuntime;
     }
 
+    /**
+     * [WINDOW] Whether this window's tabs are the ones kept on the device, to be brought back at
+     * the next start. True for the main window. A window opened with "New window"
+     * (BrowserWindowActivity) overrides it: it must neither read the saved tabs (they belong to
+     * the main window and would open twice) nor write them (it would replace the main window's).
+     * Its tabs still survive being re-created by Android; they just are not kept across a restart.
+     */
+    protected boolean ownsSavedTabs() {
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // [WINDOW] Written down before anything else, so every later step can tell whether this is
+        // the first window of the process (the only one that tidies up after a previous run).
+        final boolean firstWindow = WINDOWS.isEmpty();
+        WINDOWS.add(this);
 
         // [C5] If the previous run crashed, show its stack trace first so it
         // can be copied/shared from the phone (no adb available in this setup).
@@ -204,18 +237,15 @@ public class MainActivity extends Activity
         historyDialog = new HistoryDialog(this, history);   // [HISTORY]
         // [TRANSLATE] Page translation. Its banner floats over the page; bound before any tab is attached.
         PageTranslator.get().bind(this, (FrameLayout) findViewById(R.id.content_container), tabManager);            
+        translatorOwner = this;   // [WINDOW] the translator is set up for this window now
         // [FIND] Created before restoreTabs(): switching to the restored tab
         // (which happens inside restoreTabs) must find the controller in place.
         findInPage = new FindInPageController(this, this);
 
         // [MEDIA] Background playback: keep the process priority of playing pages high.
-        MediaPlaybackController.get().setListener(new MediaPlaybackController.Listener() {
-            @Override public void onMediaStateChanged() {
-                if (destroying || tabManager == null) return;
-                for (Tab t : tabManager.getTabs()) updatePriority(t);
-            }
-            @Override public void onMediaStarted() { askForNotificationPermissionOnce(); }
-        });
+        // [WINDOW] The media controller exists once, so a change is applied to the tabs of EVERY
+        // window: a page playing in a window that is not in front must keep its priority.
+        registerMediaListener();
 
         setupBackHandler();
         setupInputHandlers();
@@ -229,8 +259,11 @@ public class MainActivity extends Activity
         ExtensionManager.get().initialize(this);
         ExtensionManager.get().setHost(this);
         ExtensionManager.get().attachToolbar(extensionActions);
+        extensionOwner = this;   // [WINDOW] the extension buttons are set up for this window now
         ExtensionManager.get().maybeCheckForUpdatesOnStartup();
-        DownloadEngine.get(this).clearStaleNotifications();   // [DOWNLOAD] leftovers of a run that was killed
+        // [DOWNLOAD] leftovers of a run that was killed. Only the first window of the process may
+        // do this: a window opened later would clear the notifications of downloads in progress.
+        if (firstWindow) DownloadEngine.get(this).clearStaleNotifications();
         // -------------------------------------------------------------------------
 
         restoreTabs(savedInstanceState);
@@ -292,7 +325,9 @@ public class MainActivity extends Activity
         final Tab active = tabManager.getActiveTab();
         // A tab whose session is not open (revived after its page process died, see
         // onSessionGone) cannot be loaded into: it gets the same treatment as a tab in use.
-        if (active == null || active.awaitingOpen || !active.session.isOpen() || !isActiveTabEmpty()) {
+        // [INCOGNITO] A link from outside belongs in a normal tab, never in an incognito one.
+        if (active == null || active.awaitingOpen || !active.session.isOpen()
+                || active.isPrivate || !isActiveTabEmpty()) {
             addNewTab(null);
             suggestions.setText("");
         }
@@ -436,8 +471,16 @@ public class MainActivity extends Activity
     }
 
     private Tab addNewTab(GeckoSession.SessionState state) {
+        return addNewTab(state, false);
+    }
+
+    /**
+     * @param privateMode [INCOGNITO] make it an incognito tab (only for a tab without saved state:
+     *                    saved tabs are never incognito)
+     */
+    private Tab addNewTab(GeckoSession.SessionState state, boolean privateMode) {
         Tab tab = (state != null) ? tabManager.createTabWithState(state)
-                                  : tabManager.createTab();
+                                  : tabManager.createTab(privateMode);
         attachDelegates(tab);   // [SELECT]
         tab.session.open(sRuntime);
         tabManager.notifyTabsChanged();
@@ -495,19 +538,28 @@ public class MainActivity extends Activity
             }
         }
 
-        TabPersistence.Restored disk = TabPersistence.load(this);
-        if (!disk.states.isEmpty()) {
-            final int active = clampIndex(disk.activeIndex, disk.states.size());
-            for (int i = 0; i < disk.states.size(); i++) {
-                addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i),
-                        !LAZY_TAB_RESTORE || i == active,
-                        i < disk.desktop.size() && disk.desktop.get(i));
+        // [WINDOW] The saved tabs belong to the main window. A window opened with "New window"
+        // starts empty instead, or its tabs would be the main window's tabs opened a second time.
+        if (ownsSavedTabs()) {
+            TabPersistence.Restored disk = TabPersistence.load(this);
+            if (!disk.states.isEmpty()) {
+                final int active = clampIndex(disk.activeIndex, disk.states.size());
+                for (int i = 0; i < disk.states.size(); i++) {
+                    addRestoredTab(disk.states.get(i), disk.urls.get(i), disk.titles.get(i),
+                            !LAZY_TAB_RESTORE || i == active,
+                            i < disk.desktop.size() && disk.desktop.get(i));
+                }
+                tabManager.switchTo(active);
+                screen.showHomePanel(isActiveTabEmpty());
+                return;
             }
-            tabManager.switchTo(active);
-            screen.showHomePanel(isActiveTabEmpty());
-            return;
         }
-        addNewTab(null);
+        // [INCOGNITO] "New incognito window": the first tab of the new window is an incognito tab.
+        // Read only on a fresh start (savedInstanceState == null): when Android re-creates the
+        // window the tabs come from the Bundle above, and incognito tabs are never in it.
+        final boolean startPrivate = savedInstanceState == null
+                && getIntent() != null && getIntent().getBooleanExtra(EXTRA_START_PRIVATE, false);
+        addNewTab(null, startPrivate);
         screen.showHomePanel(true);
     }
 
@@ -558,12 +610,46 @@ public class MainActivity extends Activity
     }
 
     private void newTab() {
-        addNewTab(null);
+        newTab(false);
+    }
+
+    /** [INCOGNITO] The menu's "New incognito tab". */
+    private void newIncognitoTab() {
+        newTab(true);
+    }
+
+    private void newTab(boolean privateMode) {
+        addNewTab(null, privateMode);
         suggestions.setText("");
         screen.showHomePanel(true);
         updateToolbarState();
         updateTabCount();
         suggestions.hide();
+    }
+
+    /**
+     * [WINDOW] Opens another browser window: a new Android task (its own entry in the recent
+     * apps, and its own window when the system shows apps in windows or in split screen) with its
+     * own tabs, on the same engine, cookies and settings. FLAG_ACTIVITY_MULTIPLE_TASK makes every
+     * call a NEW window instead of bringing an existing one forward, and LAUNCH_ADJACENT puts it
+     * next to this one when this one is in split screen (it has no effect otherwise).
+     *
+     * @param incognito the first tab of the new window is an incognito tab
+     */
+    private void openNewWindow(boolean incognito) {
+        if (destroying || isFinishing()) return;
+        final Intent intent = new Intent(this, BrowserWindowActivity.class);
+        intent.putExtra(EXTRA_START_PRIVATE, incognito);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        try {
+            startActivity(intent);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not open a new window", e);
+            android.widget.Toast.makeText(this, "Couldn't open a new window",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** The menu's "Home": a normal navigation to the blank home page (Back returns to the page). */
@@ -750,6 +836,7 @@ public class MainActivity extends Activity
         screen.showHomePanel(tab.url.isEmpty());
         updateToolbarState();
         updateTabCount();
+        applyPrivacyUi(tab);   // [INCOGNITO]
         ExtensionManager.get().setActiveSession(tab.session);   // tabs.onActivated
         // [MEDIA] Process priority follows the visible tab: raise this one and lower
         // the previous one, unless that one is playing media.
@@ -757,6 +844,60 @@ public class MainActivity extends Activity
         lastActiveTab = tab;
         if (previous != null && previous != tab) updatePriority(previous);
         updatePriority(tab);
+    }
+
+    /** [INCOGNITO] The colour used for incognito things: the tab counter and the home page title. */
+    private static final int INCOGNITO_ACCENT = 0xFFC8B6FF;
+    /** [INCOGNITO] What the window currently shows (so nothing is redone when the kind does not change). */
+    private boolean privateUiShown = false;
+
+    /**
+     * [INCOGNITO] Makes the window show what kind of tab is on screen, and protects an incognito
+     * tab from being captured:
+     *  - the bar at the top is tinted purple, the tab counter and the home page title turn purple,
+     *    and the home page says "Incognito" instead of "SpoonGecko";
+     *  - FLAG_SECURE keeps the window out of screenshots, screen recordings and the recent-apps
+     *    preview while an incognito tab is on screen. It is lifted again for a normal tab.
+     */
+    private void applyPrivacyUi(Tab tab) {
+        final boolean priv = tab != null && tab.isPrivate;
+        if (priv == privateUiShown) return;
+        privateUiShown = priv;
+        if (priv) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        final View bar = findViewById(R.id.url_bar_panel);
+        if (bar != null) {
+            bar.setBackgroundResource(priv ? R.drawable.bg_glass_url_bar_incognito
+                                           : R.drawable.bg_glass_url_bar);
+        }
+        tabCountText.setTextColor(priv ? INCOGNITO_ACCENT : 0xFFFFFFFF);
+        final TextView logo = findViewById(R.id.logo_text);
+        if (logo != null) {
+            logo.setText(priv ? "Incognito" : "SpoonGecko");
+            logo.setTextColor(priv ? INCOGNITO_ACCENT : 0xB3FFFFFF);
+        }
+    }
+
+    /**
+     * [MEDIA] Lets the media controller (one for the whole app) tell this window about changes.
+     * [WINDOW] The newest window registers; when it is destroyed another open window does.
+     */
+    private void registerMediaListener() {
+        MediaPlaybackController.get().setListener(new MediaPlaybackController.Listener() {
+            @Override public void onMediaStateChanged() { refreshAllPriorities(); }
+            @Override public void onMediaStarted() { askForNotificationPermissionOnce(); }
+        });
+    }
+
+    /**
+     * [WINDOW] Re-evaluates the process priority of every tab of every window. Media state is
+     * shared by all windows, so a change in one has to reach the tabs of the others.
+     */
+    private static void refreshAllPriorities() {
+        for (MainActivity window : new ArrayList<>(WINDOWS)) {
+            if (window.destroying || window.tabManager == null) continue;
+            for (Tab t : window.tabManager.getTabs()) window.updatePriority(t);
+        }
     }
 
     /**
@@ -778,6 +919,9 @@ public class MainActivity extends Activity
     // PopupsController.Host
     // ------------------------------------------------------------------
     @Override public void onNewTab() { newTab(); }
+    @Override public void onNewIncognitoTab() { newIncognitoTab(); }   // [INCOGNITO]
+    @Override public void onNewWindow() { openNewWindow(false); }        // [WINDOW]
+    @Override public void onNewIncognitoWindow() { openNewWindow(true); } // [WINDOW] + [INCOGNITO]
     @Override public void onReload() {
         Tab t = tabManager.getActiveTab();
         if (t != null) t.session.reload();
@@ -804,7 +948,9 @@ public class MainActivity extends Activity
     }
     @Override public void onOpenInNewTab(String url) {
         final Tab opener = tabManager.getActiveTab();
-        Tab t = addNewTab(null);
+        // [INCOGNITO] A link opened from an incognito tab opens in an incognito tab (this is also
+        // what the selection menu's "Search" does), so nothing leaks into a normal tab.
+        Tab t = addNewTab(null, opener != null && opener.isPrivate);
         if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
         // [BACK] Back on this tab's first page returns to the tab the link was opened from.
         if (opener != null) { t.opener = opener; t.backReturnsToOpener = true; }
@@ -851,7 +997,9 @@ public class MainActivity extends Activity
         //  - the app showing an extension page (its options): nobody else will open the session.
         // The session is therefore returned unopened; if GeckoView has not adopted it after a short
         // grace period, we open it and load the URL ourselves.
-        final Tab t = createUnopenedTab();
+        // [INCOGNITO] Extension pages are always normal tabs: an extension is not active in
+        // incognito tabs unless it was allowed there, and its own pages are not private.
+        final Tab t = createUnopenedTab(false);
         t.pendingUrl = url;
         showWhenOpened(t, true);
         return t.session;
@@ -882,7 +1030,7 @@ public class MainActivity extends Activity
      */
     @Override
     public void persistAllTabs() {
-        if (destroying) return;
+        if (destroying || !ownsSavedTabs()) return;   // [WINDOW] a new window never writes the saved tabs
         TabPersistence.saveSoon(this, tabManager);
     }
 
@@ -892,6 +1040,7 @@ public class MainActivity extends Activity
      * tabs are skipped inside TabPersistence, so repeated calls are cheap.
      */
     private void persistAllTabsNow() {
+        if (!ownsSavedTabs()) return;   // [WINDOW] the saved tabs belong to the main window only
         TabPersistence.save(this, tabManager);
     }
 
@@ -955,9 +1104,9 @@ public class MainActivity extends Activity
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     /** Creates a tab whose session is NOT opened (and not attached to the view) yet. */
-    private Tab createUnopenedTab() {
+    private Tab createUnopenedTab(boolean privateMode) {
         final Tab opener = tabManager.getActiveTab();
-        final Tab t = tabManager.createTab();
+        final Tab t = tabManager.createTab(privateMode);   // [INCOGNITO]
         t.awaitingOpen = true;
         t.opener = opener;
         if (opener != null && opener.desktopMode) setDesktopMode(t, true);   // [DESKTOP] keep the site type
@@ -966,7 +1115,10 @@ public class MainActivity extends Activity
     }
 
     @Override public Tab createNewSessionTab() {
-        final Tab t = createUnopenedTab();
+        // [INCOGNITO] GeckoView requires the new window of a page to be private exactly when the
+        // page is private (the two kinds share nothing), so the kind is taken from the opener.
+        final Tab current = tabManager.getActiveTab();
+        final Tab t = createUnopenedTab(current != null && current.isPrivate);
         t.openedByPage = true;
         t.backReturnsToOpener = t.opener != null;   // [BACK] Back on its first page returns to the opener
         return t;
@@ -1443,10 +1595,33 @@ public class MainActivity extends Activity
     @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabsNow(); }
     @Override public void onLowMemory() { super.onLowMemory(); persistAllTabsNow(); }
 
+    /**
+     * [WINDOW] The translation banner and the extension buttons exist once for the whole app, so
+     * they are set up for ONE window at a time: the one that was last in front. With a single
+     * window this never does anything (it already owns them since onCreate). With several, a
+     * window that comes back to the front takes them over, so its translate banner and extension
+     * buttons work, and the previous window's are taken down.
+     */
+    private void claimSharedServices() {
+        if (destroying || tabManager == null) return;
+        if (translatorOwner != this) {
+            PageTranslator.get().bind(this, (FrameLayout) findViewById(R.id.content_container), tabManager);
+            translatorOwner = this;
+            final Tab current = tabManager.getActiveTab();
+            if (current != null) PageTranslator.get().onActiveTabChanged(current);   // show the banner of this window's page
+        }
+        if (extensionOwner != this) {
+            ExtensionManager.get().setHost(this);
+            ExtensionManager.get().attachToolbar(extensionActions);
+            extensionOwner = this;
+        }
+    }
+
     @Override protected void onResume() {
         super.onResume();
         ExtensionManager.get().setCurrentActivity(this);   // for extension prompts/popups
         resumed = true;
+        claimSharedServices();   // [WINDOW]
         Tab t = tabManager == null ? null : tabManager.getActiveTab();
         // [KILL] The page process of the tab on screen was reclaimed while the app was in the
         // background (see onSessionGone): it was kept as an unopened tab, so open it again now
@@ -1510,7 +1685,25 @@ public class MainActivity extends Activity
         ArrayList<String> urls = new ArrayList<>();
         ArrayList<String> titles = new ArrayList<>();
         long parcelBytes = 48;   // the four Bundle entries' own headers and array counts
-        final List<Tab> allTabs = tabManager.getTabs();
+        // [INCOGNITO] Incognito tabs are never put in the Bundle (it is kept by the system and can
+        // be written out when the process is killed). Only normal tabs are listed, and the active
+        // index is the position among them; with an incognito tab on screen it is the normal tab
+        // before it.
+        final List<Tab> allTabs = new ArrayList<>();
+        int savedActive = 0;
+        {
+            final List<Tab> everyTab = tabManager.getTabs();
+            final int activeAt = tabManager.getActiveIndex();
+            for (int i = 0; i < everyTab.size(); i++) {
+                final Tab candidate = everyTab.get(i);
+                if (candidate.isPrivate) {
+                    if (i == activeAt) savedActive = Math.max(0, allTabs.size() - 1);
+                    continue;
+                }
+                if (i == activeAt) savedActive = allTabs.size();
+                allTabs.add(candidate);
+            }
+        }
         final boolean[] desktopFlags = new boolean[allTabs.size()];
         for (int i = 0; i < allTabs.size(); i++) desktopFlags[i] = allTabs.get(i).desktopMode;
         boolean overBudget = false;
@@ -1538,7 +1731,7 @@ public class MainActivity extends Activity
         out.putStringArrayList(KEY_TAB_STATES, states);
         out.putStringArrayList(KEY_TAB_URLS, urls);
         out.putStringArrayList(KEY_TAB_TITLES, titles);
-        out.putInt(KEY_ACTIVE_TAB, tabManager.getActiveIndex());
+        out.putInt(KEY_ACTIVE_TAB, savedActive);
         out.putBooleanArray(KEY_TAB_DESKTOP, desktopFlags);
     }
 
@@ -1550,24 +1743,47 @@ public class MainActivity extends Activity
 
     @Override protected void onDestroy() {
         destroying = true;
+        // [WINDOW] This window is gone from now on. Whether it was the last one decides what may
+        // be shut down below (media playback and the translator exist once for all windows).
+        WINDOWS.remove(this);
+        final boolean lastWindow = WINDOWS.isEmpty();
         // [PERF] A queued coalesced save must not fire after the tabs below are
         // closed (it would otherwise be able to overwrite the saved tabs).
-        TabPersistence.cancelPendingSave();
+        // [WINDOW] The queued save is the main window's; another window must not drop it.
+        if (ownsSavedTabs()) TabPersistence.cancelPendingSave();
         if (popups != null) popups.dismissAll();                
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
         if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting
-        PageTranslator.get().unbind();   // [TRANSLATE]            
+        // [TRANSLATE] [WINDOW] Taken down only if it is set up for THIS window; another window
+        // that is still open keeps (or, once in front, takes over) its own.
+        if (translatorOwner == this) {
+            PageTranslator.get().unbind();
+            translatorOwner = null;
+        }
         if (suggestions != null) suggestions.dispose();
         // [MEDIA] The tabs are about to be closed: stop the playback service and focus with them.
-        MediaPlaybackController.get().shutdown();
+        // [WINDOW] Only with the last window: another window may still be playing something.
+        if (lastWindow) MediaPlaybackController.get().shutdown();
         // Fix for the exit crash (C3): GeckoView.setSession() is @NonNull and
         // throws on null — the view is being torn down, nothing to detach.
         if (tabManager != null) {
             tabManager.setListener(null);   // fix for the destroy-revive loop (C4)
             tabManager.closeAll();
         }
+        if (!lastWindow) {
+            // The listener may have been this window's: hand it to a window that is still open,
+            // and forget the media of the tabs that were just closed.
+            WINDOWS.get(WINDOWS.size() - 1).registerMediaListener();
+            MediaPlaybackController.get().prune();
+        }
         if (history != null) history.close();
+        // [WINDOW] The extension buttons and the page opened by extensions' tabs.create follow
+        // the window in front; this one stops being the target.
+        if (extensionOwner == this) {
+            ExtensionManager.get().setHost(null);
+            extensionOwner = null;
+        }
         ExtensionManager.get().onActivityDestroyed(this);
         super.onDestroy();
     }
