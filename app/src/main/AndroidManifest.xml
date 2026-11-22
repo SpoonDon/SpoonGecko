@@ -86,6 +86,19 @@
             </intent-filter>
         </activity>
 
+        <!--
+            [WINDOW] A further browser window ("New window"): the same screen as MainActivity,
+            started by the app itself in a task of its own (see MainActivity.openNewWindow), as
+            many times as the user likes. Normal launch mode on purpose: unlike MainActivity it
+            is not singleTask, so every launch is a new window. Not exported: only the app opens it.
+            The configChanges are the same as MainActivity's, because it runs the same code.
+        -->
+        <activity
+            android:name=".BrowserWindowActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout" />
+
         <!-- Extensions management screen (install / update / toggle / backup / restore) -->
         <activity
             android:name=".ExtensionsActivity"
