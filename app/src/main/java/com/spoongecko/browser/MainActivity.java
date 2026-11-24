@@ -144,6 +144,9 @@ public class MainActivity extends Activity
     private String pendingLocalNetworkUrl;
     /** [LAN] Address to load when the user returns from Settings with access granted. */
     private String retryAfterSettingsUrl;
+    /** [LAN] The local-network dialogs while they are up: onDestroy() closes them. */
+    private AlertDialog localNetworkPrompt;
+    private AlertDialog localNetworkDenied;
 
     /** True while this activity is being destroyed — blocks tab revival below. */
     private boolean destroying = false;
@@ -555,10 +558,14 @@ public class MainActivity extends Activity
             }
         }
         // [INCOGNITO] "New incognito window": the first tab of the new window is an incognito tab.
-        // Read only on a fresh start (savedInstanceState == null): when Android re-creates the
-        // window the tabs come from the Bundle above, and incognito tabs are never in it.
-        final boolean startPrivate = savedInstanceState == null
-                && getIntent() != null && getIntent().getBooleanExtra(EXTRA_START_PRIVATE, false);
+        // When Android re-creates the window the tabs come from the Bundle above, and incognito
+        // tabs are never in it. A window of incognito tabs only therefore has nothing to restore
+        // and starts over.
+        // [FIX] It then starts over as the incognito window it was opened as. The extra used to be
+        // read only when savedInstanceState == null, so the re-created window came back as a
+        // regular one, and the tabs opened in it from then on were normal tabs.
+        final boolean startPrivate = getIntent() != null
+                && getIntent().getBooleanExtra(EXTRA_START_PRIVATE, false);
         addNewTab(null, startPrivate);
         screen.showHomePanel(true);
     }
@@ -1184,6 +1191,10 @@ public class MainActivity extends Activity
         if (allGranted) {
             callback.grant();
         } else {
+            // [FIX] A second request can arrive while the system dialog of the first is still up
+            // (a page asking twice). It simply replaced the first callback, which was then never
+            // answered: the page's first request hung until the tab was closed.
+            if (pendingPermissionCallback != null) pendingPermissionCallback.reject();
             pendingPermissionCallback = callback;
             requestPermissions(permissions, REQ_ANDROID_PERMS);
         }
@@ -1285,7 +1296,7 @@ public class MainActivity extends Activity
             return;
         }
         pendingLocalNetworkUrl = uri;
-        new AlertDialog.Builder(this)
+        localNetworkPrompt = new AlertDialog.Builder(this)
                 .setTitle("Allow local network access?")
                 .setMessage("This address is on your local network, such as your router. "
                         + "Android needs your permission before SpoonGecko can connect to "
@@ -1305,7 +1316,7 @@ public class MainActivity extends Activity
 
     private void showLocalNetworkDenied(final String url) {
         if (destroying || isFinishing()) return;
-        new AlertDialog.Builder(this)
+        localNetworkDenied = new AlertDialog.Builder(this)
                 .setTitle("Local network access is off")
                 .setMessage("Without it Android blocks SpoonGecko from reaching your router and "
                         + "other devices on your network. You can turn it on under Permissions "
@@ -1322,6 +1333,11 @@ public class MainActivity extends Activity
                 })
                 .setNegativeButton("Not now", null)
                 .show();
+    }
+
+    /** Closes a local-network dialog that is still up (nothing happens to one that is gone). */
+    private static void closeDialog(AlertDialog d) {
+        if (d != null) d.dismiss();
     }
 
     // ------------------------------------------------------------------
@@ -1755,6 +1771,12 @@ public class MainActivity extends Activity
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
         if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting
+        // [FIX] A dialog that is still up when the window goes away leaks its window ("Activity
+        // has leaked window" in the log). The permission and site dialogs are tracked for exactly
+        // this moment but were never closed, and the two local-network ones were not even kept.
+        if (dialogs != null) dialogs.dismissAll();
+        closeDialog(localNetworkPrompt);
+        closeDialog(localNetworkDenied);
         // [TRANSLATE] [WINDOW] Taken down only if it is set up for THIS window; another window
         // that is still open keeps (or, once in front, takes over) its own.
         if (translatorOwner == this) {
