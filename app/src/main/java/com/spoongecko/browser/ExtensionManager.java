@@ -647,17 +647,12 @@ public final class ExtensionManager {
                     Log.w(TAG, "openExtensionTab failed", e);
                 }
             }
-            if (session == null && runtime != null) {
-                // Fallback when no host is available (e.g. cold background process).
-                try {
-                    session = new GeckoSession();
-                    session.open(runtime);
-                    if (details.url != null) session.loadUri(details.url);
-                } catch (Exception e) {
-                    Log.w(TAG, "fallback tab failed", e);
-                    session = null;
-                }
-            }
+            // [FIX] GeckoView opens the returned session itself and refuses one that is already
+            // open ("Must use an unopened GeckoSession instance"), so there is no fallback for
+            // when no window can show the tab. The old one opened a session and loaded the URL
+            // in it: GeckoView rejected it, so tabs.create() failed anyway, and the session it
+            // had opened stayed open for good, with no tab showing or closing it. Null is what
+            // GeckoView documents for "the page will not be opened".
             return session != null ? GeckoResult.fromValue(session) : null;
         }
 
@@ -1122,14 +1117,26 @@ public final class ExtensionManager {
         row.addView(confirm, lp2);
         content.addView(row);
 
-        final AlertDialog dialog = glassDialog(activity, content);
+        // [FIX] The request is answered exactly once, however the dialog goes away. Back and a tap
+        // outside dismiss it without touching either button; nothing answered the request then,
+        // and the GeckoResult GeckoView is waiting on (install, update, optional permission)
+        // stayed unresolved for good. The dismiss hook covers those ways; a button answers first.
+        final boolean[] answered = {false};
+        final AlertDialog dialog = glassDialog(activity, content, () -> {
+            if (!answered[0]) {
+                answered[0] = true;
+                outcome.onOutcome(false);
+            }
+        });
         cancel.setOnClickListener(v -> {
-            dialog.dismiss();
+            answered[0] = true;
             outcome.onOutcome(false);
+            dialog.dismiss();
         });
         confirm.setOnClickListener(v -> {
-            dialog.dismiss();
+            answered[0] = true;
             outcome.onOutcome(true);
+            dialog.dismiss();
         });
     }
 
@@ -1155,6 +1162,11 @@ public final class ExtensionManager {
     }
 
     private AlertDialog glassDialog(Activity activity, View content) {
+        return glassDialog(activity, content, null);
+    }
+
+    /** Same, and onDismiss runs whenever the dialog closes: a button, Back or a tap outside. */
+    private AlertDialog glassDialog(Activity activity, View content, Runnable onDismiss) {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setView(content);
         AlertDialog dialog = builder.create();
@@ -1162,7 +1174,7 @@ public final class ExtensionManager {
             dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         }
         dialog.show();
-        trackDialog(activity, dialog, null);
+        trackDialog(activity, dialog, onDismiss);
         return dialog;
     }
 
