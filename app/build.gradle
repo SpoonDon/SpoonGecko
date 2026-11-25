@@ -42,9 +42,10 @@ android {
         }
     }
 
+    def debugKeystoreFile = file("${rootDir}/debug.keystore")
     signingConfigs {
         debugConfig {
-            storeFile file("${rootDir}/debug.keystore")
+            storeFile debugKeystoreFile
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"
@@ -53,7 +54,9 @@ android {
 
     buildTypes {
         debug {
-            signingConfig signingConfigs.debugConfig
+            if (debugKeystoreFile.exists()) {
+                signingConfig signingConfigs.debugConfig
+            }
         }
         release {
             // [STARTUP FIX] Code shrinking stays OFF until the app is
