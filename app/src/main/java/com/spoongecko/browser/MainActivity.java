@@ -138,6 +138,8 @@ public class MainActivity extends Activity
     private FindInPageController findInPage; // [FIND] the find-in-page bar
     private TabSwitcher tabSwitcher; // [TABS] Chrome-style tab switcher
     private HistoryDialog historyDialog;   // [HISTORY] history with Newest / Oldest / Site order
+    private BookmarkRepository bookmarks;  // [BOOKMARKS] Room-backed persistent bookmarks
+    private BookmarksDialog bookmarksDialog;
     /** [TABS] Set once the last tab was closed from the tab switcher and the browser is exiting. */
     private boolean leavingWithNoTabs = false;
     private GeckoSession.PermissionDelegate.Callback pendingPermissionCallback;
@@ -213,6 +215,7 @@ public class MainActivity extends Activity
 
         geckoView.setBackgroundColor(android.graphics.Color.BLACK);
         history = new HistoryStore(this);
+        bookmarks = BookmarkRepository.get(this);
 
         screen = new ScreenController(this);
         screen.makeImmersive();
@@ -240,6 +243,7 @@ public class MainActivity extends Activity
         });
 
         historyDialog = new HistoryDialog(this, history);   // [HISTORY]
+        bookmarksDialog = new BookmarksDialog(this, bookmarks);   // [BOOKMARKS]
         // [TRANSLATE] Page translation. Its banner floats over the page; bound before any tab is attached.
         PageTranslator.get().bind(this, (FrameLayout) findViewById(R.id.content_container), tabManager);            
         translatorOwner = this;   // [WINDOW] the translator is set up for this window now
@@ -327,6 +331,7 @@ public class MainActivity extends Activity
         if (tabSwitcher != null) tabSwitcher.dismiss();
         if (popups != null) popups.dismissAll();
         if (historyDialog != null) historyDialog.dismiss();
+        if (bookmarksDialog != null) bookmarksDialog.dismiss();
         final Tab active = tabManager.getActiveTab();
         // A tab whose session is not open (revived after its page process died, see
         // onSessionGone) cannot be loaded into: it gets the same treatment as a tab in use.
@@ -943,6 +948,30 @@ public class MainActivity extends Activity
     }
     @Override public void onShowHistory() {
         historyDialog.show(this::navigateToUrl);   // [HISTORY]
+    }
+    @Override public String bookmarkMenuLabel() {
+        final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+        if (t == null || screen.isHomePanelVisible()
+                || !BookmarkRepository.isBookmarkable(t.url, t.title)) {
+            return null;
+        }
+        return bookmarks.isCachedBookmarked(t.url) ? "Remove bookmark" : "Bookmark page";
+    }
+    @Override public void onToggleBookmark() {
+        final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+        if (t == null || !BookmarkRepository.isBookmarkable(t.url, t.title)) return;
+        bookmarks.toggleBookmark(t.url, t.title, state -> {
+            if (destroying || isFinishing() || state == null) return;
+            android.widget.Toast.makeText(this,
+                    state ? "Bookmarked" : "Bookmark removed",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        });
+    }
+    @Override public void onShowBookmarks() {
+        final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+        final String currentUrl = (t != null && !screen.isHomePanelVisible()) ? t.url : null;
+        final String currentTitle = t != null ? t.title : null;
+        bookmarksDialog.show(currentUrl, currentTitle, this::navigateToUrl);
     }
     @Override public void onShowExtensions() {
         startActivity(new Intent(this, ExtensionsActivity.class));
@@ -1798,6 +1827,7 @@ public class MainActivity extends Activity
         if (popups != null) popups.dismissAll();                
         if (tabSwitcher != null) tabSwitcher.dismiss();   // [TABS]    
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
+        if (bookmarksDialog != null) bookmarksDialog.dismiss();   // [BOOKMARKS]
         if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting
         // [FIX] A dialog that is still up when the window goes away leaks its window ("Activity
         // has leaked window" in the log). The permission and site dialogs are tracked for exactly

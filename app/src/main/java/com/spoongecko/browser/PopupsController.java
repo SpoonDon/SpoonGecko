@@ -58,6 +58,12 @@ public final class PopupsController {
         String translateMenuLabel();
         /** [TRANSLATE] The user chose that entry. */
         void onTranslateMenuAction();
+        /** [BOOKMARKS] Label for bookmarking/unbookmarking the current session page, or null if not bookmarkable. */
+        String bookmarkMenuLabel();
+        /** [BOOKMARKS] Toggle bookmark state for the current session page. */
+        void onToggleBookmark();
+        /** [BOOKMARKS] Show the saved bookmarks dialog. */
+        void onShowBookmarks();
     }
 
     private final Activity activity;
@@ -113,6 +119,9 @@ public final class PopupsController {
         if (pdfLabel != null) addMenuItem(container, pdfLabel, false, host::onPdfMenuAction);        
         final String translateLabel = host.translateMenuLabel();   // [TRANSLATE]
         if (translateLabel != null) addMenuItem(container, translateLabel, false, host::onTranslateMenuAction);
+        final String bookmarkLabel = host.bookmarkMenuLabel();     // [BOOKMARKS]
+        if (bookmarkLabel != null) addMenuItem(container, bookmarkLabel, false, host::onToggleBookmark);
+        addMenuItem(container, "Bookmarks", false, host::onShowBookmarks);
         addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Find in page", false, host::onFindInPage);

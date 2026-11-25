@@ -44,3 +44,5 @@
 # App manifest entry points & providers
 -keep class com.spoongecko.browser.App { *; }
 -keep class com.spoongecko.browser.UploadFileProvider { *; }
+-keep class * extends androidx.room.RoomDatabase
+-keep class com.spoongecko.browser.BookmarkDatabase_Impl { *; }
