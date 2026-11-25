@@ -146,10 +146,44 @@ public final class ExtensionManager {
                     // --- WebExtensions ---
                     .extensionsWebAPIEnabled(true)   // AMO pages may trigger installs
                     .extensionsProcessEnabled(true)  // run extensions in their own process
+                    // [UPLOAD] GeckoView 160 (bug 1837963) cancels <input type=file>
+                    // pickers unless the page is in a focused desktop-style chrome
+                    // window: CanOpenModalPicker() asks the chrome document for focus,
+                    // and a GeckoView embed has none. The pref
+                    // browser.disable_pickers_background_tabs defaults to true, so
+                    // EVERY file picker was cancelled inside Gecko before the app's
+                    // onFilePrompt ran (no picker, no toast, nothing). A browser app
+                    // shows one page at a time and opens the picker itself, so the
+                    // gate buys nothing here: turn it off.
+                    .configFilePath(getUploadPickerConfig(context))
                     .build();
             em.runtime = GeckoRuntime.create(context.getApplicationContext(), settings);
         }
         return em.runtime;
+    }
+
+    /**
+     * [UPLOAD] A tiny geckoview.yaml that overrides the picker gate. Written to
+     * the cache dir (not filesDir, so it is not backed up and never seen by the
+     * user) and re-written on every start, in case the cache was cleared.
+     * Returns the path, or null if it could not be written (the runtime then
+     * simply starts without the override).
+     */
+    private static String getUploadPickerConfig(Context context) {
+        final File dir = new File(context.getCacheDir(), "gecko-config");
+        if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory()) {
+            Log.w(TAG, "could not create " + dir);
+            return null;
+        }
+        final File yaml = new File(dir, "geckoview.yaml");
+        try (java.io.FileWriter w = new java.io.FileWriter(yaml, false)) {
+            w.write("prefs:\n"
+                    + "  browser.disable_pickers_background_tabs: false\n");
+        } catch (Exception e) {
+            Log.w(TAG, "could not write " + yaml, e);
+            return null;
+        }
+        return yaml.getAbsolutePath();
     }
 
     public boolean isInitialized() { return controller != null; }
