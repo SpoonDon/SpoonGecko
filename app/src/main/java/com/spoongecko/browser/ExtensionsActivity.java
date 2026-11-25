@@ -3,6 +3,7 @@ package com.spoongecko.browser;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -31,6 +32,7 @@ import org.mozilla.geckoview.WebExtension;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -38,6 +40,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The "Add-ons manager" screen: list installed extensions with on/off
@@ -64,6 +68,11 @@ public class ExtensionsActivity extends Activity {
     private Adapter adapter;
     private TextView autoButton;
     private final List<Dialog> activeDialogs = new ArrayList<>();   // [M8]
+    private final ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "spoongecko-ext-io");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final ExtensionManager.Listener listener = this::onExtensionsChanged;
 
@@ -141,6 +150,7 @@ public class ExtensionsActivity extends Activity {
             }
         }
         activeDialogs.clear();
+        ioExecutor.shutdownNow();
         ExtensionManager.get().removeListener(listener);
         ExtensionManager.get().onActivityDestroyed(this);
         super.onDestroy();
@@ -223,14 +233,7 @@ public class ExtensionsActivity extends Activity {
         });
         fromFile.setOnClickListener(v -> {
             dialog.dismiss();
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            try {
-                startActivityForResult(intent, REQ_INSTALL_FILE);
-            } catch (Exception e) {
-                toast("No file picker available");
-            }
+            launchOpenPicker(REQ_INSTALL_FILE, "*/*", null);
         });
         cancel.setOnClickListener(v -> dialog.dismiss());
     }
@@ -343,6 +346,7 @@ public class ExtensionsActivity extends Activity {
         if (count == 0) { toast("No extensions to back up"); return; }
         Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         intent.setType("application/json");
         intent.putExtra(Intent.EXTRA_TITLE, "spoongecko-extensions-backup.json");
         try {
@@ -353,13 +357,36 @@ public class ExtensionsActivity extends Activity {
     }
 
     private void startRestore() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/json");
-        try {
-            startActivityForResult(intent, REQ_RESTORE);
-        } catch (Exception e) {
+        // Many file managers tag .json backups as text/plain or application/octet-stream.
+        launchOpenPicker(REQ_RESTORE, "*/*", new String[]{
+                "application/json", "text/json", "text/plain", "application/octet-stream"
+        });
+    }
+
+    private void launchOpenPicker(int requestCode, String primaryMime, String[] extraMimes) {
+        if (tryLaunchPicker(Intent.ACTION_OPEN_DOCUMENT, requestCode, primaryMime, extraMimes)) {
+            return;
+        }
+        if (!tryLaunchPicker(Intent.ACTION_GET_CONTENT, requestCode, primaryMime, extraMimes)) {
             toast("No file picker available");
+        }
+    }
+
+    private boolean tryLaunchPicker(String action, int requestCode,
+                                    String primaryMime, String[] extraMimes) {
+        Intent intent = new Intent(action);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.setType(primaryMime);
+        if (extraMimes != null && extraMimes.length > 0) {
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, extraMimes);
+        }
+        try {
+            startActivityForResult(intent, requestCode);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "picker launch failed for " + action, e);
+            return false;
         }
     }
 
@@ -367,32 +394,58 @@ public class ExtensionsActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        Uri uri = data.getData();
-        if (!isTrustedContentUri(uri)) {
-            toast("Untrusted file source");
+        final Uri uri = data.getData();
+        if (!isSupportedUri(uri)) {
+            toast("Unsupported file source");
             return;
+        }
+        if (ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(uri.getScheme())) {
+            try {
+                getContentResolver().takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (RuntimeException ignored) {
+            }
         }
         if (requestCode == REQ_BACKUP) {
             writeBackup(uri);
         } else if (requestCode == REQ_RESTORE) {
             readRestore(uri);
         } else if (requestCode == REQ_INSTALL_FILE) {
+            // Open stream synchronously while transient Intent URI grants are active.
+            final FilePicker.ResolvedStream openedStream;
             try {
-                File xpi = copyToCache(uri);
-                ExtensionManager.get().installFromFile(xpi, null);
+                openedStream = openResolvedStream(uri);
             } catch (Exception e) {
-                Log.w(TAG, "file install failed", e);
+                Log.w(TAG, "file install open failed", e);
                 toast("Could not read the selected file");
+                return;
             }
+            toast("Preparing extension…");
+            ioExecutor.execute(() -> {
+                try {
+                    final File xpi = copyStreamToCache(openedStream);
+                    runOnUiThread(() -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            ExtensionManager.get().installFromFile(xpi, null);
+                        } else {
+                            xpi.delete();
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.w(TAG, "file install failed", e);
+                    runOnUiThread(() -> toast("Could not read the selected file"));
+                }
+            });
         }
     }
 
-    private boolean isTrustedContentUri(Uri uri) {
+    private boolean isSupportedUri(Uri uri) {
         if (uri == null) return false;
         String scheme = uri.getScheme();
         if (TextUtils.isEmpty(scheme)) return false;
-        String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
-        return "content".equals(normalizedScheme);
+        String normalized = scheme.toLowerCase(Locale.ROOT);
+        return ContentResolver.SCHEME_CONTENT.equals(normalized)
+                || ContentResolver.SCHEME_FILE.equals(normalized);
     }
 
     private void writeBackup(Uri uri) {
@@ -400,6 +453,7 @@ public class ExtensionsActivity extends Activity {
             String json = ExtensionManager.get().buildBackupJson();
             if (json == null || os == null) { toast("Backup failed"); return; }
             os.write(json.getBytes(StandardCharsets.UTF_8));
+            os.flush();
             toast("Backup saved");
         } catch (Exception e) {
             Log.w(TAG, "backup failed", e);
@@ -408,9 +462,9 @@ public class ExtensionsActivity extends Activity {
     }
 
     private void readRestore(Uri uri) {
-        try (InputStream is = getContentResolver().openInputStream(uri)) {
-            if (is == null) { toast("Could not open the file"); return; }
-            JSONObject root = new JSONObject(new String(readFully(is), StandardCharsets.UTF_8));
+        try (FilePicker.ResolvedStream stream = openResolvedStream(uri)) {
+            JSONObject root = new JSONObject(
+                    new String(readFully(stream.inputStream), StandardCharsets.UTF_8));
             JSONArray entries = root.optJSONArray("extensions");
             if (entries == null || entries.length() == 0) {
                 toast("The backup file contains no extensions");
@@ -431,6 +485,17 @@ public class ExtensionsActivity extends Activity {
         }
     }
 
+    private FilePicker.ResolvedStream openResolvedStream(Uri uri) throws Exception {
+        if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(uri.getScheme())) {
+            final String path = uri.getPath();
+            if (path == null) throw new Exception("could not open file");
+            return new FilePicker.ResolvedStream(new FileInputStream(new File(path)), null, null);
+        }
+        final FilePicker.ResolvedStream stream = FilePicker.openBestStream(getContentResolver(), uri);
+        if (stream == null) throw new Exception("could not open file");
+        return stream;
+    }
+
     private void showRestoreFailures(int restored, int failed, String failures) {
         LinearLayout content = dialogContent(20);
         content.addView(text("Restore finished", 0xFFFFFFFF, 17, true));
@@ -446,14 +511,14 @@ public class ExtensionsActivity extends Activity {
         ok.setOnClickListener(v -> dialog.dismiss());
     }
 
-    private File copyToCache(Uri uri) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new Exception("could not open file");
+    private File copyStreamToCache(FilePicker.ResolvedStream resolved) throws Exception {
+        try (FilePicker.ResolvedStream stream = resolved) {
             File file = new File(getCacheDir(), "ext-" + System.currentTimeMillis() + ".xpi");
             try (OutputStream out = new FileOutputStream(file)) {
                 byte[] buf = new byte[8192];
                 int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                while ((n = stream.inputStream.read(buf)) > 0) out.write(buf, 0, n);
+                out.flush();
             }
             return file;
         }

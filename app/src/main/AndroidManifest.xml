@@ -107,6 +107,13 @@
             android:parentActivityName=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- [UPLOAD] Serves temporary capture output URIs for web <input type=file capture>. -->
+        <provider
+            android:name=".UploadFileProvider"
+            android:authorities="${applicationId}.uploads"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- Keeps media playing in the background; started only while something plays. -->
         <service
             android:name=".MediaPlaybackService"

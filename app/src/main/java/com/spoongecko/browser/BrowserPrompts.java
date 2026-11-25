@@ -77,6 +77,16 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
         return d;
     }
 
+    /** [UPLOAD] Notifies FilePicker when the activity returns to the foreground. */
+    public void onResume() {
+        filePicker.onResume();
+    }
+
+    /** [UPLOAD] Notifies FilePicker when the activity pauses (e.g. while an external picker is open). */
+    public void onPause() {
+        filePicker.onPause();
+    }
+
     /** [M8] Called from MainActivity.onDestroy() so no dialog window leaks. */
     public void dismissAll() {
         for (AlertDialog d : new ArrayList<>(activeDialogs)) {
@@ -324,6 +334,15 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
      */
     public boolean handleActivityResult(int requestCode, int resultCode, Intent data) {
         return filePicker.handleActivityResult(requestCode, resultCode, data);   // [UPLOAD]
+    }
+
+    /**
+     * [UPLOAD] Called from MainActivity.onRequestPermissionsResult(); returns true when the
+     * permission request belongs to FilePicker's capture flow.
+     */
+    public boolean handleRequestPermissionsResult(
+            int requestCode, String[] permissions, int[] grantResults) {
+        return filePicker.handleRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     // ------------------------------------------------------------------

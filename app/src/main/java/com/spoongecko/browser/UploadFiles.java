@@ -5,14 +5,17 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * [UPLOAD] The pure (no Android classes) part of attaching files to a web page: which file types
- * the picker should offer, and what a picked file is called when it is handed to the page.
- * See FilePicker for the rest.
+ * [UPLOAD] Pure helper logic for attaching files to a web page: accepted MIME types,
+ * visual-media / capture classification, and safe local filenames.
  */
 final class UploadFiles {
 
     static final String FALLBACK_NAME = "file";
     private static final int MAX_NAME_LENGTH = 120;
+
+    static final int CAPTURE_IMAGE = 1;
+    static final int CAPTURE_VIDEO = 2;
+    static final int CAPTURE_AUDIO = 3;
 
     private UploadFiles() { }
 
@@ -22,41 +25,80 @@ final class UploadFiles {
     }
 
     /**
-     * Turns what a page asked for ({@code <input accept="...">}) into types the Android file
+     * Turns what a page asked for ({@code <input accept="...">}) into MIME types the Android
      * picker understands.
      *
-     * GeckoView hands over BOTH MIME types ("image/*") and extensions (".pdf") in one list. The
-     * picker only understands MIME types: an extension in its list matches nothing, so a page that
-     * says accept=".pdf" made every file unselectable. Extensions are therefore converted to
-     * their MIME type.
-     *
-     * @return the types to offer, or null for "any file". Null is also the answer when a type
-     *         cannot be worked out (an extension Android has no MIME type for): hiding the
-     *         user's file would be worse than showing all of them, the page checks it anyway.
+     * @return the MIME types to offer, or null for "any file".
      */
     static String[] acceptedTypes(String[] requested, ExtensionResolver resolver) {
         if (requested == null || requested.length == 0) return null;
         final Set<String> out = new LinkedHashSet<>();
-        for (String raw : requested) {
-            if (raw == null) continue;
-            String t = raw.trim().toLowerCase(Locale.ROOT);
-            final int semi = t.indexOf(';');
-            if (semi >= 0) t = t.substring(0, semi).trim();      // "text/plain;charset=utf-8"
-            if (t.isEmpty()) continue;
-            if (t.equals("*/*") || t.equals("*")) return null;
-            if (t.charAt(0) == '.') {
-                final String ext = t.substring(1);
-                final String mime = ext.isEmpty() || resolver == null
-                        ? null : resolver.mimeForExtension(ext);
-                if (mime == null || mime.isEmpty()) return null;
-                out.add(mime.toLowerCase(Locale.ROOT));
-            } else if (isMimeType(t)) {
-                out.add(t);
-                if (t.equals("image/jpg")) out.add("image/jpeg");   // a common misspelling
+        for (String item : requested) {
+            if (item == null) continue;
+            for (String raw : item.split(",")) {
+                String t = raw.trim().toLowerCase(Locale.ROOT);
+                final int semi = t.indexOf(';');
+                if (semi >= 0) t = t.substring(0, semi).trim();
+                if (t.isEmpty()) continue;
+                if (t.equals("*/*") || t.equals("*")) return null;
+                if (t.charAt(0) == '.') {
+                    final String ext = t.substring(1);
+                    final String mime = ext.isEmpty() || resolver == null
+                            ? null : resolver.mimeForExtension(ext);
+                    if (mime == null || mime.isEmpty()) return null;
+                    out.add(mime.toLowerCase(Locale.ROOT));
+                } else if (isMimeType(t)) {
+                    out.add(t);
+                    if (t.equals("image/jpg")) out.add("image/jpeg");
+                }
             }
-            // anything else is not a type at all: ignored
         }
         return out.isEmpty() ? null : out.toArray(new String[0]);
+    }
+
+    /** True when the page strictly requests image and/or video files (eligible for Photo Picker). */
+    static boolean isVisualMediaOnly(String[] mimeTypes) {
+        if (mimeTypes == null || mimeTypes.length == 0) return false;
+        for (String mime : mimeTypes) {
+            if (mime == null) return false;
+            final String m = mime.toLowerCase(Locale.ROOT);
+            if (!m.startsWith("image/") && !m.startsWith("video/")) return false;
+        }
+        return true;
+    }
+
+    static boolean hasImageTypes(String[] mimeTypes) {
+        if (mimeTypes == null) return false;
+        for (String mime : mimeTypes) {
+            if (mime != null && mime.toLowerCase(Locale.ROOT).startsWith("image/")) return true;
+        }
+        return false;
+    }
+
+    static boolean hasVideoTypes(String[] mimeTypes) {
+        if (mimeTypes == null) return false;
+        for (String mime : mimeTypes) {
+            if (mime != null && mime.toLowerCase(Locale.ROOT).startsWith("video/")) return true;
+        }
+        return false;
+    }
+
+    static boolean hasAudioTypes(String[] mimeTypes) {
+        if (mimeTypes == null) return false;
+        for (String mime : mimeTypes) {
+            if (mime != null && mime.toLowerCase(Locale.ROOT).startsWith("audio/")) return true;
+        }
+        return false;
+    }
+
+    /** Determines whether a capture-enabled input asks for image, video, or audio recording. */
+    static int captureCategory(String[] mimeTypes) {
+        final boolean img = hasImageTypes(mimeTypes);
+        final boolean vid = hasVideoTypes(mimeTypes);
+        final boolean aud = hasAudioTypes(mimeTypes);
+        if (vid && !img) return CAPTURE_VIDEO;
+        if (aud && !img && !vid) return CAPTURE_AUDIO;
+        return CAPTURE_IMAGE;
     }
 
     private static boolean isMimeType(String t) {
@@ -66,10 +108,8 @@ final class UploadFiles {
     }
 
     /**
-     * Makes a display name safe to use as the name of the copy the page receives: no directories
-     * (so "../x" cannot escape), none of the characters file systems reject, no leading dots,
-     * bounded length (the extension is kept), never empty. The page shows this name, so it should
-     * stay as close to the original as possible.
+     * Makes a display name safe as both a local filename and a file:// URI path segment
+     * (strips directories, reserved filesystem characters, and URI delimiters like # ? %).
      */
     static String safeFileName(String raw) {
         if (raw == null) return FALLBACK_NAME;
@@ -79,7 +119,7 @@ final class UploadFiles {
         final StringBuilder b = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             final char c = s.charAt(i);
-            if (c < 0x20 || c == 0x7f || "\\/:*?\"<>|".indexOf(c) >= 0) b.append('_');
+            if (c < 0x20 || c == 0x7f || "\\/:*?\"<>|#%".indexOf(c) >= 0) b.append('_');
             else b.append(c);
         }
         s = b.toString().replaceAll("\\s+", " ");
@@ -96,7 +136,7 @@ final class UploadFiles {
         return s.isEmpty() ? FALLBACK_NAME : s;
     }
 
-    /** Adds ".ext" when the name has no extension of its own (a file the provider gave no name for). */
+    /** Adds ".ext" when the name has no extension of its own. */
     static String withExtension(String name, String extensionWithoutDot) {
         if (extensionWithoutDot == null || extensionWithoutDot.isEmpty()) return name;
         return extensionOf(name).isEmpty() ? name + "." + extensionWithoutDot : name;

@@ -133,6 +133,8 @@ public class MainActivity extends Activity
     private BrowserDialogs dialogs;
     private BrowserPrompts prompts;
     private BrowserDelegates delegates;
+
+    BrowserPrompts getPrompts() { return prompts; }
     private FindInPageController findInPage; // [FIND] the find-in-page bar
     private TabSwitcher tabSwitcher; // [TABS] Chrome-style tab switcher
     private HistoryDialog historyDialog;   // [HISTORY] history with Newest / Oldest / Site order
@@ -1564,6 +1566,10 @@ public class MainActivity extends Activity
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (prompts != null && prompts.handleRequestPermissionsResult(
+                requestCode, permissions, grantResults)) {
+            return;
+        }
         if (requestCode == REQ_POST_NOTIFICATIONS) return;   // [MEDIA] nothing to do; the next update shows it
         if (requestCode == REQ_LOCAL_NETWORK) {
             final String url = pendingLocalNetworkUrl;
@@ -1649,6 +1655,7 @@ public class MainActivity extends Activity
             t.session.setActive(true);
             updatePriority(t);   // HIGH: it is the visible tab (see updatePriority)
         }
+        if (prompts != null) prompts.onResume();
         // [LAN] Back from Settings after being sent there to allow local network access.
         if (retryAfterSettingsUrl != null) {
             final String url = retryAfterSettingsUrl;
@@ -1662,6 +1669,7 @@ public class MainActivity extends Activity
     }
 
     @Override protected void onPause() {
+        if (prompts != null) prompts.onPause();
         persistAllTabsNow();
         ExtensionManager.get().setCurrentActivity(null);
         resumed = false;

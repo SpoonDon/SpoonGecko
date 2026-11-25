@@ -964,6 +964,10 @@ public final class ExtensionManager {
         if (!isUiAvailable(activity) || runtime == null) return null;
         try {
             final GeckoSession popupSession = new GeckoSession();
+            if (activity instanceof MainActivity) {
+                final BrowserPrompts prompts = ((MainActivity) activity).getPrompts();
+                if (prompts != null) popupSession.setPromptDelegate(prompts);
+            }
             final Dialog dialog = new Dialog(activity);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             GeckoView surface = new GeckoView(activity);
