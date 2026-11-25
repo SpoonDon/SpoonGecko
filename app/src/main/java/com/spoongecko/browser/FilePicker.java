@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
@@ -20,7 +21,9 @@ import org.mozilla.geckoview.GeckoSession.PromptDelegate.FilePrompt;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -239,7 +242,9 @@ final class FilePicker {
                 }
             }
         }
-        Log.i(TAG, "file picker answered: resultCode=" + resultCode + " files=" + picked.size());
+        Log.i(TAG, "file picker answered: resultCode=" + resultCode + " files=" + picked.size()
+                + (picked.isEmpty() ? "" : " first=" + picked.get(0).getScheme() + "://"
+                + picked.get(0).getAuthority()));
         if (picked.isEmpty()) {                       // cancelled
             completeDismissed(prompt, result);
             return true;
@@ -253,24 +258,33 @@ final class FilePicker {
             if (big) activity.runOnUiThread(() -> toast("Preparing file\u2026"));
 
             final List<Uri> copies = new ArrayList<>();
+            final String[] why = new String[1];       // why the last copy failed (shown to the user)
             int failed = 0;
             for (Uri u : picked) {
-                final Uri copy = copyToCache(appContext, u);
+                final Uri copy = copyToCache(appContext, u, why);
                 if (copy != null) copies.add(copy); else failed++;
             }
             final int failedCount = failed;
-            activity.runOnUiThread(() -> deliver(prompt, result, copies, failedCount));
+            final String reason = why[0];
+            activity.runOnUiThread(() -> deliver(prompt, result, copies, failedCount, reason));
         });
         return true;
     }
 
     /** UI thread: hands the copies to GeckoView (confirm() must be called there). */
     private void deliver(FilePrompt prompt, GeckoResult<PromptResponse> result,
-                         List<Uri> copies, int failed) {
+                         List<Uri> copies, int failed, String reason) {
         try {
             if (copies.isEmpty()) {
-                toast("Couldn't attach the file");
+                // The reason is shown on purpose: it says WHAT went wrong without needing a log.
+                toastLong(reason == null ? "Couldn't attach the file"
+                        : "Couldn't attach the file (" + reason + ")");
                 completeDismissed(prompt, result);
+                return;
+            }
+            if (prompt.isComplete()) {
+                // The engine already closed this request (page reloaded or closed meanwhile).
+                toastLong("Couldn't attach the file (the page stopped waiting for it \u2014 try again)");
                 return;
             }
             // A single-file input takes exactly one file.
@@ -284,7 +298,7 @@ final class FilePicker {
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "attaching the file failed", e);
-            toast("Couldn't attach the file");
+            toastLong("Couldn't attach the file (hand-over: " + describe(e, null) + ")");
             completeDismissed(prompt, result);
         }
     }
@@ -312,42 +326,95 @@ final class FilePicker {
 
     /**
      * Copies a picked file to cache/uploads/&lt;random&gt;/&lt;its own name&gt; and returns the
-     * file:// address of the copy, or null if it could not be read. Own folder per file, so two
-     * files with the same name never clash and the page still sees the real name.
+     * file:// address of the copy, or null if it could not be read (then why[0] says why). Own
+     * folder per file, so two files with the same name never clash and the page still sees the
+     * real name.
      */
-    private static Uri copyToCache(Context context, Uri source) {
+    private static Uri copyToCache(Context context, Uri source, String[] why) {
         File dir = null;
         try {
             if ("file".equals(source.getScheme())) {
                 final String path = source.getPath();
-                return path != null && new File(path).canRead() ? source : null;
+                if (path != null && new File(path).canRead()) return source;
+                why[0] = "file not readable [file://]";
+                return null;
             }
             final ContentResolver cr = context.getContentResolver();
             String name = UploadFiles.safeFileName(displayName(cr, source));
             final String type = cr.getType(source);
-            if (type != null) {
-                name = UploadFiles.withExtension(name,
-                        MimeTypeMap.getSingleton().getExtensionFromMimeType(type));
-            }
+            final String typeExt = type == null
+                    ? null : MimeTypeMap.getSingleton().getExtensionFromMimeType(type);
+            if (type != null) name = UploadFiles.withExtension(name, typeExt);
             dir = new File(new File(context.getCacheDir(), UPLOAD_DIR), UUID.randomUUID().toString());
-            if (!dir.mkdirs() && !dir.isDirectory()) return null;
-            final File out = new File(dir, name);
-            try (InputStream in = cr.openInputStream(source);
-                 OutputStream os = new FileOutputStream(out)) {
+            if (!dir.mkdirs() && !dir.isDirectory()) {
+                why[0] = "cache folder not writable";
+                return null;
+            }
+            try (InputStream in = openStream(cr, source)) {
                 if (in == null) {
+                    why[0] = "no data from the file provider [" + source.getAuthority() + "]";
                     deleteRecursively(dir);
                     return null;
                 }
-                final byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                File out = new File(dir, name);
+                OutputStream os;
+                try {
+                    os = new FileOutputStream(out);
+                } catch (FileNotFoundException nameRejected) {
+                    // The name itself was refused (too long for the file system, odd characters):
+                    // keep the file type, drop the name, rather than fail the whole upload.
+                    final String ext = UploadFiles.extensionOf(name);
+                    out = new File(dir, UploadFiles.withExtension(UploadFiles.FALLBACK_NAME, ext));
+                    os = new FileOutputStream(out);
+                }
+                try (OutputStream o = os) {
+                    final byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+                }
+                return Uri.fromFile(out);
             }
-            return Uri.fromFile(out);
         } catch (Exception | OutOfMemoryError e) {
             Log.w(TAG, "could not copy the chosen file", e);
+            why[0] = describe(e, source);
             if (dir != null) deleteRecursively(dir);
             return null;
         }
+    }
+
+    /**
+     * Opens the picked file for reading. Most providers answer to openInputStream(); a few only to
+     * openAssetFileDescriptor(), so that is tried when the first one is refused.
+     */
+    private static InputStream openStream(ContentResolver cr, Uri uri) throws IOException {
+        try {
+            final InputStream in = cr.openInputStream(uri);
+            if (in != null) return in;
+        } catch (FileNotFoundException | SecurityException first) {
+            AssetFileDescriptor fd = null;
+            try {
+                fd = cr.openAssetFileDescriptor(uri, "r");
+            } catch (Exception ignored) {
+                // reported through `first` below
+            }
+            if (fd != null) return fd.createInputStream();
+            throw first;
+        }
+        final AssetFileDescriptor fd = cr.openAssetFileDescriptor(uri, "r");
+        return fd == null ? null : fd.createInputStream();
+    }
+
+    /** Short, human-readable reason for a failure: error type, file provider, a bit of the message. */
+    private static String describe(Throwable e, Uri uri) {
+        final StringBuilder b = new StringBuilder(e.getClass().getSimpleName());
+        final String m = e.getMessage();
+        // A permission error's message is long and says nothing the type does not already say.
+        if (!(e instanceof SecurityException) && m != null && !m.isEmpty()) {
+            b.append(": ").append(m.length() > 80 ? m.substring(0, 80) + "\u2026" : m);
+        }
+        if (uri != null) b.append(" [").append(uri.getScheme()).append("://")
+                .append(uri.getAuthority()).append(']');
+        return b.toString();
     }
 
     private static String displayName(ContentResolver cr, Uri uri) {
@@ -404,5 +471,9 @@ final class FilePicker {
 
     private void toast(String message) {
         Toast.makeText(activity, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void toastLong(String message) {
+        Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
     }
 }
