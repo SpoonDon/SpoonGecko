@@ -107,9 +107,27 @@ final class HistoryDialog {
 
         final RowAdapter adapter = new RowAdapter();
         list.setAdapter(adapter);
+        final int[] loadGen = {0};
 
         final Runnable load = () -> {
-            if (load(current[0], modes, chips, adapter, list, empty, removed)) list.setSelection(0);
+            final HistoryRows.Mode targetMode = current[0];
+            final int token = ++loadGen[0];
+            updateChips(targetMode, modes, chips);
+            history.loadRowsAsync(targetMode, LIMIT, new HashSet<>(removed),
+                    ZoneId.systemDefault(), Locale.getDefault(), rows -> {
+                        if (token != loadGen[0] || dialog != d
+                                || activity.isFinishing() || activity.isDestroyed()) {
+                            return;
+                        }
+                        adapter.set(rows);
+                        final boolean none = rows.isEmpty();
+                        empty.setVisibility(none ? View.VISIBLE : View.GONE);
+                        list.setVisibility(none ? View.GONE : View.VISIBLE);
+                        if (!none) {
+                            fitListHeight(list, adapter);
+                            list.setSelection(0);
+                        }
+                    });
         };
         for (int i = 0; i < chips.length; i++) {
             final HistoryRows.Mode m = modes[i];
@@ -130,15 +148,19 @@ final class HistoryDialog {
 
         // The X on a page line: remove that page only, and leave the list where it was (the
         // user is usually clearing several pages in a row). A day or site heading whose last
-        // page has gone disappears with it, because the rows are built again from what is left.
+        // page has gone disappears with it, and in-memory filtering avoids a blocking query.
         adapter.setOnRemove(entry -> {
             removed.add(entry.url);
             history.remove(entry.url);
             final int first = list.getFirstVisiblePosition();
             final View firstRow = list.getChildAt(0);
             final int offset = firstRow == null ? 0 : firstRow.getTop();
-            if (load(current[0], modes, chips, adapter, list, empty, removed)
-                    && adapter.getCount() > 0) {
+            adapter.removeUrl(entry.url, current[0] == HistoryRows.Mode.SITE);
+            final boolean none = adapter.getCount() == 0;
+            empty.setVisibility(none ? View.VISIBLE : View.GONE);
+            list.setVisibility(none ? View.GONE : View.VISIBLE);
+            if (!none) {
+                fitListHeight(list, adapter);
                 list.setSelectionFromTop(Math.min(first, adapter.getCount() - 1), offset);
             }
         });
@@ -148,7 +170,7 @@ final class HistoryDialog {
         neg.setOnClickListener(v -> d.dismiss());
         pos.setOnClickListener(v -> {
             try {
-                history.clear();
+                history.clearAsync();
             } catch (RuntimeException e) {
                 Log.w(TAG, "history could not be cleared", e);
             }
@@ -156,6 +178,7 @@ final class HistoryDialog {
         });
 
         d.setOnDismissListener(x -> {
+            loadGen[0]++;
             if (dialog == d) dialog = null;
             stopFollowingWindowSize();
         });
@@ -244,62 +267,37 @@ final class HistoryDialog {
         }
     }
 
-    /**
-     * Reads the history and fills the list.
-     *
-     * @return true when there is something to show. Where the list is scrolled to afterwards is
-     *         up to the caller: back to the top when the order changes, unchanged after a removal.
-     */
-    private boolean load(HistoryRows.Mode mode, HistoryRows.Mode[] modes, TextView[] chips,
-                         RowAdapter adapter, ListView list, TextView empty, Set<String> removed) {
-        List<HistoryStore.Entry> source;
-        try {
-            source = mode == HistoryRows.Mode.OLDEST ? history.oldest(LIMIT) : history.recent(LIMIT);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "history could not be read", e);
-            source = new ArrayList<>();
-        }
-        if (!removed.isEmpty()) {
-            final List<HistoryStore.Entry> kept = new ArrayList<>();
-            for (HistoryStore.Entry e : source) {
-                if (e == null || e.url == null || !removed.contains(e.url)) kept.add(e);
-            }
-            source = kept;
-        }
-        final List<HistoryRows.Row> rows = HistoryRows.build(source, mode,
-                System.currentTimeMillis(), ZoneId.systemDefault(), Locale.getDefault());
-        adapter.set(rows);
-
+    private static void updateChips(HistoryRows.Mode mode, HistoryRows.Mode[] modes, TextView[] chips) {
         for (int i = 0; i < chips.length; i++) {
             final boolean selected = modes[i] == mode;
             chips[i].setBackgroundResource(selected ? R.drawable.bg_chip_selected : R.drawable.bg_chip);
             chips[i].setTextColor(selected ? 0xFFFFFFFF : 0x99FFFFFF);
         }
-
-        final boolean none = rows.isEmpty();
-        empty.setVisibility(none ? View.VISIBLE : View.GONE);
-        list.setVisibility(none ? View.GONE : View.VISIBLE);
-        if (!none) fitListHeight(list, adapter);
-        return !none;
     }
 
     /**
      * ListView ignores android:maxHeight, so the height is measured from the rows and capped
-     * here (the same approach as BrowserDialogs.capListHeight). Done again whenever the order
-     * changes, because headings change how tall the list is, and again when the window is
-     * resized (see maxListHeightPx).
+     * here (reusing one convertView per row type to avoid inflating layouts repeatedly).
      */
     private void fitListHeight(ListView list, RowAdapter adapter) {
         final int max = maxListHeightPx();
         int total = 0;
+        View headerView = null;
+        View itemView = null;
         for (int i = 0; i < adapter.getCount() && total < max; i++) {
-            final View row = adapter.getView(i, null, list);
+            final boolean isHeader = adapter.getItem(i).isHeader();
+            final View row = adapter.getView(i, isHeader ? headerView : itemView, list);
+            if (isHeader) headerView = row;
+            else itemView = row;
             row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
             total += row.getMeasuredHeight();
         }
         final ViewGroup.LayoutParams lp = list.getLayoutParams();
-        lp.height = total == 0 ? max : Math.min(total, max);
-        list.setLayoutParams(lp);
+        final int target = total == 0 ? max : Math.min(total, max);
+        if (lp.height != target) {
+            lp.height = target;
+            list.setLayoutParams(lp);
+        }
     }
 
     private int dp(int v) {
@@ -331,14 +329,84 @@ final class HistoryDialog {
     // List rows: section headings and pages
     // ------------------------------------------------------------------
 
+    private static final class RowViewHolder {
+        final boolean isHeader;
+        final TextView headerText;
+        final TextView title;
+        final TextView sub;
+        final TextView time;
+        final View delete;
+        HistoryStore.Entry boundEntry;
+
+        RowViewHolder(View headerView) {
+            this.isHeader = true;
+            this.headerText = (TextView) headerView;
+            this.title = null;
+            this.sub = null;
+            this.time = null;
+            this.delete = null;
+        }
+
+        RowViewHolder(View itemView, boolean unused) {
+            this.isHeader = false;
+            this.headerText = null;
+            this.title = itemView.findViewById(R.id.row_title);
+            this.sub = itemView.findViewById(R.id.row_subtitle);
+            this.time = itemView.findViewById(R.id.row_time);
+            this.delete = itemView.findViewById(R.id.row_delete);
+        }
+    }
+
     private final class RowAdapter extends BaseAdapter {
         private List<HistoryRows.Row> rows = new ArrayList<>();
         /** Called when the X on a page line is tapped. */
         private Consumer<HistoryStore.Entry> onRemove;
 
         void set(List<HistoryRows.Row> newRows) {
-            rows = newRows;
+            rows = new ArrayList<>(newRows);
             notifyDataSetChanged();
+        }
+
+        void removeUrl(String url, boolean updateSiteCount) {
+            if (url == null || rows.isEmpty()) return;
+            final List<HistoryRows.Row> out = new ArrayList<>(rows.size());
+            int sectionHeaderIdx = -1;
+            int sectionPages = 0;
+            for (int i = 0; i < rows.size(); i++) {
+                final HistoryRows.Row r = rows.get(i);
+                if (r.isHeader()) {
+                    if (sectionHeaderIdx >= 0) {
+                        if (sectionPages == 0) {
+                            out.remove(sectionHeaderIdx);
+                        } else if (updateSiteCount) {
+                            out.set(sectionHeaderIdx, rewriteSiteHeader(out.get(sectionHeaderIdx), sectionPages));
+                        }
+                    }
+                    sectionHeaderIdx = out.size();
+                    sectionPages = 0;
+                    out.add(r);
+                } else if (url.equals(r.entry.url)) {
+                    // Drop removed page.
+                } else {
+                    sectionPages++;
+                    out.add(r);
+                }
+            }
+            if (sectionHeaderIdx >= 0) {
+                if (sectionPages == 0) {
+                    out.remove(sectionHeaderIdx);
+                } else if (updateSiteCount) {
+                    out.set(sectionHeaderIdx, rewriteSiteHeader(out.get(sectionHeaderIdx), sectionPages));
+                }
+            }
+            rows = out;
+            notifyDataSetChanged();
+        }
+
+        private HistoryRows.Row rewriteSiteHeader(HistoryRows.Row oldHeader, int count) {
+            final int sep = oldHeader.header.lastIndexOf("  \u00B7  ");
+            if (sep < 0) return oldHeader;
+            return HistoryRows.Row.heading(oldHeader.header.substring(0, sep) + "  \u00B7  " + count);
         }
 
         void setOnRemove(Consumer<HistoryStore.Entry> onRemove) {
@@ -360,27 +428,31 @@ final class HistoryDialog {
             final HistoryRows.Row row = rows.get(pos);
             final boolean header = row.isHeader();
             View v = cv;
-            // A view of the other kind (possible when the list height is measured) is not reused.
-            if (v == null || !Boolean.valueOf(header).equals(v.getTag())) {
+            RowViewHolder holder = v != null && v.getTag() instanceof RowViewHolder
+                    ? (RowViewHolder) v.getTag() : null;
+            if (holder == null || holder.isHeader != header) {
                 v = LayoutInflater.from(activity).inflate(
                         header ? R.layout.row_history_header : R.layout.row_history, parent, false);
-                v.setTag(Boolean.valueOf(header));
+                holder = header ? new RowViewHolder(v) : new RowViewHolder(v, false);
+                if (!header) {
+                    final RowViewHolder h = holder;
+                    holder.delete.setOnClickListener(x -> {
+                        if (onRemove != null && h.boundEntry != null) {
+                            onRemove.accept(h.boundEntry);
+                        }
+                    });
+                }
+                v.setTag(holder);
             }
             if (header) {
-                ((TextView) v).setText(row.header);
+                holder.headerText.setText(row.header);
             } else {
                 final HistoryStore.Entry e = row.entry;
+                holder.boundEntry = e;
                 final String shown = SuggestionRanker.shortUrl(e.url);
-                final TextView title = v.findViewById(R.id.row_title);
-                final TextView sub = v.findViewById(R.id.row_subtitle);
-                final TextView time = v.findViewById(R.id.row_time);
-                title.setText(e.title == null || e.title.trim().isEmpty() ? shown : e.title);
-                sub.setText(shown);
-                time.setText(row.time);
-                // Set again every time the view is bound: a recycled row must remove ITS page.
-                v.findViewById(R.id.row_delete).setOnClickListener(x -> {
-                    if (onRemove != null) onRemove.accept(e);
-                });
+                holder.title.setText(e.title == null || e.title.trim().isEmpty() ? shown : e.title);
+                holder.sub.setText(shown);
+                holder.time.setText(row.time);
             }
             return v;
         }

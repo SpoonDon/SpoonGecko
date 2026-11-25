@@ -80,6 +80,7 @@ public final class ScreenController {
     }
 
     public void removeFlashGuard() {
+        if (flashGuard == null) return;
         activity.runOnUiThread(() -> {
             if (flashGuard == null) return;
             if (flashGuard.getParent() != null) {
@@ -95,7 +96,9 @@ public final class ScreenController {
     }
 
     public void showHomePanel(boolean show) {
-        homePanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        final int target = show ? View.VISIBLE : View.GONE;
+        if (homePanel.getVisibility() == target) return;
+        homePanel.setVisibility(target);
         contentContainer.requestApplyInsets();
     }
 

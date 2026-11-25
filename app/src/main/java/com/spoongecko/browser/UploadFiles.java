@@ -3,6 +3,7 @@ package com.spoongecko.browser;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * [UPLOAD] Pure helper logic for attaching files to a web page: accepted MIME types,
@@ -12,6 +13,7 @@ final class UploadFiles {
 
     static final String FALLBACK_NAME = "file";
     private static final int MAX_NAME_LENGTH = 120;
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     static final int CAPTURE_IMAGE = 1;
     static final int CAPTURE_VIDEO = 2;
@@ -122,7 +124,7 @@ final class UploadFiles {
             if (c < 0x20 || c == 0x7f || "\\/:*?\"<>|#%".indexOf(c) >= 0) b.append('_');
             else b.append(c);
         }
-        s = b.toString().replaceAll("\\s+", " ");
+        s = WHITESPACE.matcher(b).replaceAll(" ");
         int start = 0;
         while (start < s.length() && (s.charAt(start) == '.' || s.charAt(start) == ' ')) start++;
         int end = s.length();

@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * [SUGGEST] Turns what was typed in the address bar into a clean search, and orders the history
@@ -29,6 +30,7 @@ final class SuggestionRanker {
     static final int MAX_TOKENS = 5;
 
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private SuggestionRanker() { }
 
@@ -49,7 +51,7 @@ final class SuggestionRanker {
         final String s = raw.trim();
         if (s.isEmpty() || s.length() > MAX_QUERY_CHARS) return null;
         final List<String> tokens = new ArrayList<>();
-        for (String part : s.toLowerCase(Locale.ROOT).split("\\s+")) {
+        for (String part : WHITESPACE.split(s.toLowerCase(Locale.ROOT))) {
             final String t = stripSchemeAndWww(part);
             if (!t.isEmpty()) tokens.add(t);
             if (tokens.size() == MAX_TOKENS) break;

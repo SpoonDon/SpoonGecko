@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -64,6 +65,7 @@ public final class TabSwitcher {
     private static final int THUMB_WIDTH_PX = 320;
     /** The switcher opens at once if the page screenshot has not arrived within this time. */
     private static final long CAPTURE_TIMEOUT_MS = 350L;
+    private static final Paint THUMB_PAINT = new Paint(Paint.FILTER_BITMAP_FLAG);
 
     /** [INCOGNITO] Colours of an incognito card; the NORMAL_ ones are what item_tab_card.xml uses. */
     private static final int INCOGNITO_DOT = 0xFF6E4BD8;
@@ -97,6 +99,7 @@ public final class TabSwitcher {
     private final TabManager tabManager;
     private final GeckoView geckoView;
     private final Host host;
+    private final int touchSlop;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private Dialog dialog;
@@ -111,6 +114,7 @@ public final class TabSwitcher {
         this.tabManager = tabManager;
         this.geckoView = geckoView;
         this.host = host;
+        this.touchSlop = ViewConfiguration.get(activity).getScaledTouchSlop();
     }
 
     // ------------------------------------------------------------------
@@ -199,7 +203,7 @@ public final class TabSwitcher {
             final Canvas canvas = new Canvas(out);
             canvas.drawColor(Color.BLACK);
             canvas.drawBitmap(src, new Rect(srcX, 0, srcX + srcW, srcH),
-                    new Rect(0, 0, tw, th), new Paint(Paint.FILTER_BITMAP_FLAG));
+                    new Rect(0, 0, tw, th), THUMB_PAINT);
             return out;
         } catch (RuntimeException | OutOfMemoryError e) {
             Log.w(TAG, "tab preview could not be scaled", e);
@@ -425,8 +429,43 @@ public final class TabSwitcher {
     // Cards
     // ------------------------------------------------------------------
 
+    private static final class CardViewHolder {
+        final TextView title;
+        final TextView icon;
+        final View preview;
+        final ImageView thumb;
+        final TextView placeholder;
+        final View close;
+        final GradientDrawable dot;
+        final SwipeToClose swipe;
+        Tab boundTab;
+        Boolean boundActive;
+
+        CardViewHolder(View v, SwipeToClose swipe) {
+            this.title = v.findViewById(R.id.card_title);
+            this.icon = v.findViewById(R.id.card_icon);
+            this.preview = v.findViewById(R.id.card_preview);
+            this.thumb = v.findViewById(R.id.card_thumb);
+            this.placeholder = v.findViewById(R.id.card_placeholder);
+            this.close = v.findViewById(R.id.card_close);
+            this.dot = new GradientDrawable();
+            this.dot.setShape(GradientDrawable.OVAL);
+            this.icon.setBackground(this.dot);
+            this.swipe = swipe;
+        }
+    }
+
     private final class CardAdapter extends BaseAdapter {
+        private final Drawable.ConstantState activeBorderState;
+        private final Drawable.ConstantState inactiveBorderState;
         private List<Tab> data = new ArrayList<>(tabManager.getTabs());
+
+        CardAdapter() {
+            final Drawable active = activity.getDrawable(R.drawable.bg_tab_card_border_active);
+            final Drawable inactive = activity.getDrawable(R.drawable.bg_tab_card_border);
+            this.activeBorderState = active != null ? active.getConstantState() : null;
+            this.inactiveBorderState = inactive != null ? inactive.getConstantState() : null;
+        }
 
         void reload() {
             data = new ArrayList<>(tabManager.getTabs());
@@ -439,10 +478,28 @@ public final class TabSwitcher {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            final View v = convertView != null ? convertView
-                    : activity.getLayoutInflater().inflate(R.layout.item_tab_card, parent, false);
+            final View v;
+            final CardViewHolder h;
+            if (convertView == null) {
+                v = activity.getLayoutInflater().inflate(R.layout.item_tab_card, parent, false);
+                h = new CardViewHolder(v, new SwipeToClose(touchSlop));
+                v.setTag(h);
+                h.close.setOnClickListener(x -> {
+                    if (h.boundTab != null) closeWithAnimation(v, h.boundTab);
+                });
+                v.setOnClickListener(x -> {
+                    if (h.boundTab != null) select(h.boundTab);
+                });
+                v.setOnTouchListener(h.swipe);
+            } else {
+                v = convertView;
+                h = (CardViewHolder) v.getTag();
+            }
+
             final Tab t = data.get(position);
             final boolean isActive = t == tabManager.getActiveTab();
+            h.boundTab = t;
+            h.swipe.tab = t;
 
             // A recycled card may still be mid-animation from the tab it showed before.
             v.animate().cancel();
@@ -450,69 +507,66 @@ public final class TabSwitcher {
             v.setAlpha(1f);
             v.setScaleX(1f);
             v.setScaleY(1f);
-            v.setForeground(activity.getDrawable(isActive
-                    ? R.drawable.bg_tab_card_border_active : R.drawable.bg_tab_card_border));
+            if (h.boundActive == null || h.boundActive != isActive) {
+                h.boundActive = isActive;
+                final Drawable.ConstantState state = isActive ? activeBorderState : inactiveBorderState;
+                if (state != null) {
+                    v.setForeground(state.newDrawable(activity.getResources()));
+                } else {
+                    v.setForeground(activity.getDrawable(isActive
+                            ? R.drawable.bg_tab_card_border_active : R.drawable.bg_tab_card_border));
+                }
+            }
 
             final String site = hostOf(t.url);
             final boolean blank = t.url == null || t.url.isEmpty();
 
-            final TextView title = v.findViewById(R.id.card_title);
-            title.setText(blank ? (t.isPrivate ? "Incognito tab" : "New tab")
+            h.title.setText(blank ? (t.isPrivate ? "Incognito tab" : "New tab")
                     : !isBlank(t.title) ? t.title
                     : !site.isEmpty() ? site : t.url);
 
-            final TextView icon = v.findViewById(R.id.card_icon);
-            final GradientDrawable dot = new GradientDrawable();
-            dot.setShape(GradientDrawable.OVAL);
             if (t.isPrivate) {
                 // [INCOGNITO] Every incognito card carries the same purple "I", whatever the site.
-                dot.setColor(INCOGNITO_DOT);
-                icon.setText("I");
+                h.dot.setColor(INCOGNITO_DOT);
+                h.icon.setText("I");
             } else if (blank || site.isEmpty()) {
-                dot.setColor(0xFF3A3A3C);
-                icon.setText("");
+                h.dot.setColor(0xFF3A3A3C);
+                h.icon.setText("");
             } else {
                 final char c = site.charAt(0);
-                dot.setColor(AVATAR_COLORS[(site.hashCode() & 0x7fffffff) % AVATAR_COLORS.length]);
-                icon.setText(Character.isLetterOrDigit(c)
+                h.dot.setColor(AVATAR_COLORS[(site.hashCode() & 0x7fffffff) % AVATAR_COLORS.length]);
+                h.icon.setText(Character.isLetterOrDigit(c)
                         ? String.valueOf(c).toUpperCase(Locale.ROOT) : "\u2022");
             }
-            icon.setBackground(dot);
 
             // Preview: sized from the column width so every card has the same proportions.
-            final View preview = v.findViewById(R.id.card_preview);
             final int colW = parent instanceof GridView ? ((GridView) parent).getColumnWidth() : 0;
-            final int h = Math.round((colW > 0 ? colW : dp(160)) * THUMB_RATIO);
-            final ViewGroup.LayoutParams lp = preview.getLayoutParams();
-            if (lp.height != h) {
-                lp.height = h;
-                preview.setLayoutParams(lp);
+            final int height = Math.round((colW > 0 ? colW : dp(160)) * THUMB_RATIO);
+            final ViewGroup.LayoutParams lp = h.preview.getLayoutParams();
+            if (lp.height != height) {
+                lp.height = height;
+                h.preview.setLayoutParams(lp);
             }
-            final ImageView thumb = v.findViewById(R.id.card_thumb);
-            final TextView placeholder = v.findViewById(R.id.card_placeholder);
             // [INCOGNITO] Tinted preview area and placeholder text for an incognito card, and the
             // normal colours put back for any other card (a recycled view may have been incognito).
-            preview.setBackgroundColor(t.isPrivate ? INCOGNITO_PREVIEW_BG : NORMAL_PREVIEW_BG);
-            placeholder.setTextColor(t.isPrivate ? INCOGNITO_PLACEHOLDER : NORMAL_PLACEHOLDER);
+            h.preview.setBackgroundColor(t.isPrivate ? INCOGNITO_PREVIEW_BG : NORMAL_PREVIEW_BG);
+            h.placeholder.setTextColor(t.isPrivate ? INCOGNITO_PLACEHOLDER : NORMAL_PLACEHOLDER);
             if (t.isPrivate) {
-                thumb.setImageDrawable(null);
-                thumb.setVisibility(View.GONE);
-                placeholder.setText("Incognito");
-                placeholder.setVisibility(View.VISIBLE);
+                h.thumb.setImageDrawable(null);
+                h.thumb.setVisibility(View.GONE);
+                h.placeholder.setText("Incognito");
+                h.placeholder.setVisibility(View.VISIBLE);
             } else if (t.thumbnail != null && !blank) {
-                thumb.setImageBitmap(t.thumbnail);
-                thumb.setVisibility(View.VISIBLE);
-                placeholder.setVisibility(View.GONE);
+                h.thumb.setImageBitmap(t.thumbnail);
+                h.thumb.setVisibility(View.VISIBLE);
+                h.placeholder.setVisibility(View.GONE);
             } else {
-                thumb.setImageDrawable(null);
-                thumb.setVisibility(View.GONE);
-                placeholder.setText(blank ? "SpoonGecko" : !site.isEmpty() ? site : t.url);
-                placeholder.setVisibility(View.VISIBLE);
+                h.thumb.setImageDrawable(null);
+                h.thumb.setVisibility(View.GONE);
+                h.placeholder.setText(blank ? "SpoonGecko" : !site.isEmpty() ? site : t.url);
+                h.placeholder.setVisibility(View.VISIBLE);
             }
 
-            v.findViewById(R.id.card_close).setOnClickListener(x -> closeWithAnimation(v, t));
-            v.setOnClickListener(x -> select(t));
-            v.setOnTouchListener(new SwipeToClose(t));
             return v;
         }
     }
@@ -527,15 +581,14 @@ public final class TabSwitcher {
      * grid, which scrolls (it takes the touch over and this listener gets ACTION_CANCEL).
      */
     private final class SwipeToClose implements View.OnTouchListener {
-        private final Tab tab;
+        Tab tab;
         private final int slop;
         private float downX;
         private float downY;
         private boolean dragging;
 
-        SwipeToClose(Tab tab) {
-            this.tab = tab;
-            this.slop = ViewConfiguration.get(activity).getScaledTouchSlop();
+        SwipeToClose(int slop) {
+            this.slop = slop;
         }
 
         @Override

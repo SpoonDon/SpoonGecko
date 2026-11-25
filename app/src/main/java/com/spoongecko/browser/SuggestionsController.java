@@ -137,6 +137,18 @@ public final class SuggestionsController {
         }
     }
 
+    private static final class ViewHolder {
+        final TextView title;
+        final TextView sub;
+
+        ViewHolder(View v) {
+            this.title = v.findViewById(R.id.row_title);
+            this.sub = v.findViewById(R.id.row_subtitle);
+            this.title.setTextColor(0xFFFFFFFF);
+            this.sub.setTextColor(0x66FFFFFF);
+        }
+    }
+
     private static final class Adapter extends BaseAdapter {
         private final Activity activity;
         private List<HistoryStore.Entry> data = new ArrayList<>();
@@ -151,19 +163,23 @@ public final class SuggestionsController {
 
         @Override
         public View getView(int pos, View cv, ViewGroup parent) {
-            View v = cv != null ? cv
-                    : activity.getLayoutInflater().inflate(R.layout.row_item, parent, false);
+            final View v;
+            final ViewHolder h;
+            if (cv == null) {
+                v = activity.getLayoutInflater().inflate(R.layout.row_item, parent, false);
+                h = new ViewHolder(v);
+                v.setTag(h);
+            } else {
+                v = cv;
+                h = (ViewHolder) v.getTag();
+            }
             HistoryStore.Entry e = data.get(pos);
             // [SUGGEST] The address is shown without "https://", "www." and a trailing "/", so
             // more of it fits on the line and pages saved under several spellings read alike.
             // Picking a row still opens the full address.
             final String shown = SuggestionRanker.shortUrl(e.url);
-            TextView title = v.findViewById(R.id.row_title);
-            TextView sub = v.findViewById(R.id.row_subtitle);
-            title.setText(e.title == null || e.title.trim().isEmpty() ? shown : e.title);
-            title.setTextColor(0xFFFFFFFF);
-            sub.setText(shown);
-            sub.setTextColor(0x66FFFFFF);
+            h.title.setText(e.title == null || e.title.trim().isEmpty() ? shown : e.title);
+            h.sub.setText(shown);
             return v;
         }
     }

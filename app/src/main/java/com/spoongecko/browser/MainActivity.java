@@ -770,7 +770,7 @@ public class MainActivity extends Activity
             forwardButton.setEnabled(fwd);
             // [F14] Always mirror tab.url into the bar — also when empty —
             // so a stale "about:blank" can never survive there.
-            if (t != null && !urlBar.hasFocus()) {
+            if (t != null && !urlBar.hasFocus() && !TextUtils.equals(urlBar.getText(), t.url)) {
                 suggestions.setText(t.url);
             }
         });
@@ -1551,7 +1551,8 @@ public class MainActivity extends Activity
 
     @Override public void onPageStarted(Tab tab, String url) {
         PageTranslator.get().onPageStarted(tab);   // [TRANSLATE] what was known about the old page is void            
-        if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()) {
+        if (tab == tabManager.getActiveTab() && !urlBar.hasFocus()
+                && !TextUtils.equals(urlBar.getText(), url)) {
             suggestions.setText(url);
         }
         suggestions.hide();
@@ -1614,8 +1615,27 @@ public class MainActivity extends Activity
     // ------------------------------------------------------------------
     // Lifecycle — immediate saves at every moment the process could be lost
     // ------------------------------------------------------------------
-    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); persistAllTabsNow(); }
-    @Override public void onLowMemory() { super.onLowMemory(); persistAllTabsNow(); }
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        persistAllTabsNow();
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            clearInactiveThumbnails();
+        }
+    }
+
+    @Override public void onLowMemory() {
+        super.onLowMemory();
+        persistAllTabsNow();
+        clearInactiveThumbnails();
+    }
+
+    private void clearInactiveThumbnails() {
+        if (tabManager == null) return;
+        final Tab active = tabManager.getActiveTab();
+        for (Tab t : tabManager.getTabs()) {
+            if (t != active) t.thumbnail = null;
+        }
+    }
 
     /**
      * [WINDOW] The translation banner and the extension buttons exist once for the whole app, so

@@ -39,7 +39,9 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -120,15 +122,21 @@ final class DownloadEngine {
     private final Map<Integer, Job> failed = new LinkedHashMap<>();    // retryable failures
     private int nextId = 1;
     private PowerManager.WakeLock wakeLock;
+    private GeckoRuntime cachedRuntime;
+    private GeckoWebExecutor cachedExecutor;
 
     private DownloadEngine(Context app) {
         this.app = app;
         this.nm = app.getSystemService(NotificationManager.class);
-        this.pool = Executors.newFixedThreadPool(MAX_PARALLEL, r -> {
+        final ThreadPoolExecutor exec = new ThreadPoolExecutor(
+                MAX_PARALLEL, MAX_PARALLEL, 30L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(), r -> {
             final Thread t = new Thread(r, "spoongecko-download");
             t.setDaemon(true);
             return t;
         });
+        exec.allowCoreThreadTimeOut(true);
+        this.pool = exec;
         final NotificationChannel ch = new NotificationChannel(
                 CHANNEL_ID, "Downloads", NotificationManager.IMPORTANCE_LOW);
         ch.setDescription("Progress and results of file downloads");
@@ -231,12 +239,20 @@ final class DownloadEngine {
         }
     }
 
+    private GeckoWebExecutor executorFor(GeckoRuntime runtime) {
+        if (cachedExecutor == null || cachedRuntime != runtime) {
+            cachedRuntime = runtime;
+            cachedExecutor = new GeckoWebExecutor(runtime);
+        }
+        return cachedExecutor;
+    }
+
     /** Address mode: fetch through Gecko's network stack, so the browser's cookies and login apply. */
     private void fetch(final Job j) {
         try {
             final WebRequest.Builder b = new WebRequest.Builder(j.request.url);
             if (j.request.referrer != null && !j.request.referrer.isEmpty()) b.referrer(j.request.referrer);
-            new GeckoWebExecutor(j.runtime).fetch(b.build()).accept(
+            executorFor(j.runtime).fetch(b.build()).accept(
                     resp -> {
                         if (resp == null) { fail(j, "No response"); return; }
                         if (j.cancelled.get()) { DownloadCore.closeQuietly(resp.body); finishCancelled(j); return; }

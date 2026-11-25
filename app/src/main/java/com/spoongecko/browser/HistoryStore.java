@@ -9,13 +9,17 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class HistoryStore extends SQLiteOpenHelper {
     private static final String TAG = "SpoonGecko";
@@ -120,24 +124,29 @@ public class HistoryStore extends SQLiteOpenHelper {
         if (url == null) return;
         if (url.startsWith("about:") || url.startsWith("file:") || url.startsWith("data:")) return;
         final String safeTitle = title == null ? "" : title;
+        final long now = System.currentTimeMillis();
         final ContentValues cv = new ContentValues();
         cv.put("url", url);
         cv.put("title", safeTitle);
-        cv.put("last_visited", System.currentTimeMillis());
-        io.execute(() -> {
-            try {
-                SQLiteDatabase db = getWritableDatabase();
-                long id = db.insertWithOnConflict(TABLE, null, cv,
-                        SQLiteDatabase.CONFLICT_IGNORE);
-                if (id == -1) {
-                    db.execSQL("UPDATE " + TABLE + " SET visit_count = visit_count + 1, " +
-                                    "last_visited = ?, title = ? WHERE url = ?",
-                            new Object[]{System.currentTimeMillis(), safeTitle, url});
+        cv.put("last_visited", now);
+        try {
+            io.execute(() -> {
+                try {
+                    SQLiteDatabase db = getWritableDatabase();
+                    long id = db.insertWithOnConflict(TABLE, null, cv,
+                            SQLiteDatabase.CONFLICT_IGNORE);
+                    if (id == -1) {
+                        db.execSQL("UPDATE " + TABLE + " SET visit_count = visit_count + 1, " +
+                                        "last_visited = ?, title = ? WHERE url = ?",
+                                new Object[]{now, safeTitle, url});
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "recordVisit failed", e);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "recordVisit failed", e);
-            }
-        });
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Store already closed (activity is going away).
+        }
     }
 
     /**
@@ -235,7 +244,57 @@ public class HistoryStore extends SQLiteOpenHelper {
         return out;
     }
 
+    /**
+     * [PERF] Loads history rows, filters out any pending-delete URLs, and builds/sorts
+     * {@link HistoryRows.Row} off the UI thread before delivering on the UI thread.
+     */
+    void loadRowsAsync(final HistoryRows.Mode mode, final int limit,
+                       final Set<String> removedSnapshot, final ZoneId zone,
+                       final Locale locale, final Consumer<List<HistoryRows.Row>> callback) {
+        try {
+            reader.execute(() -> {
+                List<HistoryRows.Row> rows;
+                try {
+                    List<Entry> source = mode == HistoryRows.Mode.OLDEST
+                            ? oldest(limit) : recent(limit);
+                    if (removedSnapshot != null && !removedSnapshot.isEmpty()) {
+                        final List<Entry> kept = new ArrayList<>(source.size());
+                        for (Entry e : source) {
+                            if (e == null || e.url == null || !removedSnapshot.contains(e.url)) {
+                                kept.add(e);
+                            }
+                        }
+                        source = kept;
+                    }
+                    rows = HistoryRows.build(source, mode, System.currentTimeMillis(), zone, locale);
+                } catch (Exception e) {
+                    Log.w(TAG, "history could not be read", e);
+                    rows = Collections.emptyList();
+                }
+                final List<HistoryRows.Row> result = rows;
+                mainHandler.post(() -> callback.accept(result));
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Store already closed.
+        }
+    }
+
     public void clear() { getWritableDatabase().delete(TABLE, null, null); }
+
+    /** Clears history on the serialized write thread so UI thread never blocks on SQLite. */
+    public void clearAsync() {
+        try {
+            io.execute(() -> {
+                try {
+                    getWritableDatabase().delete(TABLE, null, null);
+                } catch (Exception e) {
+                    Log.w(TAG, "clear failed", e);
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // Store already closed.
+        }
+    }
 
     /**
      * [HISTORY] Removes ONE page from the history, and with it from the address-bar suggestions.

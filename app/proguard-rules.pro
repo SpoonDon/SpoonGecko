@@ -40,3 +40,7 @@
 # Kotlin metadata warnings from the GeckoView artifact — safe to ignore.
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
+
+# App manifest entry points & providers
+-keep class com.spoongecko.browser.App { *; }
+-keep class com.spoongecko.browser.UploadFileProvider { *; }

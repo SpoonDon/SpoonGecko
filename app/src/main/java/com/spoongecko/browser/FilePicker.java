@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Log;
@@ -36,7 +37,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * [UPLOAD] Attaching local or captured files to a web page ({@code <input type=file>}).
@@ -63,14 +66,12 @@ final class FilePicker {
 
     private static final String UPLOAD_DIR = "uploads";
     private static final long KEEP_COPIES_MS = 24L * 60 * 60 * 1000;
+    private static final long CLEANUP_INTERVAL_MS = 60L * 60 * 1000;
     private static final long BIG_FILE_BYTES = 8L * 1024 * 1024;
 
     private final Activity activity;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
-        final Thread t = new Thread(r, "spoongecko-upload");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService worker;
+    private long lastCleanupMs;
 
     // UI thread only.
     private boolean activityResumed = true;
@@ -134,6 +135,15 @@ final class FilePicker {
 
     FilePicker(Activity activity) {
         this.activity = activity;
+        final ThreadPoolExecutor exec = new ThreadPoolExecutor(
+                1, 1, 30L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
+            final Thread t = new Thread(r, "spoongecko-upload");
+            t.setDaemon(true);
+            return t;
+        });
+        exec.allowCoreThreadTimeOut(true);
+        this.worker = exec;
+        this.lastCleanupMs = SystemClock.elapsedRealtime();
         worker.execute(this::deleteOldCopies);
         relaxPickerGate();
     }
@@ -189,7 +199,11 @@ final class FilePicker {
         }
 
         dismissPending();
-        worker.execute(this::deleteOldCopies);
+        final long nowMs = SystemClock.elapsedRealtime();
+        if (nowMs - lastCleanupMs >= CLEANUP_INTERVAL_MS) {
+            lastCleanupMs = nowMs;
+            worker.execute(this::deleteOldCopies);
+        }
 
         final boolean multiple = prompt.type == FilePrompt.Type.MULTIPLE;
         final String[] types = UploadFiles.acceptedTypes(prompt.mimeTypes, platformResolver());

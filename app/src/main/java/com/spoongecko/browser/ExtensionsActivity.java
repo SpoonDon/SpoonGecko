@@ -449,40 +449,71 @@ public class ExtensionsActivity extends Activity {
     }
 
     private void writeBackup(Uri uri) {
-        try (OutputStream os = getContentResolver().openOutputStream(uri, "w")) {
-            String json = ExtensionManager.get().buildBackupJson();
-            if (json == null || os == null) { toast("Backup failed"); return; }
-            os.write(json.getBytes(StandardCharsets.UTF_8));
-            os.flush();
-            toast("Backup saved");
+        final String json = ExtensionManager.get().buildBackupJson();
+        if (json == null) { toast("Backup failed"); return; }
+        final OutputStream os;
+        try {
+            os = getContentResolver().openOutputStream(uri, "w");
         } catch (Exception e) {
             Log.w(TAG, "backup failed", e);
             toast("Backup failed: " + e.getMessage());
+            return;
         }
+        if (os == null) { toast("Backup failed"); return; }
+        ioExecutor.execute(() -> {
+            try (OutputStream out = os) {
+                out.write(json.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) toast("Backup saved");
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "backup failed", e);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) toast("Backup failed: " + e.getMessage());
+                });
+            }
+        });
     }
 
     private void readRestore(Uri uri) {
-        try (FilePicker.ResolvedStream stream = openResolvedStream(uri)) {
-            JSONObject root = new JSONObject(
-                    new String(readFully(stream.inputStream), StandardCharsets.UTF_8));
-            JSONArray entries = root.optJSONArray("extensions");
-            if (entries == null || entries.length() == 0) {
-                toast("The backup file contains no extensions");
-                return;
-            }
-            toast("Restoring " + entries.length() + " extension(s)…");
-            ExtensionManager.get().restoreFromBackup(entries, (restored, failed, failures) -> {
-                if (failures != null && !failures.isEmpty()) {
-                    showRestoreFailures(restored, failed, failures);
-                } else {
-                    toast(restored + " extension(s) restored"
-                            + (failed > 0 ? ", " + failed + " failed" : ""));
-                }
-            });
+        final FilePicker.ResolvedStream opened;
+        try {
+            opened = openResolvedStream(uri);
         } catch (Exception e) {
             Log.w(TAG, "restore failed", e);
             toast("Restore failed: " + e.getMessage());
+            return;
         }
+        ioExecutor.execute(() -> {
+            try (FilePicker.ResolvedStream stream = opened) {
+                final JSONObject root = new JSONObject(
+                        new String(readFully(stream.inputStream), StandardCharsets.UTF_8));
+                final JSONArray entries = root.optJSONArray("extensions");
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (entries == null || entries.length() == 0) {
+                        toast("The backup file contains no extensions");
+                        return;
+                    }
+                    toast("Restoring " + entries.length() + " extension(s)…");
+                    ExtensionManager.get().restoreFromBackup(entries, (restored, failed, failures) -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (failures != null && !failures.isEmpty()) {
+                            showRestoreFailures(restored, failed, failures);
+                        } else {
+                            toast(restored + " extension(s) restored"
+                                    + (failed > 0 ? ", " + failed + " failed" : ""));
+                        }
+                    });
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "restore failed", e);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) toast("Restore failed: " + e.getMessage());
+                });
+            }
+        });
     }
 
     private FilePicker.ResolvedStream openResolvedStream(Uri uri) throws Exception {
@@ -536,6 +567,22 @@ public class ExtensionsActivity extends Activity {
     // List adapter
     // ------------------------------------------------------------------
 
+    private static final class ViewHolder {
+        final ImageView icon;
+        final TextView name;
+        final TextView version;
+        final TextView desc;
+        final Switch toggle;
+
+        ViewHolder(View v) {
+            this.icon = v.findViewById(R.id.ext_icon);
+            this.name = v.findViewById(R.id.ext_name);
+            this.version = v.findViewById(R.id.ext_version);
+            this.desc = v.findViewById(R.id.ext_desc);
+            this.toggle = v.findViewById(R.id.ext_switch);
+        }
+    }
+
     private final class Adapter extends BaseAdapter {
         private List<WebExtension> data = new ArrayList<>();
 
@@ -550,39 +597,41 @@ public class ExtensionsActivity extends Activity {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            View v = convertView != null ? convertView
-                    : getLayoutInflater().inflate(R.layout.item_extension, parent, false);
+            final View v;
+            final ViewHolder h;
+            if (convertView == null) {
+                v = getLayoutInflater().inflate(R.layout.item_extension, parent, false);
+                h = new ViewHolder(v);
+                v.setTag(h);
+            } else {
+                v = convertView;
+                h = (ViewHolder) v.getTag();
+            }
             final WebExtension ext = getItem(position);
 
-            ImageView icon = v.findViewById(R.id.ext_icon);
-            TextView name = v.findViewById(R.id.ext_name);
-            TextView version = v.findViewById(R.id.ext_version);
-            TextView desc = v.findViewById(R.id.ext_desc);
-            Switch toggle = v.findViewById(R.id.ext_switch);
-
-            name.setText(ExtensionManager.displayName(ext));
-            version.setText(ext.metaData != null && ext.metaData.version != null
+            h.name.setText(ExtensionManager.displayName(ext));
+            h.version.setText(ext.metaData != null && ext.metaData.version != null
                     ? ext.metaData.version : "");
-            desc.setText(ext.metaData != null && ext.metaData.description != null
+            h.desc.setText(ext.metaData != null && ext.metaData.description != null
                     ? ext.metaData.description : "");
 
             boolean enabled = ext.metaData == null || ext.metaData.enabled;
-            name.setAlpha(enabled ? 1f : 0.5f);
-            desc.setAlpha(enabled ? 1f : 0.5f);
+            h.name.setAlpha(enabled ? 1f : 0.5f);
+            h.desc.setAlpha(enabled ? 1f : 0.5f);
 
-            icon.setTag(ext.id);
-            icon.setImageResource(R.drawable.ic_extension);
+            h.icon.setTag(ext.id);
+            h.icon.setImageResource(R.drawable.ic_extension);
             if (ext.metaData != null && ext.metaData.icon != null) {
                 ext.metaData.icon.getBitmap(64).accept(bitmap -> {
-                    if (bitmap != null && ext.id.equals(icon.getTag())) {
-                        icon.setImageBitmap(bitmap);
+                    if (bitmap != null && ext.id.equals(h.icon.getTag())) {
+                        h.icon.setImageBitmap(bitmap);
                     }
                 });
             }
 
-            toggle.setOnCheckedChangeListener(null);
-            toggle.setChecked(enabled);
-            toggle.setOnCheckedChangeListener((buttonView, isChecked) ->
+            h.toggle.setOnCheckedChangeListener(null);
+            h.toggle.setChecked(enabled);
+            h.toggle.setOnCheckedChangeListener((buttonView, isChecked) ->
                     ExtensionManager.get().setExtensionEnabled(ext, isChecked, null));
 
             return v;

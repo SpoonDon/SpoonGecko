@@ -102,6 +102,7 @@ public class TabManager {
     public void closeTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
         Tab t = tabs.remove(index);
+        t.thumbnail = null;
         try { t.session.close(); } catch (Exception e) { Log.w(TAG, "close", e); }
         if (tabs.isEmpty()) activeIndex = -1;
         else if (activeIndex >= tabs.size()) activeIndex = tabs.size() - 1;
@@ -111,7 +112,10 @@ public class TabManager {
     }
 
     public void closeAll() {
-        for (Tab t : tabs) { try { t.session.close(); } catch (Exception ignored) {} }
+        for (Tab t : tabs) {
+            t.thumbnail = null;
+            try { t.session.close(); } catch (Exception ignored) {}
+        }
         tabs.clear();
         activeIndex = -1;
         notifyChanged();
