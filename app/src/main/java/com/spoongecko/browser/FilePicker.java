@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -17,6 +18,7 @@ import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 import android.widget.Toast;
@@ -43,16 +45,19 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * [UPLOAD] Attaching local or captured files to a web page ({@code <input type=file>}),
- * following Firefox for Android's {@code feature-prompts/FilePicker} + {@code GeckoPromptDelegate}
- * architecture:
+ * combining Firefox for Android's picker/capture flow with GeckoView 160's file-path requirement:
  *  - Uses {@link Intent#ACTION_GET_CONTENT} wrapped in {@link Intent#createChooser} with
  *    {@link Intent#EXTRA_INITIAL_INTENTS} for camera/camcorder/audio capture when eligible;
  *  - Launches capture directly when HTML {@code capture} is requested, after checking runtime
  *    camera/audio permissions (with graceful fallback to the file chooser if denied);
- *  - Creates capture output files exposed via {@link UploadFileProvider} ({@code content://} URIs);
- *  - Passes selected/captured {@code content://} URIs directly and synchronously inside
- *    {@link #handleActivityResult} to {@link FilePrompt#confirm} using the single-URI or
- *    multi-URI overload while transient Intent read grants are active.
+ *  - Acquires selected {@code content://} streams synchronously inside {@link #handleActivityResult}
+ *    while transient Intent read grants are active, copies them off the UI thread into
+ *    {@code cache/uploads/<uuid>/}, and passes readable {@code file://} URIs to
+ *    {@link FilePrompt#confirm} (because GeckoView 160 only resolves {@code file://}, raw
+ *    {@code ExternalStorageProvider} paths, or legacy {@code _data} columns—failing silently on
+ *    modern Android Photo Picker, Downloads, MediaStore, and cloud {@code content://} URIs);
+ *  - Queues confirmation until {@link #onResume()} if copying completes before the Activity and
+ *    active {@link org.mozilla.geckoview.GeckoSession} return to the foreground.
  */
 final class FilePicker {
 
@@ -64,14 +69,17 @@ final class FilePicker {
     private static final int SLOTS = 16;
     private static final int REQ_CAPTURE_PERM = 0x7120;
 
+    private static final String UPLOAD_DIR = "uploads";
     private static final long KEEP_COPIES_MS = 24L * 60 * 60 * 1000;
     private static final long CLEANUP_INTERVAL_MS = 60L * 60 * 1000;
+    private static final long BIG_FILE_BYTES = 8L * 1024 * 1024;
 
     private final Activity activity;
     private final ExecutorService worker;
     private long lastCleanupMs;
 
     // UI thread only.
+    private boolean activityResumed = true;
     private FilePrompt pendingPrompt;
     private GeckoResult<PromptResponse> pendingResult;
     private int pendingSlot;
@@ -81,6 +89,7 @@ final class FilePicker {
     private File pendingVideoFile;
     private Uri pendingVideoUri;
     private PendingPermissionRequest pendingPermissionRequest;
+    private PendingDelivery pendingDelivery;
     private boolean askedCameraForChooser;
 
     private static final class PendingPermissionRequest {
@@ -103,6 +112,42 @@ final class FilePicker {
         }
     }
 
+    private static final class PendingDelivery {
+        final FilePrompt prompt;
+        final GeckoResult<PromptResponse> result;
+        final List<Uri> localUris;
+        final int failed;
+        final String lastError;
+
+        PendingDelivery(FilePrompt prompt, GeckoResult<PromptResponse> result,
+                        List<Uri> localUris, int failed, String lastError) {
+            this.prompt = prompt;
+            this.result = result;
+            this.localUris = localUris;
+            this.failed = failed;
+            this.lastError = lastError;
+        }
+    }
+
+    private static final class OpenedSource {
+        final Uri source;
+        final Uri readyLocalUri;
+        final ResolvedStream stream;
+        final String name;
+        final String mime;
+        final String openError;
+
+        OpenedSource(Uri source, Uri readyLocalUri, ResolvedStream stream,
+                     String name, String mime, String openError) {
+            this.source = source;
+            this.readyLocalUri = readyLocalUri;
+            this.stream = stream;
+            this.name = name;
+            this.mime = mime;
+            this.openError = openError;
+        }
+    }
+
     FilePicker(Activity activity) {
         this.activity = activity;
         final ThreadPoolExecutor exec = new ThreadPoolExecutor(
@@ -114,15 +159,22 @@ final class FilePicker {
         exec.allowCoreThreadTimeOut(true);
         this.worker = exec;
         this.lastCleanupMs = SystemClock.elapsedRealtime();
-        worker.execute(this::deleteOldCaptures);
+        worker.execute(this::deleteOldUploads);
         relaxPickerGate();
     }
 
     void onResume() {
-        // Prompt confirmation runs synchronously in handleActivityResult(), matching Firefox for Android.
+        activityResumed = true;
+        final PendingDelivery delivery = pendingDelivery;
+        if (delivery != null) {
+            pendingDelivery = null;
+            deliver(delivery.prompt, delivery.result, delivery.localUris,
+                    delivery.failed, delivery.lastError);
+        }
     }
 
     void onPause() {
+        activityResumed = false;
     }
 
     private static void relaxPickerGate() {
@@ -165,7 +217,7 @@ final class FilePicker {
         final long nowMs = SystemClock.elapsedRealtime();
         if (nowMs - lastCleanupMs >= CLEANUP_INTERVAL_MS) {
             lastCleanupMs = nowMs;
-            worker.execute(this::deleteOldCaptures);
+            worker.execute(this::deleteOldUploads);
         }
 
         final boolean multiple = prompt.type == FilePrompt.Type.MULTIPLE;
@@ -218,7 +270,7 @@ final class FilePicker {
                 return true;
             }
             if (!granted) {
-                toast("Permission denied — choosing an existing file instead");
+                toast("Permission denied \u2014 choosing an existing file instead");
             }
         }
         launchChooserOrPicker(req.prompt, req.result, req.types, req.multiple);
@@ -522,8 +574,14 @@ final class FilePicker {
                 usedVidCapture = true;
             }
         } else {
-            if (imgUri != null && picked.contains(imgUri)) usedImgCapture = true;
-            if (vidUri != null && picked.contains(vidUri)) usedVidCapture = true;
+            if (imgUri != null && picked.contains(imgUri)
+                    && imgFile != null && imgFile.isFile() && imgFile.length() > 0) {
+                usedImgCapture = true;
+            }
+            if (vidUri != null && picked.contains(vidUri)
+                    && vidFile != null && vidFile.isFile() && vidFile.length() > 0) {
+                usedVidCapture = true;
+            }
         }
 
         if (!usedImgCapture) deleteQuietly(imgFile);
@@ -534,17 +592,36 @@ final class FilePicker {
             return true;
         }
 
+        if (prompt.type != FilePrompt.Type.MULTIPLE && picked.size() > 1) {
+            picked.subList(1, picked.size()).clear();
+        }
+
         final boolean takePersistable = data != null
                 && (data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0;
         final ContentResolver cr = appContext.getContentResolver();
-        final List<Uri> confirmedUris = new ArrayList<>(picked.size());
+        final List<OpenedSource> openedSources = new ArrayList<>(picked.size());
+        boolean big = false;
 
+        // Acquire source streams synchronously inside onActivityResult while transient Intent URI
+        // read grants are guaranteed active, then copy bytes off the UI thread to cache/uploads/
+        // so GeckoView 160 receives directly readable file:// URIs.
         for (Uri u : picked) {
+            if (usedImgCapture && u.equals(imgUri) && imgFile != null && imgFile.canRead()) {
+                if (imgFile.length() >= BIG_FILE_BYTES) big = true;
+                openedSources.add(new OpenedSource(u, Uri.fromFile(imgFile), null, null, null, null));
+                continue;
+            }
+            if (usedVidCapture && u.equals(vidUri) && vidFile != null && vidFile.canRead()) {
+                if (vidFile.length() >= BIG_FILE_BYTES) big = true;
+                openedSources.add(new OpenedSource(u, Uri.fromFile(vidFile), null, null, null, null));
+                continue;
+            }
+
             if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(u.getScheme())) {
-                // Convert rare file:// results from legacy pickers into content:// via UploadFileProvider.
-                final Uri wrapped = wrapLocalFileAsContentUri(appContext, u);
-                if (wrapped != null) confirmedUris.add(wrapped);
-                else confirmedUris.add(u);
+                final String path = u.getPath();
+                final File f = path != null ? new File(path) : null;
+                if (f != null && f.isFile() && f.length() >= BIG_FILE_BYTES) big = true;
+                openedSources.add(new OpenedSource(u, null, null, null, null, null));
             } else {
                 if (takePersistable && ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(u.getScheme())) {
                     try {
@@ -552,49 +629,109 @@ final class FilePicker {
                     } catch (RuntimeException ignored) {
                     }
                 }
-                confirmedUris.add(u);
+                final UriMeta meta = queryMeta(cr, u);
+                if (meta.size >= BIG_FILE_BYTES) big = true;
+                String mime = null;
+                try {
+                    mime = cr.getType(u);
+                } catch (RuntimeException ignored) {
+                }
+                final String[] errHolder = new String[1];
+                final ResolvedStream stream = openBestStream(cr, u, errHolder);
+                openedSources.add(new OpenedSource(u, null, stream, meta.name, mime, errHolder[0]));
             }
         }
+        if (big) toast("Preparing file\u2026");
 
-        Log.i(TAG, "file picker confirming " + confirmedUris.size() + " URI(s) directly");
+        worker.execute(() -> {
+            final List<Uri> localUris = new ArrayList<>(openedSources.size());
+            int failed = 0;
+            String lastError = null;
+
+            for (OpenedSource src : openedSources) {
+                if (src.readyLocalUri != null) {
+                    localUris.add(src.readyLocalUri);
+                } else if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(src.source.getScheme())) {
+                    final Uri copy = copyLocalFileToCache(appContext, cr, src.source);
+                    if (copy != null) {
+                        localUris.add(copy);
+                    } else {
+                        failed++;
+                        lastError = "unreadable local file";
+                    }
+                } else if (src.stream == null) {
+                    failed++;
+                    lastError = src.openError != null ? src.openError : "could not open file";
+                } else {
+                    final String[] writeErr = new String[1];
+                    final Uri copy = writeStreamToCache(
+                            appContext, src.stream, src.name, src.mime, writeErr);
+                    if (copy != null) {
+                        localUris.add(copy);
+                    } else {
+                        failed++;
+                        lastError = writeErr[0] != null ? writeErr[0] : "could not copy file";
+                    }
+                }
+            }
+
+            final int failedCount = failed;
+            final String err = lastError;
+            activity.runOnUiThread(() -> deliverOrQueue(prompt, result, localUris, failedCount, err));
+        });
+        return true;
+    }
+
+    private void deliverOrQueue(FilePrompt prompt, GeckoResult<PromptResponse> result,
+                                List<Uri> localUris, int failed, String lastError) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            completeDismissed(prompt, result);
+            return;
+        }
+        if (prompt.isComplete()) {
+            return;
+        }
+        if (!activityResumed) {
+            pendingDelivery = new PendingDelivery(prompt, result, localUris, failed, lastError);
+            return;
+        }
+        deliver(prompt, result, localUris, failed, lastError);
+    }
+
+    private void deliver(FilePrompt prompt, GeckoResult<PromptResponse> result,
+                         List<Uri> localUris, int failed, String lastError) {
+        if (prompt.isComplete()) return;
         try {
+            if (localUris.isEmpty()) {
+                toast(lastError != null && !lastError.isEmpty()
+                        ? "Couldn't attach the file: " + lastError
+                        : "Couldn't attach the file");
+                completeDismissed(prompt, result);
+                return;
+            }
+            Log.i(TAG, "file picker confirming " + localUris.size() + " local URI(s)");
             if (prompt.type == FilePrompt.Type.MULTIPLE) {
-                result.complete(prompt.confirm(appContext, confirmedUris.toArray(new Uri[0])));
+                result.complete(prompt.confirm(activity.getApplicationContext(),
+                        localUris.toArray(new Uri[0])));
             } else {
-                result.complete(prompt.confirm(appContext, confirmedUris.get(0)));
+                result.complete(prompt.confirm(activity.getApplicationContext(), localUris.get(0)));
+            }
+            if (failed > 0) {
+                toast(failed == 1 ? "1 file couldn't be attached"
+                        : failed + " files couldn't be attached");
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "FilePrompt.confirm failed", e);
             toast("Couldn't attach the file: " + e.getClass().getSimpleName());
             completeDismissed(prompt, result);
         }
-        return true;
-    }
-
-    private static Uri wrapLocalFileAsContentUri(Context appContext, Uri fileUri) {
-        try {
-            final String path = fileUri.getPath();
-            if (path == null) return null;
-            final File src = new File(path);
-            if (!src.isFile() || !src.canRead()) return null;
-            final File dst = createCaptureFile(appContext, UploadFiles.safeFileName(src.getName()));
-            try (InputStream in = new FileInputStream(src);
-                 OutputStream out = new FileOutputStream(dst)) {
-                final byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                out.flush();
-            }
-            return UploadFileProvider.uriForCaptureFile(appContext, dst);
-        } catch (Exception e) {
-            Log.w(TAG, "could not wrap file:// URI as content://", e);
-            return null;
-        }
     }
 
     private static void completeDismissed(FilePrompt prompt, GeckoResult<PromptResponse> result) {
         try {
-            result.complete(prompt.dismiss());
+            if (!prompt.isComplete()) {
+                result.complete(prompt.dismiss());
+            }
         } catch (RuntimeException ignored) {
         }
     }
@@ -619,11 +756,132 @@ final class FilePicker {
         pendingPermissionRequest = null;
         if (permReq != null) completeDismissed(permReq.prompt, permReq.result);
 
+        final PendingDelivery queued = pendingDelivery;
+        pendingDelivery = null;
+        if (queued != null) completeDismissed(queued.prompt, queued.result);
+
         if (prompt != null && result != null) completeDismissed(prompt, result);
     }
 
     // ------------------------------------------------------------------
-    // Shared stream helper (used by ExtensionsActivity for .xpi / JSON)
+    // Cache copies for GeckoView FilePrompt (requires readable POSIX paths)
+    // ------------------------------------------------------------------
+
+    private static File uploadRoot(Context context) {
+        return new File(context.getCacheDir(), UPLOAD_DIR);
+    }
+
+    private static Uri copyLocalFileToCache(Context context, ContentResolver cr, Uri source) {
+        File dir = null;
+        try {
+            final String path = source.getPath();
+            if (path == null) return null;
+            final File existing = new File(path);
+            final File root = uploadRoot(context).getCanonicalFile();
+            if (existing.isFile() && existing.canRead()) {
+                if (existing.getCanonicalFile().getPath().startsWith(root.getPath() + File.separator)) {
+                    return Uri.fromFile(existing);
+                }
+                dir = new File(root, UUID.randomUUID().toString());
+                if (!dir.mkdirs() && !dir.isDirectory()) return null;
+                final File out = new File(dir, UploadFiles.safeFileName(existing.getName()));
+                try (InputStream in = new FileInputStream(existing);
+                     OutputStream os = new FileOutputStream(out)) {
+                    copyStream(in, os);
+                }
+                return Uri.fromFile(out);
+            }
+            // Fallback via ContentResolver if direct POSIX read fails
+            final ResolvedStream stream = openBestStream(cr, source, null);
+            if (stream != null) {
+                return writeStreamToCache(context, stream, existing.getName(), null, null);
+            }
+            return null;
+        } catch (Exception | OutOfMemoryError e) {
+            Log.w(TAG, "could not copy local file: " + source, e);
+            if (dir != null) deleteRecursively(dir);
+            return null;
+        }
+    }
+
+    private static Uri writeStreamToCache(Context context, ResolvedStream resolved,
+                                          String rawName, String fallbackMime, String[] errOut) {
+        File dir = null;
+        try (ResolvedStream stream = resolved) {
+            String name = UploadFiles.safeFileName(rawName);
+            final String resolvedMime = resolved.mimeType != null ? resolved.mimeType : fallbackMime;
+            if (resolvedMime != null && !"application/octet-stream".equalsIgnoreCase(resolvedMime)) {
+                name = UploadFiles.withExtension(name,
+                        MimeTypeMap.getSingleton().getExtensionFromMimeType(resolvedMime));
+            }
+            dir = new File(uploadRoot(context), UUID.randomUUID().toString());
+            if (!dir.mkdirs() && !dir.isDirectory()) {
+                if (errOut != null) errOut[0] = "cache dir unavailable";
+                return null;
+            }
+            final File out = new File(dir, name);
+            try (OutputStream os = new FileOutputStream(out)) {
+                copyStream(stream.inputStream, os);
+            }
+            return Uri.fromFile(out);
+        } catch (Exception | OutOfMemoryError e) {
+            Log.w(TAG, "could not write stream to cache", e);
+            if (errOut != null) errOut[0] = e.getClass().getSimpleName();
+            if (dir != null) deleteRecursively(dir);
+            return null;
+        }
+    }
+
+    private static void copyStream(InputStream in, OutputStream os) throws IOException {
+        final byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+        os.flush();
+    }
+
+    private static final class UriMeta {
+        final String name;
+        final long size;
+
+        UriMeta(String name, long size) {
+            this.name = name;
+            this.size = size;
+        }
+    }
+
+    private static UriMeta queryMeta(ContentResolver cr, Uri uri) {
+        String name = null;
+        long size = -1L;
+        Cursor c = null;
+        try {
+            c = cr.query(uri, new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE},
+                    null, null, null);
+            if (c != null && c.moveToFirst()) {
+                final int nameIdx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (nameIdx >= 0 && !c.isNull(nameIdx)) {
+                    final String candidate = c.getString(nameIdx);
+                    if (candidate != null && !candidate.trim().isEmpty()) {
+                        name = candidate;
+                    }
+                }
+                final int sizeIdx = c.getColumnIndex(OpenableColumns.SIZE);
+                if (sizeIdx >= 0 && !c.isNull(sizeIdx)) {
+                    size = c.getLong(sizeIdx);
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not query metadata for chosen file", e);
+        } finally {
+            if (c != null) c.close();
+        }
+        if (name == null) {
+            name = uri.getLastPathSegment();
+        }
+        return new UriMeta(name, size);
+    }
+
+    // ------------------------------------------------------------------
+    // Shared stream helper (also used by ExtensionsActivity for .xpi / JSON)
     // ------------------------------------------------------------------
 
     static ResolvedStream openBestStream(ContentResolver cr, Uri source) {
@@ -642,19 +900,29 @@ final class FilePicker {
 
         try {
             final String[] streamTypes = cr.getStreamTypes(source, "*/*");
-            final String targetMime = (streamTypes != null && streamTypes.length > 0)
-                    ? streamTypes[0] : "*/*";
-            final AssetFileDescriptor afd = cr.openTypedAssetFileDescriptor(source, targetMime, null);
-            if (afd != null) {
-                final InputStream in = afd.createInputStream();
-                if (in != null) {
-                    return new ResolvedStream(in, targetMime.equals("*/*") ? null : targetMime, afd);
+            final String[] candidates = (streamTypes != null && streamTypes.length > 0)
+                    ? streamTypes : new String[]{"*/*"};
+            for (String targetMime : candidates) {
+                if (targetMime == null || targetMime.isEmpty()) continue;
+                try {
+                    final AssetFileDescriptor afd =
+                            cr.openTypedAssetFileDescriptor(source, targetMime, null);
+                    if (afd != null) {
+                        final InputStream in = afd.createInputStream();
+                        if (in != null) {
+                            return new ResolvedStream(in,
+                                    "*/*".equals(targetMime) ? null : targetMime, afd);
+                        }
+                        afd.close();
+                    }
+                } catch (Throwable e) {
+                    lastErr = e;
+                    Log.w(TAG, "openTypedAssetFileDescriptor failed (" + targetMime + "): " + source, e);
                 }
-                afd.close();
             }
         } catch (Throwable e) {
             lastErr = e;
-            Log.w(TAG, "openTypedAssetFileDescriptor failed: " + source, e);
+            Log.w(TAG, "getStreamTypes failed: " + source, e);
         }
 
         try {
@@ -695,7 +963,7 @@ final class FilePicker {
     }
 
     // ------------------------------------------------------------------
-    // Temporary capture files
+    // Temporary capture & upload cleanup
     // ------------------------------------------------------------------
 
     private static File createCaptureFile(Context context, String fileName) throws IOException {
@@ -711,17 +979,23 @@ final class FilePicker {
         return file;
     }
 
-    private void deleteOldCaptures() {
+    private void deleteOldUploads() {
+        final Context appContext = activity.getApplicationContext();
+        final long cutoff = System.currentTimeMillis() - KEEP_COPIES_MS;
+        deleteExpiredChildren(uploadRoot(appContext), "capture", cutoff);
+        deleteExpiredChildren(UploadFileProvider.captureRoot(appContext), null, cutoff);
+    }
+
+    private static void deleteExpiredChildren(File dir, String skipName, long cutoff) {
         try {
-            final File root = UploadFileProvider.captureRoot(activity.getApplicationContext());
-            final File[] children = root.listFiles();
+            final File[] children = dir.listFiles();
             if (children == null) return;
-            final long cutoff = System.currentTimeMillis() - KEEP_COPIES_MS;
             for (File f : children) {
+                if (skipName != null && skipName.equals(f.getName())) continue;
                 if (f.lastModified() < cutoff) deleteRecursively(f);
             }
         } catch (RuntimeException e) {
-            Log.w(TAG, "old capture files could not be cleaned up", e);
+            Log.w(TAG, "old upload files could not be cleaned up", e);
         }
     }
 
