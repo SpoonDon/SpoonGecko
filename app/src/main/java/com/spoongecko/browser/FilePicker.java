@@ -7,11 +7,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 import android.widget.Toast;
 
+import org.mozilla.geckoview.GeckoPreferenceController;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.FilePrompt;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse;
@@ -21,6 +24,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -42,7 +46,12 @@ import java.util.concurrent.Executors;
  *  - copying happens off the UI thread (a large video used to freeze the app while it copied);
  *  - a picker that never reported back used to block every later attach until restart: a new
  *    request now replaces it;
- *  - failures are shown to the user instead of silently attaching nothing.
+ *  - failures are shown to the user instead of silently attaching nothing;
+ *  - the engine's own "no file picker from an unfocused page" rule is switched off (see
+ *    relaxPickerGate): with that rule on, the engine cancels the request BEFORE this app is ever
+ *    asked, so no picker opens at all;
+ *  - if Android closed the browser while the picker was open, the chosen file can no longer be
+ *    attached to the old page: the user is told to attach it again instead of nothing happening.
  *
  * No storage permission is needed: the system picker grants access to exactly the files the user
  * chooses.
@@ -50,6 +59,16 @@ import java.util.concurrent.Executors;
 final class FilePicker {
 
     private static final String TAG = "SpoonGecko";
+
+    /**
+     * Engine setting (Firefox 136+): a page may only open a file picker while the engine thinks
+     * the browser window has focus. An embedded GeckoView often does not have that focus, so the
+     * engine answers "cancelled" to the page without calling the app. Set to false = always allow.
+     * (The same value is also put in the engine's start-up config by ExtensionManager; setting it
+     * again here at run time is a second, independent way to get the same result.)
+     */
+    private static final String PICKER_GATE_PREF = "browser.disable_pickers_background_tabs";
+    private static volatile boolean pickerGateRelaxed;
 
     /** Request codes REQ_BASE .. REQ_BASE+SLOTS-1 belong to the file picker. */
     private static final int REQ_BASE = 0x7110;
@@ -77,6 +96,36 @@ final class FilePicker {
     FilePicker(Activity activity) {
         this.activity = activity;
         worker.execute(this::deleteOldCopies);
+        relaxPickerGate();
+    }
+
+    // ------------------------------------------------------------------
+    // Engine rule that can stop the picker from ever opening
+    // ------------------------------------------------------------------
+
+    /**
+     * Switches the engine's "no picker from an unfocused page" rule off. Runs once per process.
+     * It is posted to the main thread so it runs after the activity's onCreate() has created the
+     * engine, and repeated a few seconds later in case the engine was not ready the first time.
+     * Setting the same value twice is harmless. Never throws.
+     */
+    private static void relaxPickerGate() {
+        if (pickerGateRelaxed) return;
+        final Handler main = new Handler(Looper.getMainLooper());
+        main.post(FilePicker::setPickerGatePref);
+        main.postDelayed(FilePicker::setPickerGatePref, 3000);
+    }
+
+    private static void setPickerGatePref() {
+        try {
+            GeckoPreferenceController.setGeckoPref(
+                    PICKER_GATE_PREF, Boolean.FALSE, GeckoPreferenceController.PREF_BRANCH_USER);
+            pickerGateRelaxed = true;
+        } catch (Throwable t) {
+            // The engine may not be running yet; the delayed second attempt (or the next activity)
+            // tries again. Uploads must never crash because of this.
+            Log.w(TAG, "could not switch off the engine's file-picker rule", t);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -85,6 +134,8 @@ final class FilePicker {
 
     GeckoResult<PromptResponse> onFilePrompt(final FilePrompt prompt) {
         final GeckoResult<PromptResponse> result = new GeckoResult<>();
+        Log.i(TAG, "file prompt: type=" + prompt.type
+                + " accept=" + Arrays.toString(prompt.mimeTypes));
         if (activity.isFinishing() || activity.isDestroyed()) {
             result.complete(prompt.dismiss());
             return result;
@@ -159,8 +210,19 @@ final class FilePicker {
     /** Called from MainActivity.onActivityResult(); true when the result belongs to the picker. */
     boolean handleActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode < REQ_BASE || requestCode >= REQ_BASE + SLOTS) return false;
+
+        // Nothing is waiting for this answer. The usual reason: Android closed the browser while
+        // the picker was open (low memory), so the page that asked for the file is gone and the
+        // file can no longer be attached to it. Tell the user instead of doing nothing.
+        if (pendingPrompt == null) {
+            if (resultCode == Activity.RESULT_OK && data != null
+                    && (data.getData() != null || data.getClipData() != null)) {
+                toast("Browser restarted while choosing the file \u2014 please attach it again");
+            }
+            return true;
+        }
         // The answer of a picker that was replaced by a newer request: nothing waits for it.
-        if (pendingPrompt == null || requestCode != REQ_BASE + pendingSlot) return true;
+        if (requestCode != REQ_BASE + pendingSlot) return true;
 
         final FilePrompt prompt = pendingPrompt;
         final GeckoResult<PromptResponse> result = pendingResult;
@@ -177,6 +239,7 @@ final class FilePicker {
                 }
             }
         }
+        Log.i(TAG, "file picker answered: resultCode=" + resultCode + " files=" + picked.size());
         if (picked.isEmpty()) {                       // cancelled
             completeDismissed(prompt, result);
             return true;
@@ -214,6 +277,7 @@ final class FilePicker {
             final List<Uri> files = prompt.type == FilePrompt.Type.MULTIPLE
                     ? copies : copies.subList(0, 1);
             result.complete(prompt.confirm(activity, files.toArray(new Uri[0])));
+            Log.i(TAG, "file(s) handed to the page: " + files.size());
             if (failed > 0) {
                 toast(failed == 1 ? "1 file couldn't be attached"
                         : failed + " files couldn't be attached");
