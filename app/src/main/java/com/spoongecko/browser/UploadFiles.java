@@ -93,6 +93,18 @@ final class UploadFiles {
         return false;
     }
 
+    static boolean allowsImage(String[] mimeTypes) {
+        return mimeTypes == null || hasImageTypes(mimeTypes);
+    }
+
+    static boolean allowsVideo(String[] mimeTypes) {
+        return mimeTypes == null || hasVideoTypes(mimeTypes);
+    }
+
+    static boolean allowsAudio(String[] mimeTypes) {
+        return mimeTypes == null || hasAudioTypes(mimeTypes);
+    }
+
     /** Determines whether a capture-enabled input asks for image, video, or audio recording. */
     static int captureCategory(String[] mimeTypes) {
         final boolean img = hasImageTypes(mimeTypes);

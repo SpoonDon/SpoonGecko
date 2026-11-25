@@ -104,7 +104,16 @@ public final class UploadFileProvider extends ContentProvider {
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new FileNotFoundException("Could not create parent directory");
         }
-        final int pfdMode = ParcelFileDescriptor.parseMode(mode != null ? mode : "r");
+        final String resolvedMode = mode != null ? mode : "r";
+        if (resolvedMode.contains("w") && !file.exists()) {
+            try {
+                //noinspection ResultOfMethodCallIgnored
+                file.createNewFile();
+            } catch (IOException e) {
+                throw new FileNotFoundException("Could not create capture file: " + e.getMessage());
+            }
+        }
+        final int pfdMode = ParcelFileDescriptor.parseMode(resolvedMode);
         return ParcelFileDescriptor.open(file, pfdMode);
     }
 
