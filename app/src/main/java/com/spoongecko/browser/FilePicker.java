@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
@@ -20,7 +21,9 @@ import org.mozilla.geckoview.GeckoSession.PromptDelegate.FilePrompt;
 import org.mozilla.geckoview.GeckoSession.PromptDelegate.PromptResponse;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -40,16 +43,20 @@ import java.util.concurrent.Executors;
  * around it the same way.) The picked files are now copied into the app's cache and GeckoView is
  * given those copies.
  *
- * Also fixed here:
+ * Also handled here:
  *  - the picker was given file EXTENSIONS (".pdf") as if they were MIME types, which made files
  *    unselectable on pages that say accept=".pdf" (see UploadFiles.acceptedTypes);
  *  - copying happens off the UI thread (a large video used to freeze the app while it copied);
  *  - a picker that never reported back used to block every later attach until restart: a new
  *    request now replaces it;
- *  - failures are shown to the user instead of silently attaching nothing;
+ *  - failures are shown to the user, with the reason, instead of silently attaching nothing;
  *  - the engine's own "no file picker from an unfocused page" rule is switched off (see
  *    relaxPickerGate): with that rule on, the engine cancels the request BEFORE this app is ever
  *    asked, so no picker opens at all;
+ *  - some devices' file pickers return a file that Android then refuses to let the app read
+ *    (SecurityException). Android has two system pickers (ACTION_OPEN_DOCUMENT and
+ *    ACTION_GET_CONTENT); when one of them hands over a file the app may not read, the request is
+ *    asked again once through the other one, and the one that works is remembered;
  *  - if Android closed the browser while the picker was open, the chosen file can no longer be
  *    attached to the old page: the user is told to attach it again instead of nothing happening.
  *
@@ -70,6 +77,12 @@ final class FilePicker {
     private static final String PICKER_GATE_PREF = "browser.disable_pickers_background_tabs";
     private static volatile boolean pickerGateRelaxed;
 
+    /**
+     * Which system picker is opened first. Starts with the document picker; switched to the other
+     * one for the rest of the session when only that one handed over files the app could read.
+     */
+    private static volatile String preferredAction = Intent.ACTION_OPEN_DOCUMENT;
+
     /** Request codes REQ_BASE .. REQ_BASE+SLOTS-1 belong to the file picker. */
     private static final int REQ_BASE = 0x7110;
     private static final int SLOTS = 16;
@@ -80,6 +93,38 @@ final class FilePicker {
     /** From this size on the user is told the file is being prepared. */
     private static final long BIG_FILE_BYTES = 8L * 1024 * 1024;
 
+    /** One request from a page, with what is needed to answer it or to ask the picker again. */
+    private static final class Ask {
+        final FilePrompt prompt;
+        final GeckoResult<PromptResponse> result;
+        final String[] types;
+        final boolean multiple;
+        /** Which system picker was opened for it. */
+        final String action;
+        final int slot;
+        /** The other kind of picker was already used for this request: do not switch again. */
+        final boolean retried;
+
+        Ask(FilePrompt prompt, GeckoResult<PromptResponse> result, String[] types,
+            boolean multiple, String action, int slot, boolean retried) {
+            this.prompt = prompt;
+            this.result = result;
+            this.types = types;
+            this.multiple = multiple;
+            this.action = action;
+            this.slot = slot;
+            this.retried = retried;
+        }
+    }
+
+    /** What went wrong while copying the picked files (filled on the worker thread). */
+    private static final class CopyReport {
+        /** Why the last failed copy failed, in words the user can read out. */
+        String reason;
+        /** Android refused the app access to a picked file. */
+        boolean denied;
+    }
+
     private final Activity activity;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         final Thread t = new Thread(r, "spoongecko-upload");
@@ -87,10 +132,8 @@ final class FilePicker {
         return t;
     });
 
-    // UI thread only.
-    private FilePrompt pendingPrompt;
-    private GeckoResult<PromptResponse> pendingResult;
-    private int pendingSlot;
+    // UI thread only: the request that is waiting for the picker.
+    private Ask pending;
     private int nextSlot;
 
     FilePicker(Activity activity) {
@@ -155,23 +198,45 @@ final class FilePicker {
 
         final boolean multiple = prompt.type == FilePrompt.Type.MULTIPLE;
         final String[] types = UploadFiles.acceptedTypes(prompt.mimeTypes, platformResolver());
-        final int slot = nextSlot;
-        nextSlot = (nextSlot + 1) % SLOTS;
 
-        boolean started = launch(pickerIntent(Intent.ACTION_OPEN_DOCUMENT, types, multiple), slot);
-        if (!started) {
-            // Some devices have no Documents UI: ACTION_GET_CONTENT is the older equivalent.
-            started = launch(pickerIntent(Intent.ACTION_GET_CONTENT, types, multiple), slot);
-        }
-        if (!started) {
+        final Ask ask = openPicker(prompt, result, types, multiple, preferredAction, false);
+        if (ask == null) {
             toast("No app available to choose files");
             result.complete(prompt.dismiss());
             return result;
         }
-        pendingPrompt = prompt;
-        pendingResult = result;
-        pendingSlot = slot;
+        pending = ask;
         return result;
+    }
+
+    /**
+     * Opens a system picker for the request. If that kind of picker does not exist on the device
+     * (some have no Documents UI) and the other kind has not been used yet, the other one is
+     * opened instead. Returns null when no picker could be started.
+     */
+    private Ask openPicker(FilePrompt prompt, GeckoResult<PromptResponse> result, String[] types,
+                           boolean multiple, String action, boolean retried) {
+        final int slot = nextSlot;
+        nextSlot = (nextSlot + 1) % SLOTS;
+        if (launch(pickerIntent(action, types, multiple), slot)) {
+            return new Ask(prompt, result, types, multiple, action, slot, retried);
+        }
+        if (!retried) {
+            final String other = otherAction(action);
+            if (launch(pickerIntent(other, types, multiple), slot)) {
+                return new Ask(prompt, result, types, multiple, other, slot, true);
+            }
+        }
+        return null;
+    }
+
+    private static String otherAction(String action) {
+        return Intent.ACTION_OPEN_DOCUMENT.equals(action)
+                ? Intent.ACTION_GET_CONTENT : Intent.ACTION_OPEN_DOCUMENT;
+    }
+
+    private static String pickerName(String action) {
+        return Intent.ACTION_GET_CONTENT.equals(action) ? "GET_CONTENT" : "OPEN_DOCUMENT";
     }
 
     private static Intent pickerIntent(String action, String[] types, boolean multiple) {
@@ -214,7 +279,8 @@ final class FilePicker {
         // Nothing is waiting for this answer. The usual reason: Android closed the browser while
         // the picker was open (low memory), so the page that asked for the file is gone and the
         // file can no longer be attached to it. Tell the user instead of doing nothing.
-        if (pendingPrompt == null) {
+        final Ask ask = pending;
+        if (ask == null) {
             if (resultCode == Activity.RESULT_OK && data != null
                     && (data.getData() != null || data.getClipData() != null)) {
                 toast("Browser restarted while choosing the file \u2014 please attach it again");
@@ -222,12 +288,8 @@ final class FilePicker {
             return true;
         }
         // The answer of a picker that was replaced by a newer request: nothing waits for it.
-        if (requestCode != REQ_BASE + pendingSlot) return true;
-
-        final FilePrompt prompt = pendingPrompt;
-        final GeckoResult<PromptResponse> result = pendingResult;
-        pendingPrompt = null;
-        pendingResult = null;
+        if (requestCode != REQ_BASE + ask.slot) return true;
+        pending = null;
 
         final List<Uri> picked = new ArrayList<>();
         if (resultCode == Activity.RESULT_OK && data != null) {
@@ -239,9 +301,12 @@ final class FilePicker {
                 }
             }
         }
-        Log.i(TAG, "file picker answered: resultCode=" + resultCode + " files=" + picked.size());
+        Log.i(TAG, "file picker (" + pickerName(ask.action) + ") answered: resultCode=" + resultCode
+                + " files=" + picked.size()
+                + (picked.isEmpty() ? "" : " first=" + picked.get(0).getScheme() + "://"
+                + picked.get(0).getAuthority()));
         if (picked.isEmpty()) {                       // cancelled
-            completeDismissed(prompt, result);
+            completeDismissed(ask.prompt, ask.result);
             return true;
         }
 
@@ -253,38 +318,68 @@ final class FilePicker {
             if (big) activity.runOnUiThread(() -> toast("Preparing file\u2026"));
 
             final List<Uri> copies = new ArrayList<>();
+            final CopyReport report = new CopyReport();
             int failed = 0;
             for (Uri u : picked) {
-                final Uri copy = copyToCache(appContext, u);
+                final Uri copy = copyToCache(appContext, u, report);
                 if (copy != null) copies.add(copy); else failed++;
             }
             final int failedCount = failed;
-            activity.runOnUiThread(() -> deliver(prompt, result, copies, failedCount));
+            activity.runOnUiThread(() -> deliver(ask, copies, failedCount, report));
         });
         return true;
     }
 
     /** UI thread: hands the copies to GeckoView (confirm() must be called there). */
-    private void deliver(FilePrompt prompt, GeckoResult<PromptResponse> result,
-                         List<Uri> copies, int failed) {
+    private void deliver(Ask ask, List<Uri> copies, int failed, CopyReport report) {
+        final FilePrompt prompt = ask.prompt;
+        final GeckoResult<PromptResponse> result = ask.result;
         try {
             if (copies.isEmpty()) {
-                toast("Couldn't attach the file");
+                if (report.denied && !ask.retried && pending == null
+                        && !activity.isFinishing() && !activity.isDestroyed()) {
+                    // Android refused the app access to the file this picker handed over. The other
+                    // kind of system picker often gives a file the app may read: ask once more
+                    // through that one (the page keeps waiting meanwhile).
+                    final Ask again = openPicker(prompt, result, ask.types, ask.multiple,
+                            otherAction(ask.action), true);
+                    if (again != null) {
+                        pending = again;
+                        Log.i(TAG, pickerName(ask.action) + " gave a file Android won't let the app "
+                                + "read; asking again through " + pickerName(again.action));
+                        toastLong("That file picker didn't allow access \u2014 "
+                                + "please choose the file again");
+                        return;
+                    }
+                }
+                // The reason is shown on purpose: it says WHAT went wrong without needing a log.
+                toastLong("Couldn't attach the file"
+                        + (report.reason == null ? ""
+                        : " (" + report.reason + ", via " + pickerName(ask.action) + ")"));
                 completeDismissed(prompt, result);
+                return;
+            }
+            if (prompt.isComplete()) {
+                // The engine already closed this request (page reloaded or closed meanwhile).
+                toastLong("Couldn't attach the file (the page stopped waiting for it "
+                        + "\u2014 try again)");
                 return;
             }
             // A single-file input takes exactly one file.
             final List<Uri> files = prompt.type == FilePrompt.Type.MULTIPLE
                     ? copies : copies.subList(0, 1);
             result.complete(prompt.confirm(activity, files.toArray(new Uri[0])));
-            Log.i(TAG, "file(s) handed to the page: " + files.size());
+            Log.i(TAG, "file(s) handed to the page: " + files.size()
+                    + " via " + pickerName(ask.action));
+            // The first picker did not work but this one did: use this one from now on.
+            if (ask.retried) preferredAction = ask.action;
             if (failed > 0) {
                 toast(failed == 1 ? "1 file couldn't be attached"
                         : failed + " files couldn't be attached");
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "attaching the file failed", e);
-            toast("Couldn't attach the file");
+            toastLong("Couldn't attach the file (hand-over: " + describe(e, null) + ")");
             completeDismissed(prompt, result);
         }
     }
@@ -299,11 +394,9 @@ final class FilePicker {
 
     /** Cancels a request that is still waiting for the picker (activity going away, or replaced). */
     void dismissPending() {
-        final FilePrompt prompt = pendingPrompt;
-        final GeckoResult<PromptResponse> result = pendingResult;
-        pendingPrompt = null;
-        pendingResult = null;
-        if (prompt != null && result != null) completeDismissed(prompt, result);
+        final Ask ask = pending;
+        pending = null;
+        if (ask != null) completeDismissed(ask.prompt, ask.result);
     }
 
     // ------------------------------------------------------------------
@@ -312,42 +405,99 @@ final class FilePicker {
 
     /**
      * Copies a picked file to cache/uploads/&lt;random&gt;/&lt;its own name&gt; and returns the
-     * file:// address of the copy, or null if it could not be read. Own folder per file, so two
-     * files with the same name never clash and the page still sees the real name.
+     * file:// address of the copy, or null if it could not be read (then the report says why).
+     * Own folder per file, so two files with the same name never clash and the page still sees
+     * the real name.
      */
-    private static Uri copyToCache(Context context, Uri source) {
+    private static Uri copyToCache(Context context, Uri source, CopyReport report) {
         File dir = null;
         try {
             if ("file".equals(source.getScheme())) {
                 final String path = source.getPath();
-                return path != null && new File(path).canRead() ? source : null;
+                if (path != null && new File(path).canRead()) return source;
+                report.reason = "file not readable [file://]";
+                return null;
             }
             final ContentResolver cr = context.getContentResolver();
             String name = UploadFiles.safeFileName(displayName(cr, source));
             final String type = cr.getType(source);
-            if (type != null) {
-                name = UploadFiles.withExtension(name,
-                        MimeTypeMap.getSingleton().getExtensionFromMimeType(type));
-            }
+            final String typeExt = type == null
+                    ? null : MimeTypeMap.getSingleton().getExtensionFromMimeType(type);
+            if (type != null) name = UploadFiles.withExtension(name, typeExt);
             dir = new File(new File(context.getCacheDir(), UPLOAD_DIR), UUID.randomUUID().toString());
-            if (!dir.mkdirs() && !dir.isDirectory()) return null;
-            final File out = new File(dir, name);
-            try (InputStream in = cr.openInputStream(source);
-                 OutputStream os = new FileOutputStream(out)) {
+            if (!dir.mkdirs() && !dir.isDirectory()) {
+                report.reason = "cache folder not writable";
+                return null;
+            }
+            try (InputStream in = openStream(cr, source)) {
                 if (in == null) {
+                    report.reason = "no data from the file provider [" + source.getAuthority() + "]";
                     deleteRecursively(dir);
                     return null;
                 }
-                final byte[] buf = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                File out = new File(dir, name);
+                OutputStream os;
+                try {
+                    os = new FileOutputStream(out);
+                } catch (FileNotFoundException nameRejected) {
+                    // The name itself was refused (too long for the file system, odd characters):
+                    // keep the file type, drop the name, rather than fail the whole upload.
+                    final String ext = UploadFiles.extensionOf(name);
+                    out = new File(dir, UploadFiles.withExtension(UploadFiles.FALLBACK_NAME, ext));
+                    os = new FileOutputStream(out);
+                }
+                try (OutputStream o = os) {
+                    final byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+                }
+                return Uri.fromFile(out);
             }
-            return Uri.fromFile(out);
         } catch (Exception | OutOfMemoryError e) {
             Log.w(TAG, "could not copy the chosen file", e);
+            report.reason = describe(e, source);
+            if (e instanceof SecurityException) report.denied = true;
             if (dir != null) deleteRecursively(dir);
             return null;
         }
+    }
+
+    /**
+     * Opens the picked file for reading. Most providers answer to openInputStream(); a few only to
+     * openAssetFileDescriptor(), so that is tried when the first one is refused.
+     */
+    private static InputStream openStream(ContentResolver cr, Uri uri) throws IOException {
+        try {
+            final InputStream in = cr.openInputStream(uri);
+            if (in != null) return in;
+        } catch (FileNotFoundException | SecurityException first) {
+            AssetFileDescriptor fd = null;
+            try {
+                fd = cr.openAssetFileDescriptor(uri, "r");
+            } catch (Exception ignored) {
+                // reported through `first` below
+            }
+            if (fd != null) return fd.createInputStream();
+            throw first;
+        }
+        final AssetFileDescriptor fd = cr.openAssetFileDescriptor(uri, "r");
+        return fd == null ? null : fd.createInputStream();
+    }
+
+    /** Short, human-readable reason for a failure: what happened and which file provider. */
+    private static String describe(Throwable e, Uri uri) {
+        final String where = uri == null ? null : uri.getScheme() + "://" + uri.getAuthority();
+        // A permission error's own message is long and adds nothing to "access refused".
+        if (e instanceof SecurityException) {
+            return "access refused" + (where == null ? "" : " [" + where + "]");
+        }
+        final StringBuilder b = new StringBuilder(e.getClass().getSimpleName());
+        final String m = e.getMessage();
+        if (m != null && !m.isEmpty()) {
+            b.append(": ").append(m.length() > 80 ? m.substring(0, 80) + "\u2026" : m);
+        }
+        if (where != null) b.append(" [").append(where).append(']');
+        return b.toString();
     }
 
     private static String displayName(ContentResolver cr, Uri uri) {
@@ -404,5 +554,9 @@ final class FilePicker {
 
     private void toast(String message) {
         Toast.makeText(activity, message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void toastLong(String message) {
+        Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
     }
 }
