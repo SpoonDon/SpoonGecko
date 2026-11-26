@@ -132,6 +132,22 @@
             android:parentActivityName=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- In-app Downloads Manager -->
+        <activity
+            android:name=".DownloadsActivity"
+            android:exported="false"
+            android:label="Downloads"
+            android:parentActivityName=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Consolidated Browser Settings -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="Settings"
+            android:parentActivityName=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- [UPLOAD] Serves temporary capture output URIs for web <input type=file capture>. -->
         <provider
             android:name=".UploadFileProvider"

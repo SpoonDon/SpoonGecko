@@ -136,11 +136,12 @@ public final class ExtensionManager {
     public static synchronized GeckoRuntime ensureRuntime(Context context) {
         ExtensionManager em = INSTANCE;
         if (em.runtime == null) {
+            final Context app = context.getApplicationContext();
             GeckoRuntimeSettings settings = new GeckoRuntimeSettings.Builder()
                     .contentBlocking(new ContentBlocking.Settings.Builder()
-                            .enhancedTrackingProtectionLevel(ContentBlocking.EtpLevel.STRICT)
+                            .enhancedTrackingProtectionLevel(BrowserSettings.getTrackingLevel(app).etpLevel)
                             .build())
-                    .trustedRecursiveResolverMode(GeckoRuntimeSettings.TRR_MODE_FIRST)
+                    .trustedRecursiveResolverMode(BrowserSettings.getDohMode(app).trrMode)
                     .fissionEnabled(true)
                     .remoteDebuggingEnabled(false)
                     // --- WebExtensions ---
@@ -155,9 +156,9 @@ public final class ExtensionManager {
                     // onFilePrompt ran (no picker, no toast, nothing). A browser app
                     // shows one page at a time and opens the picker itself, so the
                     // gate buys nothing here: turn it off.
-                    .configFilePath(getUploadPickerConfig(context))
+                    .configFilePath(getUploadPickerConfig(app))
                     .build();
-            em.runtime = GeckoRuntime.create(context.getApplicationContext(), settings);
+            em.runtime = GeckoRuntime.create(app, settings);
         }
         return em.runtime;
     }

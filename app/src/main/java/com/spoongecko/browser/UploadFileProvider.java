@@ -7,6 +7,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
@@ -18,9 +19,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * [UPLOAD] Exposes temporary capture files (cache/uploads/capture/...) as content:// URIs so
- * camera and camcorder apps can write captured media into the app cache without storage
- * permissions or external library dependencies.
+ * [UPLOAD] Exposes temporary capture files (cache/uploads/capture/...) and local downloads
+ * as content:// URIs without storage permissions or external library dependencies.
  */
 public final class UploadFileProvider extends ContentProvider {
 
@@ -41,6 +41,10 @@ public final class UploadFileProvider extends ContentProvider {
 
     static Uri uriForStagedFile(Context context, File file) throws IOException {
         return uriForFileUnder(context, stagedRoot(context), "staged", file);
+    }
+
+    static Uri uriForDownloadFile(Context context, File file) throws IOException {
+        return uriForFileUnder(context, downloadsRoot(context), "downloads", file);
     }
 
     private static Uri uriForFileUnder(Context context, File rootDir, String prefix, File file)
@@ -69,6 +73,12 @@ public final class UploadFileProvider extends ContentProvider {
 
     static File stagedRoot(Context context) {
         return new File(context.getCacheDir(), STAGED_SUBDIR);
+    }
+
+    static File downloadsRoot(Context context) {
+        File dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (dir == null) dir = new File(context.getFilesDir(), "downloads");
+        return dir;
     }
 
     @Override
@@ -178,6 +188,9 @@ public final class UploadFileProvider extends ContentProvider {
         } else if ("staged".equals(kind)) {
             if ("capture".equals(segments.get(1))) return null;
             baseRoot = stagedRoot(context);
+            readOnly = true;
+        } else if ("downloads".equals(kind)) {
+            baseRoot = downloadsRoot(context);
             readOnly = true;
         } else {
             return null;

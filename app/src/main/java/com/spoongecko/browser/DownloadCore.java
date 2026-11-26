@@ -4,20 +4,13 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 
 /**
- * The transfer itself: copy a stream into storage, with progress, cancellation
- * and cleanup. No Android classes, so every failure path can be tested.
- *
- * Guarantees:
- *   - the input stream is always closed;
- *   - on ANY failure or cancellation the half-written file is removed
- *     ({@link Sink#abort()}), so no truncated file is ever left looking like a
- *     finished download;
- *   - a stream that ends before the announced length is a failure, not a
- *     shorter "successful" file.
+ * The transfer itself: copy a stream into storage, with progress, pause,
+ * cancellation, range parsing and cleanup.
  */
 final class DownloadCore {
 
@@ -42,6 +35,27 @@ final class DownloadCore {
         }
     }
 
+    static final class PausedException extends IOException {
+        final long bytesDone;
+
+        PausedException(long bytesDone) {
+            super("Paused");
+            this.bytesDone = bytesDone;
+        }
+    }
+
+    static final class ContentRange {
+        final long start;
+        final long end;
+        final long total; // -1 if '*'
+
+        ContentRange(long start, long end, long total) {
+            this.start = start;
+            this.end = end;
+            this.total = total;
+        }
+    }
+
     static final class Result {
         final long bytes;
         final String finalName;
@@ -52,7 +66,7 @@ final class DownloadCore {
         }
     }
 
-    /** Limits how often progress is reported (each report becomes a notification update). */
+    /** Limits how often progress is reported (each report becomes a notification/UI update). */
     static final class Throttle {
         private final long minIntervalMs;
         private final LongSupplier clock;
@@ -77,20 +91,35 @@ final class DownloadCore {
 
     private static final int BUFFER_SIZE = 64 * 1024;
 
-    /**
-     * @param total announced length in bytes, or a value <= 0 if unknown
-     * @throws CancelledException when {@code cancelled} became true
-     */
     static Result run(InputStream in, Sink sink, long total, AtomicBoolean cancelled,
+                      Throttle throttle, Progress progress) throws IOException {
+        return run(in, sink, 0L, total, null, cancelled, true, throttle, progress);
+    }
+
+    /**
+     * @param initialDone bytes already present when resuming (0 for fresh transfers)
+     * @param total       announced full file length in bytes, or <= 0 if unknown
+     * @param paused      optional flag; stops transfer cleanly keeping partial file
+     * @param cancelled   optional flag; stops transfer and aborts sink
+     * @param abortOnError whether to call {@link Sink#abort()} if an I/O error occurs
+     */
+    static Result run(InputStream in, Sink sink, long initialDone, long total,
+                      AtomicBoolean paused, AtomicBoolean cancelled, boolean abortOnError,
                       Throttle throttle, Progress progress) throws IOException {
         OutputStream out = null;
         boolean committed = false;
+        boolean preservePartial = false;
+        long done = Math.max(0L, initialDone);
         try {
             out = sink.open();
             final byte[] buffer = new byte[BUFFER_SIZE];
-            long done = 0;
             while (true) {
-                if (cancelled.get()) throw new CancelledException();
+                if (cancelled != null && cancelled.get()) throw new CancelledException();
+                if (paused != null && paused.get()) {
+                    out.flush();
+                    preservePartial = true;
+                    throw new PausedException(done);
+                }
                 final int n = in.read(buffer);
                 if (n < 0) break;
                 if (n == 0) continue;
@@ -100,8 +129,14 @@ final class DownloadCore {
                     progress.onProgress(done, total);
                 }
             }
-            if (cancelled.get()) throw new CancelledException();
+            if (cancelled != null && cancelled.get()) throw new CancelledException();
+            if (paused != null && paused.get()) {
+                out.flush();
+                preservePartial = true;
+                throw new PausedException(done);
+            }
             if (total > 0 && done < total) {
+                if (!abortOnError) preservePartial = true;
                 throw new IOException("The download ended early (" + done + " of " + total + " bytes)");
             }
             out.flush();
@@ -109,11 +144,50 @@ final class DownloadCore {
             out = null;
             final String name = sink.commit();
             committed = true;
+            if (progress != null) progress.onProgress(done, total > 0 ? total : done);
             return new Result(done, name);
+        } catch (CancelledException e) {
+            preservePartial = false;
+            throw e;
+        } catch (PausedException e) {
+            preservePartial = true;
+            throw e;
+        } catch (IOException | RuntimeException e) {
+            if (cancelled != null && cancelled.get()) {
+                preservePartial = false;
+            } else if (paused != null && paused.get()) {
+                preservePartial = true;
+            } else if (!abortOnError) {
+                preservePartial = true;
+            }
+            throw e;
         } finally {
             closeQuietly(in);
             closeQuietly(out);
-            if (!committed) sink.abort();
+            if (!committed && !preservePartial) sink.abort();
+        }
+    }
+
+    /** Parses HTTP Content-Range headers such as {@code bytes 100-999/1000} or {@code bytes 100-999/*}. */
+    static ContentRange parseContentRange(String header) {
+        if (header == null) return null;
+        final String s = header.trim().toLowerCase(Locale.ROOT);
+        if (!s.startsWith("bytes ")) return null;
+        final String rest = s.substring(6).trim();
+        final int slash = rest.indexOf('/');
+        if (slash <= 0) return null;
+        final String rangePart = rest.substring(0, slash).trim();
+        final String totalPart = rest.substring(slash + 1).trim();
+        final int dash = rangePart.indexOf('-');
+        if (dash <= 0) return null;
+        try {
+            final long start = Long.parseLong(rangePart.substring(0, dash).trim());
+            final long end = Long.parseLong(rangePart.substring(dash + 1).trim());
+            final long total = "*".equals(totalPart) ? -1L : Long.parseLong(totalPart);
+            if (start < 0 || end < start) return null;
+            return new ContentRange(start, end, total >= 0 ? total : -1L);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

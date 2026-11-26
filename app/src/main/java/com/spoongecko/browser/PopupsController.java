@@ -37,7 +37,8 @@ public final class PopupsController {
         void onHome();
         void onShare();
         void onShowHistory();
-        void onShowExtensions();
+        void onShowSettings();
+        int activeDownloadCount();
         void onShowExit();
         /** [FIND] Open the find-in-page bar for the current page. */
         void onFindInPage();
@@ -122,10 +123,12 @@ public final class PopupsController {
         final String bookmarkLabel = host.bookmarkMenuLabel();     // [BOOKMARKS]
         if (bookmarkLabel != null) addMenuItem(container, bookmarkLabel, false, host::onToggleBookmark);
         addMenuItem(container, "Bookmarks", false, host::onShowBookmarks);
-        addMenuItem(container, "Extensions", false, host::onShowExtensions);
         addMenuItem(container, "History", false, host::onShowHistory);
         addMenuItem(container, "Find in page", false, host::onFindInPage);
-        addMenuItem(container, "Downloads", false, host::onShowDownloads);
+        final int activeDownloads = host.activeDownloadCount();
+        addMenuItem(container, activeDownloads > 0
+                ? "Downloads (" + activeDownloads + ")" : "Downloads", false, host::onShowDownloads);
+        addMenuItem(container, "Settings", false, host::onShowSettings);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
         // [FIT] With the extra row the menu can be taller than the space below the

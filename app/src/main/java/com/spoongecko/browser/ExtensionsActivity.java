@@ -228,8 +228,7 @@ public class ExtensionsActivity extends Activity {
         });
         browse.setOnClickListener(v -> {
             dialog.dismiss();
-            ExtensionManager.get().openInBrowserTab(AMO_ANDROID);
-            finish();
+            openBrowserTabAndFinish(AMO_ANDROID);
         });
         fromFile.setOnClickListener(v -> {
             dialog.dismiss();
@@ -314,13 +313,11 @@ public class ExtensionsActivity extends Activity {
         });        
         if (options != null) options.setOnClickListener(v -> {
             dialog.dismiss();
-            em.openInBrowserTab(ext.metaData.optionsPageUrl);
-            finish();   // [F12] reveal the tab that was just opened
+            openBrowserTabAndFinish(ext.metaData.optionsPageUrl);
         });
         if (homepage != null) homepage.setOnClickListener(v -> {
             dialog.dismiss();
-            em.openInBrowserTab(ext.metaData.homepageUrl);
-            finish();   // [F12] reveal the tab that was just opened
+            openBrowserTabAndFinish(ext.metaData.homepageUrl);
         });
         remove.setOnClickListener(v -> {
             dialog.dismiss();
@@ -332,6 +329,13 @@ public class ExtensionsActivity extends Activity {
                     .show());
         });
         close.setOnClickListener(v -> dialog.dismiss());
+    }
+
+    private void openBrowserTabAndFinish(String url) {
+        ExtensionManager.get().openInBrowserTab(url);
+        startActivity(new Intent(this, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        finish();
     }
 
     // ------------------------------------------------------------------

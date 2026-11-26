@@ -302,7 +302,7 @@ public final class BrowserDelegates {
                     // [DOWNLOAD] A link a PAGE started that points at a file (audio, video, text,
                     // archive ...) is a download, not something for the viewer or player to open.
                     // Typed addresses and loads the app starts itself are never touched.
-                    if (DownloadPolicy.shouldInterceptNavigation(uri,
+                    if (DownloadPolicy.shouldInterceptNavigation(activity, uri,
                             !request.isDirectNavigation && request.triggerUri != null)) {
                         final String referrer = request.triggerUri;
                         activity.runOnUiThread(() -> host.onDownloadLink(uri, referrer));

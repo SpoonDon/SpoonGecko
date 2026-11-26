@@ -44,15 +44,23 @@ final class PdfSupport {
      * and open it again: Gecko registers the viewer when it starts.
      */
     static void enableViewer() {
+        setViewerEnabled(true);
+    }
+
+    static void enableViewer(android.content.Context context) {
+        setViewerEnabled(BrowserSettings.isPdfViewerEnabled(context));
+    }
+
+    static void setViewerEnabled(boolean enabled) {
         try {
             GeckoPreferenceController.setGeckoPref(
-                    "pdfjs.disabled", false, GeckoPreferenceController.PREF_BRANCH_USER)
+                    "pdfjs.disabled", !enabled, GeckoPreferenceController.PREF_BRANCH_USER)
                     .exceptionally(e -> {
-                        Log.w(TAG, "could not turn on the PDF viewer", e);
+                        Log.w(TAG, "could not update the PDF viewer setting", e);
                         return null;
                     });
         } catch (RuntimeException e) {
-            Log.w(TAG, "could not turn on the PDF viewer", e);
+            Log.w(TAG, "could not update the PDF viewer setting", e);
         }
     }
 

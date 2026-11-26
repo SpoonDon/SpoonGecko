@@ -47,7 +47,6 @@ public class MainActivity extends Activity
                    FindInPageController.Host {
 
     private static final String TAG = "SpoonGecko";
-    private static final String BRAVE_SEARCH_URL = "https://search.brave.com/search?q=";
     /**
      * [SELECT] Background of selected text. On Android Gecko draws the selection as the app's
      * colorAccent at only ~31% opacity, which is invisible on a black page when the accent is
@@ -206,6 +205,9 @@ public class MainActivity extends Activity
         geckoView = findViewById(R.id.geckoview);
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
+        final String searchHint = BrowserSettings.homeSearchHint(this);
+        searchBar.setHint(searchHint);
+        searchBar.setContentDescription(searchHint);
         tabButton = findViewById(R.id.tab_button);
         tabCountText = findViewById(R.id.tab_count_text);
         forwardButton = findViewById(R.id.forward_button);
@@ -261,7 +263,7 @@ public class MainActivity extends Activity
 
         sRuntime = ensureRuntime(this);
         applySelectionColor();   // [SELECT] visible text-selection highlight on dark pages
-        PdfSupport.enableViewer();   // [PDF] GeckoView ships its PDF viewer switched off
+        PdfSupport.enableViewer(this);   // [PDF] GeckoView ships its PDF viewer switched off
         PageTranslator.enableOffers(sRuntime);   // [TRANSLATE] the engine may offer to translate pages
 
         // --- Extension support -------------------------------------------------
@@ -370,7 +372,7 @@ public class MainActivity extends Activity
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
                 String q = searchBar.getText().toString().trim();
                 if (!TextUtils.isEmpty(q)) {
-                    navigateToUrl(BRAVE_SEARCH_URL + urlEncode(q));
+                    navigateToUrl(BrowserSettings.searchUrlForQuery(MainActivity.this, q));
                     searchBar.setText("");
                     searchBar.clearFocus();
                 }
@@ -457,7 +459,7 @@ public class MainActivity extends Activity
     private void searchSelectedText(String text) {
         if (destroying || text == null || text.isEmpty()) return;
         // A new tab like "Open link in new tab": Back on its first page returns to this tab.
-        onOpenInNewTab(BRAVE_SEARCH_URL + urlEncode(text));
+        onOpenInNewTab(BrowserSettings.searchUrlForQuery(this, text));
     }
 
     /**
@@ -491,6 +493,9 @@ public class MainActivity extends Activity
     private Tab addNewTab(GeckoSession.SessionState state, boolean privateMode) {
         Tab tab = (state != null) ? tabManager.createTabWithState(state)
                                   : tabManager.createTab(privateMode);
+        if (state == null && BrowserSettings.isDefaultDesktopMode(this)) {
+            setDesktopMode(tab, true);
+        }
         attachDelegates(tab);   // [SELECT]
         tab.session.open(sRuntime);
         tabManager.notifyTabsChanged();
@@ -755,12 +760,8 @@ public class MainActivity extends Activity
         if (url != null) {
             navigateToUrl(url);
         } else {
-            navigateToUrl(BRAVE_SEARCH_URL + urlEncode(input));
+            navigateToUrl(BrowserSettings.searchUrlForQuery(this, input));
         }
-    }
-
-    private static String urlEncode(String s) {
-        return Uri.encode(s);
     }
 
     // ------------------------------------------------------------------
@@ -973,8 +974,11 @@ public class MainActivity extends Activity
         final String currentTitle = t != null ? t.title : null;
         bookmarksDialog.show(currentUrl, currentTitle, this::navigateToUrl);
     }
-    @Override public void onShowExtensions() {
-        startActivity(new Intent(this, ExtensionsActivity.class));
+    @Override public void onShowSettings() {
+        startActivity(new Intent(this, SettingsActivity.class));
+    }
+    @Override public int activeDownloadCount() {
+        return DownloadEngine.get(this).getActiveCount();
     }
     @Override public void onShowExit() { showExitConfirmation(); }
     // [FIND] PopupsController.Host + FindInPageController.Host
@@ -1240,23 +1244,10 @@ public class MainActivity extends Activity
         // Every other permission (location, notifications ...) still gets its dialog.
         if (type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
                 || type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE) {
-            result.complete(autoplayAnswer(type));
+            result.complete(BrowserSettings.autoplayAnswer(this, type));
             return;
         }
         dialogs.showContentPermissionDialog(uri, type, result);
-    }
-
-    /**
-     * [AUTOPLAY] The answer to an autoplay request, with no dialog. It does what other
-     * browsers do: muted video may start by itself, sound may not until the user taps the
-     * page. A tap on the page lifts the restriction for that page, so playing a video on
-     * purpose is never affected. To allow sound autoplay as well, return VALUE_ALLOW for
-     * every autoplay request here.
-     */
-    private static Integer autoplayAnswer(int type) {
-        return type == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
-                ? GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
-                : GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY;
     }
 
     @Override public void showMediaPermissionDialog(String uri,
@@ -1421,49 +1412,7 @@ public class MainActivity extends Activity
     }
 
     @Override public void onShowDownloads() {
-        // [DOWNLOAD] Open the folder the files land in with the device's file
-        // manager: the system Files app (and most third-party managers) handle
-        // ACTION_VIEW on a directory document. The system downloads list is only
-        // the fallback now — on several devices it is missing, and on others it
-        // hides the files this app saves through MediaStore.
-        if (openInFileManager(downloadsDocumentId())) return;
-        try {
-            startActivity(new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS));
-        } catch (Exception e) {
-            Log.w(TAG, "no app can show the downloads", e);
-            android.widget.Toast.makeText(this, "No app can show the downloads list",
-                    android.widget.Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    /** [DOWNLOAD] Shows a folder through any installed file manager; false if none took it. */
-    private boolean openInFileManager(String documentId) {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(
-                    DocumentsContract.buildDocumentUri(
-                            "com.android.externalstorage.documents", documentId),
-                    DocumentsContract.Document.MIME_TYPE_DIR));
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "no file manager for the Downloads folder", e);
-            return false;
-        }
-    }
-
-    /**
-     * [DOWNLOAD] The folder DownloadEngine writes to, as a document ID of the
-     * external-storage provider ("primary" is the phone's main storage):
-     * Android 10+ saves into the public Downloads folder through MediaStore;
-     * older versions use the app's own external Downloads folder.
-     */
-    private String downloadsDocumentId() {
-        if (Build.VERSION.SDK_INT >= 29) {
-            return "primary:" + Environment.DIRECTORY_DOWNLOADS;
-        }
-        final File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-        if (dir == null) return "primary:" + Environment.DIRECTORY_DOWNLOADS;
-        return "primary:Android/data/" + getPackageName()
-                + "/files/" + Environment.DIRECTORY_DOWNLOADS;
+        startActivity(new Intent(this, DownloadsActivity.class));
     }
 
     /** Fallback only: Android's DownloadManager can't use cookies, POST bodies or blob: URLs. */
@@ -1690,6 +1639,11 @@ public class MainActivity extends Activity
 
     @Override protected void onResume() {
         super.onResume();
+        if (searchBar != null) {
+            final String hint = BrowserSettings.homeSearchHint(this);
+            searchBar.setHint(hint);
+            searchBar.setContentDescription(hint);
+        }
         ExtensionManager.get().setCurrentActivity(this);   // for extension prompts/popups
         resumed = true;
         claimSharedServices();   // [WINDOW]

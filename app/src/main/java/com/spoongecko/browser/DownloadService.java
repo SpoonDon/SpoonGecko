@@ -62,11 +62,14 @@ public final class DownloadService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         final String action = intent == null ? null : intent.getAction();
         if (action != null) {
-            // Cancel / Retry buttons on a download notification.
+            // Pause / Cancel / Retry buttons on a download notification.
             final DownloadEngine engine = DownloadEngine.get(this);
-            final int id = intent.getIntExtra(DownloadEngine.EXTRA_ID, -1);
-            if (DownloadEngine.ACTION_CANCEL.equals(action)) engine.cancel(id);
-            else if (DownloadEngine.ACTION_RETRY.equals(action)) engine.retry(id);
+            final long id = intent.getLongExtra(DownloadEngine.EXTRA_ID, -1L);
+            if (DownloadEngine.ACTION_PAUSE.equals(action)) engine.pause(id);
+            else if (DownloadEngine.ACTION_CANCEL.equals(action)) engine.cancel(id);
+            else if (DownloadEngine.ACTION_RETRY.equals(action)) {
+                engine.resumeOrRetry(ExtensionManager.ensureRuntime(this), id);
+            }
             if (!engine.hasActiveJobs()) shutdown();
             return START_NOT_STICKY;
         }

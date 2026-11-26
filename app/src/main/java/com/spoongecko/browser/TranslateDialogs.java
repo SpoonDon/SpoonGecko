@@ -112,6 +112,20 @@ final class TranslateDialogs {
         translator.whenLanguagesLoaded(this::buildTranslate);
     }
 
+    /** Opens the default target language picker directly (used from Settings). */
+    void showTargetLanguagePicker(final Runnable onPicked) {
+        if (finishing()) return;
+        translator.whenLanguagesLoaded(() -> {
+            if (finishing()) return;
+            final String current = TranslationLanguages.match(
+                    translator.targetLanguage(), codes(translator.toLanguages()));
+            pickLanguage("Default target language", translator.toLanguages(), current, lang -> {
+                translator.setTarget(lang.code);
+                if (onPicked != null) onPicked.run();
+            });
+        });
+    }
+
     private void buildTranslate() {
         if (finishing()) return;
         final PageTranslator.PageInfo page = translator.currentPage();
@@ -345,11 +359,15 @@ final class TranslateDialogs {
 
     /** Opens the list of rules once they are known. */
     void showRules() {
-        if (finishing()) return;
-        translator.whenRulesLoaded(this::buildRules);
+        showRules(null);
     }
 
-    private void buildRules() {
+    void showRules(final Runnable onChanged) {
+        if (finishing()) return;
+        translator.whenRulesLoaded(() -> buildRules(onChanged));
+    }
+
+    private void buildRules(final Runnable onChanged) {
         if (finishing()) return;
         final Dialog d = newDialog(R.layout.dialog_language_rules, 0.92f, 0f);
         final ListView list = d.findViewById(R.id.lr_list);
@@ -363,6 +381,7 @@ final class TranslateDialogs {
             empty.setVisibility(none ? View.VISIBLE : View.GONE);
             list.setVisibility(none ? View.GONE : View.VISIBLE);
             fitHeight(list, adapter);
+            if (onChanged != null) onChanged.run();
         };
         reload.run();
         // [RESIZE] How tall the list may be depends on the window: work it out again on a resize.

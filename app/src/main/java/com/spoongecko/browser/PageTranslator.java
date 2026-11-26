@@ -106,6 +106,7 @@ final class PageTranslator {
     private final Map<GeckoSession, Page> pages = new WeakHashMap<>();
 
     // Bound to the activity while it exists.
+    private Context appContext;
     private Activity activity;
     private TabManager tabs;
     private SharedPreferences prefs;
@@ -151,14 +152,21 @@ final class PageTranslator {
     // Wiring (called from MainActivity)
     // ------------------------------------------------------------------
 
+    void ensureContext(Context context) {
+        if (context == null) return;
+        this.appContext = context.getApplicationContext();
+        if (this.prefs == null) {
+            this.prefs = this.appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        }
+    }
+
     /** Called once per activity, before any tab is attached. */
     void bind(Activity activity, FrameLayout parent, TabManager tabManager) {
         unbind();
         this.activity = activity;
         this.tabs = tabManager;
         this.bannerParent = parent;
-        this.prefs = activity.getApplicationContext()
-                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        ensureContext(activity);
         this.dialogs = new TranslateDialogs(activity, this);
         inflateBanner(parent);
     }
@@ -176,7 +184,6 @@ final class PageTranslator {
         dialogs = null;
         activity = null;
         tabs = null;
-        prefs = null;
         fullScreen = false;
     }
 
@@ -223,9 +230,11 @@ final class PageTranslator {
         }
     }
 
-    /** The menu entry, or null when this device cannot translate. */
+    /** The menu entry, or null when on the home page or when this device cannot translate. */
     String menuLabel() {
-        if (activity == null || Boolean.FALSE.equals(engineSupported)) return null;
+        if (activity == null || Boolean.FALSE.equals(engineSupported) || currentPage() == null) {
+            return null;
+        }
         return "Translate\u2026";
     }
 
@@ -943,7 +952,8 @@ final class PageTranslator {
     // ------------------------------------------------------------------
 
     void toast(String message) {
-        if (activity != null) Toast.makeText(activity, message, Toast.LENGTH_SHORT).show();
+        final Context c = activity != null ? activity : appContext;
+        if (c != null) Toast.makeText(c, message, Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int v) {

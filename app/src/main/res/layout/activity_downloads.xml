@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FF000000"
+    android:fitsSystemWindows="true">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="8dp">
+
+        <ImageButton
+            android:id="@+id/btn_dl_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_back"
+            android:background="@drawable/bg_glass_button"
+            android:scaleType="centerInside"
+            android:contentDescription="Back" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Downloads"
+                android:textColor="#FFFFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/dl_summary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="No downloads"
+                android:textColor="#99FFFFFF"
+                android:textSize="12sp"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btn_dl_folder"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_folder"
+            android:background="@drawable/bg_glass_button"
+            android:scaleType="centerInside"
+            android:contentDescription="Open Downloads folder" />
+
+        <ImageButton
+            android:id="@+id/btn_dl_add"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_add"
+            android:background="@drawable/bg_glass_button"
+            android:scaleType="centerInside"
+            android:contentDescription="Add download URL" />
+    </LinearLayout>
+
+    <!-- Filter chips -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/dl_filter_all"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="All"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_chip_selected"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/dl_filter_active"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="Active"
+            android:textColor="#99FFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/dl_filter_completed"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Completed"
+            android:textColor="#99FFFFFF"
+            android:textSize="12sp"
+            android:background="@drawable/bg_chip"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!-- Bulk actions -->
+    <LinearLayout
+        android:id="@+id/dl_bulk_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/btn_dl_pause_all"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="Pause all"
+            android:textColor="#FFFFFFFF"
+            android:textSize="11sp"
+            android:background="@drawable/bg_glass_button"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/btn_dl_resume_all"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="Resume all"
+            android:textColor="#FFFFFFFF"
+            android:textSize="11sp"
+            android:background="@drawable/bg_glass_button"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/btn_dl_clear_finished"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Clear finished"
+            android:textColor="#FFFF8888"
+            android:textSize="11sp"
+            android:background="@drawable/bg_glass_button_red"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/dl_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="#22FFFFFF"
+        android:dividerHeight="1dp"
+        android:clipToPadding="true"
+        android:paddingBottom="12dp" />
+
+    <TextView
+        android:id="@+id/dl_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:padding="28dp"
+        android:text="No downloads yet.\nFiles you save from web pages or add with + appear here."
+        android:textColor="#66FFFFFF"
+        android:textSize="14sp" />
+</LinearLayout>

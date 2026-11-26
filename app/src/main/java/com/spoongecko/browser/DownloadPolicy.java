@@ -29,7 +29,7 @@ final class DownloadPolicy {
 
     private DownloadPolicy() {}
 
-    /** Master switch: set to false to restore the old behaviour for plain links. */
+    /** Master switch default: overridden at runtime by {@link BrowserSettings#isAutoDownloadLinks}. */
     static final boolean AUTO_DOWNLOAD_LINKS = true;
 
     private static final Set<String> FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
@@ -53,6 +53,10 @@ final class DownloadPolicy {
     /** Whether this navigation should be turned into a download. */
     static boolean shouldInterceptNavigation(String url, boolean initiatedByPage) {
         return AUTO_DOWNLOAD_LINKS && initiatedByPage && isDownloadLinkUrl(url);
+    }
+
+    static boolean shouldInterceptNavigation(android.content.Context context, String url, boolean initiatedByPage) {
+        return BrowserSettings.isAutoDownloadLinks(context) && initiatedByPage && isDownloadLinkUrl(url);
     }
 
     /** http(s) URL whose last path segment ends in a file extension from the list above. */

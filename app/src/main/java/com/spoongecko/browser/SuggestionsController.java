@@ -27,7 +27,6 @@ import java.util.Set;
  */
 public final class SuggestionsController {
 
-    private static final String SEARCH_ENGINE_URL = "https://search.brave.com/search?q=";
     private static final int MAX_TOTAL_SUGGESTIONS = 8;
     private static final int MAX_REMOTE_SUGGESTIONS = 6;
     private static final int MAX_HISTORY_WHEN_MERGED = 4;
@@ -117,7 +116,8 @@ public final class SuggestionsController {
         if (!urlBar.getText().toString().trim().equals(q)) return;
 
         final int token = ++generation;
-        final boolean fetchRemote = SearchSuggestionsClient.shouldFetchRemote(q);
+        final boolean fetchRemote = BrowserSettings.isSearchSuggestionsEnabled(activity)
+                && SearchSuggestionsClient.shouldFetchRemote(q);
 
         final List<HistoryStore.Entry> historyHolder = new ArrayList<>();
         final List<String> remoteHolder = new ArrayList<>();
@@ -159,8 +159,8 @@ public final class SuggestionsController {
         }
     }
 
-    private static List<SuggestionItem> buildMerged(List<HistoryStore.Entry> historyEntries,
-                                                    List<String> remoteQueries) {
+    private List<SuggestionItem> buildMerged(List<HistoryStore.Entry> historyEntries,
+                                               List<String> remoteQueries) {
         final List<SuggestionItem> out = new ArrayList<>(MAX_TOTAL_SUGGESTIONS);
         final int historyCap = remoteQueries.isEmpty()
                 ? MAX_TOTAL_SUGGESTIONS : MAX_HISTORY_WHEN_MERGED;
@@ -175,6 +175,7 @@ public final class SuggestionsController {
             out.add(new SuggestionItem(false, title, shown, e.url));
         }
 
+        final String engineLabel = BrowserSettings.getSearchEngine(activity).displayName;
         for (String pred : remoteQueries) {
             if (out.size() >= MAX_TOTAL_SUGGESTIONS) break;
             if (pred == null) continue;
@@ -184,8 +185,8 @@ public final class SuggestionsController {
                 out.add(new SuggestionItem(
                         true,
                         clean,
-                        "DuckDuckGo suggestion",
-                        SEARCH_ENGINE_URL + Uri.encode(clean)));
+                        "Search with " + engineLabel,
+                        BrowserSettings.searchUrlForQuery(activity, clean)));
             }
         }
         return out;
