@@ -57,6 +57,10 @@ public final class BrowserPrompts implements GeckoSession.PromptDelegate {
         this.filePicker = new FilePicker(activity);
     }
 
+    FilePicker getFilePicker() {
+        return filePicker;
+    }
+
     /** Lets a GeckoResult be completed exactly once. */
     private static final class Once {
         private boolean done;

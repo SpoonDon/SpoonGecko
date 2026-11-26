@@ -6,9 +6,14 @@ import android.net.Uri;
 import android.util.Log;
 
 import org.mozilla.geckoview.ContentBlocking;
+import org.mozilla.geckoview.GeckoPreferenceController;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
+
+import java.net.InetAddress;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * Central browser preferences backed by SharedPreferences ("spoongecko_prefs").
@@ -26,6 +31,13 @@ final class BrowserSettings {
     private static final String KEY_AUTOPLAY_POLICY = "pref_autoplay_policy";
     private static final String KEY_TRACKING_LEVEL = "pref_tracking_level";
     private static final String KEY_DOH_MODE = "pref_doh_mode";
+    private static final String KEY_DNS_PROVIDER = "pref_dns_provider";
+    private static final String KEY_CUSTOM_DOH_URI = "pref_custom_doh_uri";
+    private static final String KEY_DNS_BOOTSTRAP_IP = "pref_dns_bootstrap_ip";
+    private static final String KEY_DNS_ALLOW_LOCAL = "pref_dns_allow_local";
+
+    private static final Pattern NUMERIC_IPV4 = Pattern.compile(
+            "^((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)$");
 
     enum SearchEngine {
         BRAVE("brave", "Brave Search", "https://search.brave.com/search?q="),
@@ -124,6 +136,48 @@ final class BrowserSettings {
                 }
             }
             return FIRST;
+        }
+    }
+
+    enum DnsProvider {
+        DEFAULT("default", "Default", "Browser default", "", ""),
+        CLOUDFLARE("cloudflare", "Cloudflare", "Cloudflare (1.1.1.1)",
+                "https://mozilla.cloudflare-dns.com/dns-query", "1.1.1.1"),
+        CLOUDFLARE_SECURITY("cloudflare_sec", "Cloudflare Security",
+                "Cloudflare Security (Malware filter)",
+                "https://security.cloudflare-dns.com/dns-query", "1.1.1.2"),
+        QUAD9("quad9", "Quad9", "Quad9 (9.9.9.9)",
+                "https://dns.quad9.net/dns-query", "9.9.9.9"),
+        ADGUARD("adguard", "AdGuard DNS", "AdGuard DNS (Ad & tracker filter)",
+                "https://dns.adguard-dns.com/dns-query", "94.140.14.14"),
+        MULLVAD("mullvad", "Mullvad DNS", "Mullvad DNS",
+                "https://dns.mullvad.net/dns-query", "194.242.2.2"),
+        GOOGLE("google", "Google", "Google Public DNS (8.8.8.8)",
+                "https://dns.google/dns-query", "8.8.8.8"),
+        CUSTOM("custom", "Custom", "Custom DoH URL", "", "");
+
+        final String key;
+        final String shortName;
+        final String displayName;
+        final String uri;
+        final String defaultBootstrapIp;
+
+        DnsProvider(String key, String shortName, String displayName,
+                    String uri, String defaultBootstrapIp) {
+            this.key = key;
+            this.shortName = shortName;
+            this.displayName = displayName;
+            this.uri = uri;
+            this.defaultBootstrapIp = defaultBootstrapIp;
+        }
+
+        static DnsProvider fromKey(String key) {
+            if (key != null) {
+                for (DnsProvider p : values()) {
+                    if (p.key.equals(key)) return p;
+                }
+            }
+            return DEFAULT;
         }
     }
 
@@ -230,6 +284,91 @@ final class BrowserSettings {
         prefs(ctx).edit().putString(KEY_DOH_MODE, mode.key).apply();
     }
 
+    static DnsProvider getDnsProvider(Context ctx) {
+        return DnsProvider.fromKey(prefs(ctx).getString(KEY_DNS_PROVIDER, DnsProvider.DEFAULT.key));
+    }
+
+    static String getCustomDohUri(Context ctx) {
+        return prefs(ctx).getString(KEY_CUSTOM_DOH_URI, "");
+    }
+
+    static String getDnsBootstrapIp(Context ctx) {
+        return prefs(ctx).getString(KEY_DNS_BOOTSTRAP_IP, "");
+    }
+
+    static boolean isDnsAllowLocalEnabled(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_DNS_ALLOW_LOCAL, true);
+    }
+
+    static void setDnsConfig(Context ctx, DohMode mode, DnsProvider provider,
+                             String customUri, String bootstrapIp, boolean allowLocal) {
+        prefs(ctx).edit()
+                .putString(KEY_DOH_MODE, (mode != null ? mode : DohMode.FIRST).key)
+                .putString(KEY_DNS_PROVIDER, (provider != null ? provider : DnsProvider.DEFAULT).key)
+                .putString(KEY_CUSTOM_DOH_URI, customUri == null ? "" : customUri.trim())
+                .putString(KEY_DNS_BOOTSTRAP_IP, bootstrapIp == null ? "" : bootstrapIp.trim())
+                .putBoolean(KEY_DNS_ALLOW_LOCAL, allowLocal)
+                .apply();
+    }
+
+    static String effectiveDohUri(Context ctx) {
+        final DnsProvider p = getDnsProvider(ctx);
+        if (p == DnsProvider.CUSTOM) {
+            final String custom = getCustomDohUri(ctx).trim();
+            return isValidDohUrl(custom) ? custom : "";
+        }
+        return p.uri;
+    }
+
+    static String effectiveBootstrapIp(Context ctx) {
+        final String explicit = getDnsBootstrapIp(ctx).trim();
+        if (!explicit.isEmpty() && isValidBootstrapIp(explicit)) {
+            return explicit;
+        }
+        final DnsProvider p = getDnsProvider(ctx);
+        return p != DnsProvider.CUSTOM ? p.defaultBootstrapIp : "";
+    }
+
+    static boolean isValidDohUrl(String raw) {
+        if (raw == null) return false;
+        final String s = raw.trim();
+        if (s.isEmpty() || s.contains(" ") || s.contains("\n")) return false;
+        if (!s.toLowerCase(Locale.ROOT).startsWith("https://")) return false;
+        final Uri uri = Uri.parse(s);
+        final String host = uri.getHost();
+        return host != null && !host.trim().isEmpty();
+    }
+
+    static boolean isValidBootstrapIp(String raw) {
+        if (raw == null) return true;
+        final String s = raw.trim();
+        if (s.isEmpty()) return true;
+        if (NUMERIC_IPV4.matcher(s).matches()) return true;
+        // IPv6 literal check without performing DNS resolution
+        if (!s.contains(":")) return false;
+        try {
+            final InetAddress addr = InetAddress.getByName(s);
+            return addr != null && s.indexOf('%') < 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static String dohSummary(Context ctx) {
+        final DohMode mode = getDohMode(ctx);
+        if (mode == DohMode.OFF) {
+            return mode.displayName;
+        }
+        final DnsProvider provider = getDnsProvider(ctx);
+        if (provider == DnsProvider.CUSTOM) {
+            final String url = getCustomDohUri(ctx).trim();
+            final Uri parsed = url.isEmpty() ? null : Uri.parse(url);
+            final String host = parsed != null && parsed.getHost() != null ? parsed.getHost() : url;
+            return mode.displayName + " \u00b7 " + (host.isEmpty() ? "Custom" : host);
+        }
+        return mode.displayName + " \u00b7 " + provider.shortName;
+    }
+
     static void applyRuntimeSettings(Context ctx, GeckoRuntime runtime) {
         if (runtime == null) return;
         try {
@@ -238,6 +377,39 @@ final class BrowserSettings {
             settings.setTrustedRecursiveResolverMode(getDohMode(ctx).trrMode);
         } catch (RuntimeException e) {
             Log.w(TAG, "applying runtime settings failed", e);
+        }
+        applyDnsPrefs(ctx);
+    }
+
+    static void applyDnsPrefs(Context ctx) {
+        final DohMode mode = getDohMode(ctx);
+        final String uri = effectiveDohUri(ctx);
+        final String bootstrap = effectiveBootstrapIp(ctx);
+        final boolean allowLocal = isDnsAllowLocalEnabled(ctx);
+        setPrefQuietly("network.trr.mode", mode.trrMode);
+        setPrefQuietly("network.trr.uri", uri);
+        setPrefQuietly("network.trr.custom_uri", uri);
+        setPrefQuietly("network.trr.bootstrapAddr", bootstrap);
+        setPrefQuietly("network.trr.allow-rfc1918", allowLocal);
+    }
+
+    private static void setPrefQuietly(String pref, Object value) {
+        try {
+            if (value instanceof Boolean) {
+                GeckoPreferenceController.setGeckoPref(
+                        pref, (Boolean) value, GeckoPreferenceController.PREF_BRANCH_USER)
+                        .exceptionally(e -> { Log.w(TAG, "pref failed: " + pref, e); return null; });
+            } else if (value instanceof Integer) {
+                GeckoPreferenceController.setGeckoPref(
+                        pref, (Integer) value, GeckoPreferenceController.PREF_BRANCH_USER)
+                        .exceptionally(e -> { Log.w(TAG, "pref failed: " + pref, e); return null; });
+            } else if (value instanceof String) {
+                GeckoPreferenceController.setGeckoPref(
+                        pref, (String) value, GeckoPreferenceController.PREF_BRANCH_USER)
+                        .exceptionally(e -> { Log.w(TAG, "pref failed: " + pref, e); return null; });
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not set Gecko pref " + pref, e);
         }
     }
 }

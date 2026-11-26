@@ -47,6 +47,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -104,15 +105,22 @@ public final class ExtensionManager {
 
     private ExtensionManager() {}
 
+    private static final String DROP_HELPER_ID = "dragdrop@spoongecko.internal";
+    private static final String DROP_HELPER_ASSET = "resource://android/assets/dragdrop/";
+    static final String DROP_HELPER_PORT = "spoongeckoDrop";
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, WebExtension> installed = new LinkedHashMap<>();
     private final Map<String, WebExtension.Action> toolbarActions = new LinkedHashMap<>();
     private final Map<Activity, List<Dialog>> dialogsByActivity = new HashMap<>();
     private final List<Listener> listeners = new ArrayList<>();
+    private final Map<GeckoSession, WebExtension.MessageDelegate> dropDelegates = new WeakHashMap<>();
 
     private Context appContext;
     private GeckoRuntime runtime;
     private WebExtensionController controller;
+    private WebExtension dropHelperExtension;
+    private boolean installingDropHelper = false;
     private Host host;
     private Activity currentActivity;
     private LinearLayout toolbarContainer;
@@ -159,6 +167,7 @@ public final class ExtensionManager {
                     .configFilePath(getUploadPickerConfig(app))
                     .build();
             em.runtime = GeckoRuntime.create(app, settings);
+            BrowserSettings.applyDnsPrefs(app);
         }
         return em.runtime;
     }
@@ -198,8 +207,73 @@ public final class ExtensionManager {
             controller.setAddonManagerDelegate(addonManagerDelegate);
             controller.setExtensionProcessDelegate(extensionProcessDelegate);
         }
+        ensureDropHelperInstalled();
         refresh();
         applyAutoUpdateSchedule();
+    }
+
+    private void ensureDropHelperInstalled() {
+        final WebExtensionController c = controller;
+        if (c == null || dropHelperExtension != null || installingDropHelper) return;
+        installingDropHelper = true;
+        try {
+            c.installBuiltIn(DROP_HELPER_ASSET).accept(ext -> {
+                installingDropHelper = false;
+                if (ext != null) {
+                    dropHelperExtension = ext;
+                    attachPendingDropDelegates();
+                }
+            }, error -> {
+                installingDropHelper = false;
+                Log.w(TAG, "built-in dragdrop extension install failed", error);
+            });
+        } catch (RuntimeException e) {
+            installingDropHelper = false;
+            Log.w(TAG, "built-in dragdrop extension setup failed", e);
+        }
+    }
+
+    public void attachDropHelper(GeckoSession session, WebExtension.MessageDelegate delegate) {
+        if (session == null || delegate == null) return;
+        dropDelegates.put(session, delegate);
+        final WebExtension ext = dropHelperExtension;
+        if (ext != null) {
+            try {
+                session.getWebExtensionController().setMessageDelegate(ext, delegate, DROP_HELPER_PORT);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "setMessageDelegate failed for dragdrop", e);
+            }
+        } else {
+            ensureDropHelperInstalled();
+        }
+    }
+
+    public void detachDropHelper(GeckoSession session) {
+        if (session == null) return;
+        dropDelegates.remove(session);
+        final WebExtension ext = dropHelperExtension;
+        if (ext != null) {
+            try {
+                session.getWebExtensionController().setMessageDelegate(ext, null, DROP_HELPER_PORT);
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void attachPendingDropDelegates() {
+        final WebExtension ext = dropHelperExtension;
+        if (ext == null || dropDelegates.isEmpty()) return;
+        for (Map.Entry<GeckoSession, WebExtension.MessageDelegate> entry
+                : new ArrayList<>(dropDelegates.entrySet())) {
+            final GeckoSession session = entry.getKey();
+            final WebExtension.MessageDelegate delegate = entry.getValue();
+            if (session == null || delegate == null) continue;
+            try {
+                session.getWebExtensionController().setMessageDelegate(ext, delegate, DROP_HELPER_PORT);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "re-attaching dragdrop delegate failed", e);
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -224,6 +298,11 @@ public final class ExtensionManager {
             installed.clear();
             if (extensions != null) {
                 for (WebExtension ext : extensions) {
+                    if (ext != null && DROP_HELPER_ID.equals(ext.id)) {
+                        dropHelperExtension = ext;
+                        attachPendingDropDelegates();
+                        continue;
+                    }
                     installed.put(ext.id, ext);
                     attachDelegates(ext);
                 }

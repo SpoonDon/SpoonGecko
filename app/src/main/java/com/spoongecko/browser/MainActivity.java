@@ -132,6 +132,7 @@ public class MainActivity extends Activity
     private BrowserDialogs dialogs;
     private BrowserPrompts prompts;
     private BrowserDelegates delegates;
+    private DragDropController dragDrop;
 
     BrowserPrompts getPrompts() { return prompts; }
     private FindInPageController findInPage; // [FIND] the find-in-page bar
@@ -272,6 +273,13 @@ public class MainActivity extends Activity
         ExtensionManager.get().attachToolbar(extensionActions);
         extensionOwner = this;   // [WINDOW] the extension buttons are set up for this window now
         ExtensionManager.get().maybeCheckForUpdatesOnStartup();
+        dragDrop = new DragDropController(
+                this,
+                geckoView,
+                (FrameLayout) findViewById(R.id.content_container),
+                screen,
+                tabManager,
+                prompts.getFilePicker());
         // [DOWNLOAD] leftovers of a run that was killed. Only the first window of the process may
         // do this: a window opened later would clear the notifications of downloads in progress.
         if (firstWindow) DownloadEngine.get(this).clearStaleNotifications();
@@ -452,7 +460,8 @@ public class MainActivity extends Activity
         delegates.attach(tab);
         tab.session.setSelectionActionDelegate(
                 new SearchSelectionDelegate(this, this::searchSelectedText));
-        PageTranslator.get().attach(tab);   // [TRANSLATE]            
+        PageTranslator.get().attach(tab);   // [TRANSLATE]
+        if (dragDrop != null) dragDrop.attachSession(tab.session);
     }
 
     /** [SELECT] "Search" in the selection menu: the selected text is searched in a new tab. */
@@ -1783,6 +1792,7 @@ public class MainActivity extends Activity
         if (historyDialog != null) historyDialog.dismiss();   // [HISTORY]
         if (bookmarksDialog != null) bookmarksDialog.dismiss();   // [BOOKMARKS]
         if (prompts != null) prompts.dismissAll();   // [UPLOAD] cancels a file pick that is still waiting
+        if (dragDrop != null) dragDrop.destroy();
         // [FIX] A dialog that is still up when the window goes away leaks its window ("Activity
         // has leaked window" in the log). The permission and site dialogs are tracked for exactly
         // this moment but were never closed, and the two local-network ones were not even kept.

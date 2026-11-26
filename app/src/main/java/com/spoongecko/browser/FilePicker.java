@@ -24,6 +24,7 @@ import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -90,13 +91,15 @@ final class FilePicker {
     private static final String UPLOAD_DIR = "uploads";
     private static final long KEEP_COPIES_MS = 24L * 60 * 60 * 1000;
     private static final long CLEANUP_INTERVAL_MS = 60L * 60 * 1000;
-    private static final long BIG_FILE_BYTES = 8L * 1024 * 1024;
+    static final long BIG_FILE_BYTES = 8L * 1024 * 1024;
 
-    private enum PickerMode {
+    enum PickerMode {
         OPEN_DOCUMENT("ACTION_OPEN_DOCUMENT"),
         PICK_IMAGES("ACTION_PICK_IMAGES"),
+        GALLERY_PICK("ACTION_PICK"),
         GET_CONTENT("ACTION_GET_CONTENT"),
         SYSTEM_CHOOSER("ACTION_CHOOSER"),
+        DRAG_DROP("DRAG_AND_DROP"),
         CAPTURE_IMAGE("ACTION_IMAGE_CAPTURE"),
         CAPTURE_VIDEO("ACTION_VIDEO_CAPTURE"),
         CAPTURE_AUDIO("RECORD_SOUND_ACTION");
@@ -128,6 +131,7 @@ final class FilePicker {
     private Uri pendingVideoUri;
     private PendingPermissionRequest pendingPermissionRequest;
     private PendingDelivery pendingDelivery;
+    private boolean[] activeDialogHandedOff;
 
     private static final class PendingPermissionRequest {
         final FilePrompt prompt;
@@ -176,7 +180,7 @@ final class FilePicker {
         }
     }
 
-    private static final class StreamError {
+    static final class StreamError {
         String stage;
         String summary;
         Throwable cause;
@@ -191,7 +195,7 @@ final class FilePicker {
         }
     }
 
-    private static final class AttachmentDiagnostic {
+    static final class AttachmentDiagnostic {
         final String stage;
         final PickerMode pickerMode;
         final Uri sourceUri;
@@ -270,7 +274,7 @@ final class FilePicker {
         }
     }
 
-    private static final class OpenedSource {
+    static final class OpenedSource {
         final Uri source;
         final Uri readyLocalUri;
         final ResolvedStream stream;
@@ -322,6 +326,35 @@ final class FilePicker {
 
     void onPause() {
         activityResumed = false;
+    }
+
+    boolean hasPendingPrompt() {
+        return pendingPrompt != null && pendingResult != null && !pendingPrompt.isComplete();
+    }
+
+    boolean deliverExternalFiles(List<Uri> localUris, int failed, AttachmentDiagnostic diagnostic) {
+        if (!hasPendingPrompt()) return false;
+        final FilePrompt prompt = pendingPrompt;
+        final GeckoResult<PromptResponse> result = pendingResult;
+        final String[] types = pendingTypes;
+        final boolean multiple = pendingMultiple;
+        if (activeDialogHandedOff != null) {
+            activeDialogHandedOff[0] = true;
+            activeDialogHandedOff = null;
+        }
+        for (Dialog d : new ArrayList<>(activeDialogs)) {
+            try {
+                if (d.isShowing()) d.dismiss();
+            } catch (Exception ignored) {
+            }
+        }
+        activeDialogs.clear();
+        deleteQuietly(pendingImageFile);
+        deleteQuietly(pendingVideoFile);
+        clearPendingRefs();
+        deliverOrQueue(prompt, result, types, multiple, PickerMode.DRAG_DROP, 0,
+                localUris, failed, diagnostic);
+        return true;
     }
 
     private static void relaxPickerGate() {
@@ -515,6 +548,10 @@ final class FilePicker {
                 intent = buildPhotoPickerIntent(types, multiple);
                 if (intent == null) return false;
                 break;
+            case GALLERY_PICK:
+                intent = buildGalleryPickIntent(types, multiple);
+                if (intent == null) return false;
+                break;
             case GET_CONTENT:
                 intent = buildGetContentIntent(types, multiple);
                 break;
@@ -630,6 +667,26 @@ final class FilePicker {
         return intent;
     }
 
+    private static Intent buildGalleryPickIntent(String[] types, boolean multiple) {
+        final boolean hasImg = UploadFiles.allowsImage(types);
+        final boolean hasVid = UploadFiles.allowsVideo(types);
+        if (!hasImg && !hasVid) return null;
+        final Intent intent = new Intent(Intent.ACTION_PICK);
+        if (hasImg && !hasVid) {
+            intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+        } else if (hasVid && !hasImg) {
+            intent.setDataAndType(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video/*");
+        } else {
+            intent.setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+        }
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (multiple) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+        return intent;
+    }
+
     private static void applyMimeTypes(Intent intent, String[] types) {
         if (types == null || types.length == 0) {
             intent.setType("*/*");
@@ -700,10 +757,16 @@ final class FilePicker {
 
     private static final class SourceOption {
         final String label;
+        final boolean dismissDialog;
         final Runnable action;
 
         SourceOption(String label, Runnable action) {
+            this(label, true, action);
+        }
+
+        SourceOption(String label, boolean dismissDialog, Runnable action) {
             this.label = label;
+            this.dismissDialog = dismissDialog;
             this.action = action;
         }
     }
@@ -791,12 +854,18 @@ final class FilePicker {
                 ? prompt.title.trim() : "Attach file";
         root.addView(dialogTitleView(heading));
 
+        pendingPrompt = prompt;
+        pendingResult = result;
+        pendingTypes = types;
+        pendingMultiple = multiple;
+        activeDialogHandedOff = handedOff;
+
         for (int i = 0; i < options.size(); i++) {
             final SourceOption opt = options.get(i);
             final TextView btn = chipButton(opt.label, i == 0 ? dp(4) : dp(8));
             btn.setOnClickListener(v -> {
                 opt.action.run();
-                dialog.dismiss();
+                if (opt.dismissDialog) dialog.dismiss();
             });
             root.addView(btn);
         }
@@ -808,12 +877,15 @@ final class FilePicker {
         dialog.setContentView(root);
         dialog.setOnDismissListener(d -> {
             activeDialogs.remove(dialog);
+            if (activeDialogHandedOff == handedOff) activeDialogHandedOff = null;
             if (!handedOff[0]) {
+                clearPendingRefs();
                 completeDismissed(prompt, result);
             }
         });
         dialog.setOnCancelListener(d -> {
             if (!handedOff[0]) {
+                clearPendingRefs();
                 completeDismissed(prompt, result);
             }
         });
@@ -1190,6 +1262,12 @@ final class FilePicker {
         subtitle.setPadding(0, dp(4), 0, dp(10));
         root.addView(subtitle);
 
+        pendingPrompt = prompt;
+        pendingResult = result;
+        pendingTypes = types;
+        pendingMultiple = multiple;
+        activeDialogHandedOff = handedOff;
+
         final List<SourceOption> fallbacks = buildFallbackOptions(
                 prompt, result, types, multiple, diagnostic, handedOff);
         for (int i = 0; i < fallbacks.size(); i++) {
@@ -1197,7 +1275,7 @@ final class FilePicker {
             final TextView btn = chipButton(opt.label, i == 0 ? dp(2) : dp(8));
             btn.setOnClickListener(v -> {
                 opt.action.run();
-                dialog.dismiss();
+                if (opt.dismissDialog) dialog.dismiss();
             });
             root.addView(btn);
         }
@@ -1274,15 +1352,124 @@ final class FilePicker {
         dialog.setContentView(outerScroll);
         dialog.setOnDismissListener(d -> {
             activeDialogs.remove(dialog);
+            if (activeDialogHandedOff == handedOff) activeDialogHandedOff = null;
             if (!handedOff[0]) {
+                clearPendingRefs();
                 completeDismissed(prompt, result);
             }
         });
         dialog.setOnCancelListener(d -> {
             if (!handedOff[0]) {
+                clearPendingRefs();
                 completeDismissed(prompt, result);
             }
         });
+        showTrackedDialog(dialog, 0.92f);
+    }
+
+    void showStandaloneDropError(final AttachmentDiagnostic diagnostic) {
+        if (activity.isFinishing() || activity.isDestroyed() || diagnostic == null) return;
+
+        final String reportText = diagnostic.formatReport(activity.getApplicationContext());
+        final Dialog dialog = createGlassDialog();
+        final LinearLayout root = dialogContainer();
+        root.addView(dialogTitleView("Couldn't drop file"));
+
+        final TextView subtitle = new TextView(activity);
+        if (diagnostic.isDownloadsProviderSecurityError()) {
+            subtitle.setText(
+                    "Android's Downloads/Recent provider denied permission to read the dropped file.\n\n"
+                    + "Try dragging from Gallery/Photos or Internal storage \u2192 Download, or tap the "
+                    + "page's upload button to use Photo Picker.");
+        } else {
+            subtitle.setText("The dropped file couldn't be read ("
+                    + (diagnostic.summary != null ? diagnostic.summary : "error")
+                    + "). Try using the site's upload button or copy the details below.");
+        }
+        subtitle.setTextColor(0xCCFFFFFF);
+        subtitle.setTextSize(13f);
+        subtitle.setPadding(0, dp(4), 0, dp(10));
+        root.addView(subtitle);
+
+        final String downloadsSettingsPkg = diagnostic.isDownloadsProviderSecurityError()
+                ? findSystemDownloadsSettingsPackage() : null;
+        if (downloadsSettingsPkg != null) {
+            final TextView permBtn = chipButton("System Downloads app permissions", dp(2));
+            permBtn.setOnClickListener(v -> openAppSettingsPackage(downloadsSettingsPkg));
+            root.addView(permBtn);
+        }
+
+        final TextView detailsLabel = new TextView(activity);
+        detailsLabel.setText("Diagnostic details");
+        detailsLabel.setTextColor(0x99FFFFFF);
+        detailsLabel.setTextSize(12f);
+        detailsLabel.setPadding(0, dp(12), 0, dp(4));
+        root.addView(detailsLabel);
+
+        final TextView detailsText = new TextView(activity);
+        detailsText.setText(reportText);
+        detailsText.setTextIsSelectable(true);
+        detailsText.setTypeface(Typeface.MONOSPACE);
+        detailsText.setTextSize(10f);
+        detailsText.setTextColor(0xDDFFFFFF);
+        final int boxPad = dp(10);
+        detailsText.setPadding(boxPad, boxPad, boxPad, boxPad);
+
+        final ScrollView detailsScroll = new ScrollView(activity);
+        detailsScroll.setBackgroundColor(0x44000000);
+        detailsScroll.addView(detailsText, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        final LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(130));
+        root.addView(detailsScroll, slp);
+
+        final LinearLayout bottomRow = new LinearLayout(activity);
+        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
+        final LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(12);
+
+        final TextView closeBtn = new TextView(activity);
+        closeBtn.setText("Close");
+        closeBtn.setTextColor(0xFFFFFFFF);
+        closeBtn.setTextSize(14f);
+        closeBtn.setGravity(Gravity.CENTER);
+        closeBtn.setBackgroundResource(R.drawable.bg_glass_button);
+        closeBtn.setClickable(true);
+        closeBtn.setFocusable(true);
+        closeBtn.setOnClickListener(v -> dialog.dismiss());
+        final LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        clp.setMarginEnd(dp(6));
+        bottomRow.addView(closeBtn, clp);
+
+        final TextView copyBtn = new TextView(activity);
+        copyBtn.setText("Copy details");
+        copyBtn.setTextColor(0xFFFFFFFF);
+        copyBtn.setTextSize(14f);
+        copyBtn.setGravity(Gravity.CENTER);
+        copyBtn.setBackgroundResource(R.drawable.bg_glass_button);
+        copyBtn.setClickable(true);
+        copyBtn.setFocusable(true);
+        copyBtn.setOnClickListener(v -> {
+            final ClipboardManager cm = (ClipboardManager)
+                    activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("attachment_error", reportText));
+            }
+            toast("Error details copied");
+        });
+        final LinearLayout.LayoutParams colp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+        colp.setMarginStart(dp(6));
+        bottomRow.addView(copyBtn, colp);
+
+        root.addView(bottomRow, blp);
+
+        final ScrollView outerScroll = new ScrollView(activity);
+        outerScroll.setVerticalScrollBarEnabled(false);
+        outerScroll.addView(root, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dialog.setContentView(outerScroll);
+        dialog.setOnDismissListener(d -> activeDialogs.remove(dialog));
         showTrackedDialog(dialog, 0.92f);
     }
 
@@ -1364,6 +1551,16 @@ final class FilePicker {
             out.add(photoPickerOption);
         }
 
+        if (failedMode != PickerMode.GALLERY_PICK && canResolve(buildGalleryPickIntent(types, multiple))) {
+            out.add(new SourceOption("Gallery / Media Picker", () -> {
+                handedOff[0] = true;
+                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.GALLERY_PICK)) {
+                    toast("Gallery picker unavailable");
+                    completeDismissed(prompt, result);
+                }
+            }));
+        }
+
         if (failedMode != PickerMode.SYSTEM_CHOOSER && canResolve(buildGetContentIntent(types, multiple))) {
             out.add(new SourceOption("Choose another app (Gallery, File Manager)", () -> {
                 handedOff[0] = true;
@@ -1384,7 +1581,50 @@ final class FilePicker {
             }));
         }
 
+        if (downloadsBug) {
+            final String sysPkg = findSystemDownloadsSettingsPackage();
+            if (sysPkg != null) {
+                out.add(new SourceOption("System Downloads app permissions", false,
+                        () -> openAppSettingsPackage(sysPkg)));
+            }
+        }
+
         return out;
+    }
+
+    private String findSystemDownloadsSettingsPackage() {
+        final PackageManager pm = activity.getPackageManager();
+        final String[] candidates = new String[]{
+                "com.android.providers.downloads",
+                "com.google.android.documentsui",
+                "com.android.documentsui"
+        };
+        for (String pkg : candidates) {
+            try {
+                pm.getPackageInfo(pkg, 0);
+                final Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", pkg, null));
+                if (intent.resolveActivity(pm) != null) {
+                    return pkg;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private void openAppSettingsPackage(String packageName) {
+        try {
+            startActivitySettings(packageName);
+        } catch (Exception e) {
+            toast("Could not open system Downloads app settings");
+        }
+    }
+
+    private void startActivitySettings(String packageName) {
+        final Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", packageName, null));
+        activity.startActivity(intent);
     }
 
     // ------------------------------------------------------------------
@@ -1518,9 +1758,9 @@ final class FilePicker {
         return new File(context.getCacheDir(), UPLOAD_DIR);
     }
 
-    private static Uri copyLocalFileToCache(Context context, ContentResolver activityCr,
-                                            ContentResolver appCr, Uri source,
-                                            StreamError errOut) {
+    static Uri copyLocalFileToCache(Context context, ContentResolver activityCr,
+                                    ContentResolver appCr, Uri source,
+                                    StreamError errOut) {
         File dir = null;
         try {
             final String path = source.getPath();
@@ -1557,9 +1797,9 @@ final class FilePicker {
         }
     }
 
-    private static Uri writeStreamToCache(Context context, ResolvedStream resolved,
-                                          String rawName, String fallbackMime,
-                                          StreamError errOut) {
+    static Uri writeStreamToCache(Context context, ResolvedStream resolved,
+                                  String rawName, String fallbackMime,
+                                  StreamError errOut) {
         File dir = null;
         try (ResolvedStream stream = resolved) {
             String name = UploadFiles.safeFileName(rawName);
@@ -1596,7 +1836,7 @@ final class FilePicker {
         os.flush();
     }
 
-    private static final class UriMeta {
+    static final class UriMeta {
         final String name;
         final long size;
 
@@ -1606,7 +1846,7 @@ final class FilePicker {
         }
     }
 
-    private static UriMeta queryMeta(ContentResolver cr, Uri uri) {
+    static UriMeta queryMeta(ContentResolver cr, Uri uri) {
         String name = null;
         long size = -1L;
         Cursor c = null;
@@ -1654,8 +1894,8 @@ final class FilePicker {
         return resolved;
     }
 
-    private static ResolvedStream openBestStreamInternal(ContentResolver cr, Uri source,
-                                                         StreamError errOut) {
+    static ResolvedStream openBestStreamInternal(ContentResolver cr, Uri source,
+                                                 StreamError errOut) {
         try {
             final InputStream direct = cr.openInputStream(source);
             if (direct != null) return new ResolvedStream(direct, null, null);

@@ -10,10 +10,12 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -130,7 +132,7 @@ public class SettingsActivity extends Activity {
 
         findViewById(R.id.row_autoplay).setOnClickListener(v -> pickAutoplayPolicy());
         findViewById(R.id.row_tracking).setOnClickListener(v -> pickTrackingLevel());
-        findViewById(R.id.row_doh).setOnClickListener(v -> pickDohMode());
+        findViewById(R.id.row_doh).setOnClickListener(v -> showDnsSettingsDialog());
 
         findViewById(R.id.row_bookmarks).setOnClickListener(v ->
                 bookmarksDialog.show(null, null, this::openUrlInBrowser));
@@ -235,7 +237,7 @@ public class SettingsActivity extends Activity {
 
         valAutoplay.setText(BrowserSettings.getAutoplayPolicy(this).displayName);
         valTracking.setText(BrowserSettings.getTrackingLevel(this).displayName);
-        valDoh.setText(BrowserSettings.getDohMode(this).displayName);
+        valDoh.setText(BrowserSettings.dohSummary(this));
 
         valAbout.setText(versionLabel());
     }
@@ -317,20 +319,221 @@ public class SettingsActivity extends Activity {
         });
     }
 
-    private void pickDohMode() {
+    private void showDnsSettingsDialog() {
+        final LinearLayout content = dialogContent(20);
+        content.addView(text("Custom DNS (DNS over HTTPS)", 0xFFFFFFFF, 17, true));
+        final TextView subtitle = text(
+                "Encrypt domain lookups with a preset or custom DoH resolver.",
+                0x99FFFFFF, 12, false);
+        subtitle.setPadding(0, dp(4), 0, dp(10));
+        content.addView(subtitle);
+
+        final BrowserSettings.DohMode[] selectedMode = {BrowserSettings.getDohMode(this)};
+        final BrowserSettings.DnsProvider[] selectedProvider = {BrowserSettings.getDnsProvider(this)};
+        final boolean[] allowLocal = {BrowserSettings.isDnsAllowLocalEnabled(this)};
+
+        final TextView modeHeader = text("Protection mode", 0xCCFFFFFF, 12, true);
+        modeHeader.setPadding(0, dp(4), 0, dp(4));
+        content.addView(modeHeader);
+
         final BrowserSettings.DohMode[] modes = BrowserSettings.DohMode.values();
-        final BrowserSettings.DohMode current = BrowserSettings.getDohMode(this);
-        final String[] labels = new String[modes.length];
-        int selected = 0;
+        final TextView[] modeChips = new TextView[modes.length];
         for (int i = 0; i < modes.length; i++) {
-            labels[i] = modes[i].displayName;
-            if (modes[i] == current) selected = i;
+            final TextView chip = text("", 0xFFFFFFFF, 14, false);
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            chip.setPadding(dp(14), dp(11), dp(14), dp(11));
+            chip.setClickable(true);
+            chip.setFocusable(true);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(6);
+            content.addView(chip, lp);
+            modeChips[i] = chip;
         }
-        showGlassOptionDialog("DNS over HTTPS", labels, selected, idx -> {
-            BrowserSettings.DohMode chosen = modes[idx];
-            BrowserSettings.setDohMode(this, chosen);
+
+        final LinearLayout resolverSection = new LinearLayout(this);
+        resolverSection.setOrientation(LinearLayout.VERTICAL);
+        final LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(12);
+        content.addView(resolverSection, rlp);
+
+        final TextView providerHeader = text("DNS provider", 0xCCFFFFFF, 12, true);
+        providerHeader.setPadding(0, dp(2), 0, dp(4));
+        resolverSection.addView(providerHeader);
+
+        final BrowserSettings.DnsProvider[] providers = BrowserSettings.DnsProvider.values();
+        final TextView[] providerChips = new TextView[providers.length];
+        for (int i = 0; i < providers.length; i++) {
+            final TextView chip = text("", 0xFFFFFFFF, 14, false);
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            chip.setPadding(dp(14), dp(11), dp(14), dp(11));
+            chip.setClickable(true);
+            chip.setFocusable(true);
+            final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(6);
+            resolverSection.addView(chip, lp);
+            providerChips[i] = chip;
+        }
+
+        final TextView endpointPreview = text("", 0x99FFFFFF, 11, false);
+        endpointPreview.setPadding(dp(2), dp(8), dp(2), 0);
+        resolverSection.addView(endpointPreview);
+
+        final LinearLayout customUrlContainer = new LinearLayout(this);
+        customUrlContainer.setOrientation(LinearLayout.VERTICAL);
+        resolverSection.addView(customUrlContainer);
+
+        final TextView customUrlLabel = text("Custom DoH server URL", 0xCCFFFFFF, 12, true);
+        customUrlLabel.setPadding(0, dp(10), 0, dp(4));
+        customUrlContainer.addView(customUrlLabel);
+
+        final EditText customUrlInput = new EditText(this);
+        customUrlInput.setHint("https://dns.example.com/dns-query");
+        customUrlInput.setText(BrowserSettings.getCustomDohUri(this));
+        customUrlInput.setTextColor(0xFFFFFFFF);
+        customUrlInput.setHintTextColor(0x66FFFFFF);
+        customUrlInput.setTextSize(13);
+        customUrlInput.setSingleLine(true);
+        customUrlInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        customUrlInput.setBackgroundResource(R.drawable.bg_glass_input);
+        customUrlInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        customUrlContainer.addView(customUrlInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final TextView bootstrapLabel = text("Bootstrap IP (optional)", 0xCCFFFFFF, 12, true);
+        bootstrapLabel.setPadding(0, dp(10), 0, dp(4));
+        resolverSection.addView(bootstrapLabel);
+
+        final EditText bootstrapInput = new EditText(this);
+        bootstrapInput.setText(BrowserSettings.getDnsBootstrapIp(this));
+        bootstrapInput.setTextColor(0xFFFFFFFF);
+        bootstrapInput.setHintTextColor(0x66FFFFFF);
+        bootstrapInput.setTextSize(13);
+        bootstrapInput.setSingleLine(true);
+        bootstrapInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        bootstrapInput.setBackgroundResource(R.drawable.bg_glass_input);
+        bootstrapInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        resolverSection.addView(bootstrapInput, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final CheckBox cbLocal = new CheckBox(this);
+        cbLocal.setText("Bypass DoH for local network / router addresses");
+        cbLocal.setTextColor(0xFFFFFFFF);
+        cbLocal.setTextSize(13);
+        cbLocal.setChecked(allowLocal[0]);
+        cbLocal.setPadding(dp(2), dp(10), dp(2), dp(4));
+        cbLocal.setOnCheckedChangeListener((b, checked) -> allowLocal[0] = checked);
+        resolverSection.addView(cbLocal);
+
+        final Runnable updateUi = () -> {
+            for (int i = 0; i < modes.length; i++) {
+                final boolean sel = modes[i] == selectedMode[0];
+                modeChips[i].setText((sel ? "\u2713  " : "") + modes[i].displayName);
+                modeChips[i].setTypeface(sel ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                modeChips[i].setBackgroundResource(sel ? R.drawable.bg_chip_selected : R.drawable.bg_chip);
+            }
+            resolverSection.setVisibility(
+                    selectedMode[0] == BrowserSettings.DohMode.OFF ? View.GONE : View.VISIBLE);
+
+            for (int i = 0; i < providers.length; i++) {
+                final boolean sel = providers[i] == selectedProvider[0];
+                providerChips[i].setText((sel ? "\u2713  " : "") + providers[i].displayName);
+                providerChips[i].setTypeface(sel ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                providerChips[i].setBackgroundResource(sel ? R.drawable.bg_chip_selected : R.drawable.bg_chip);
+            }
+
+            final boolean isCustom = selectedProvider[0] == BrowserSettings.DnsProvider.CUSTOM;
+            customUrlContainer.setVisibility(isCustom ? View.VISIBLE : View.GONE);
+
+            if (isCustom) {
+                endpointPreview.setVisibility(View.GONE);
+                bootstrapInput.setHint("e.g. 1.1.1.1 or 2606:4700:4700::1111");
+            } else if (selectedProvider[0].uri.isEmpty()) {
+                endpointPreview.setVisibility(View.VISIBLE);
+                endpointPreview.setText("Endpoint: Browser built-in default resolver");
+                bootstrapInput.setHint("Optional IP address");
+            } else {
+                endpointPreview.setVisibility(View.VISIBLE);
+                endpointPreview.setText("Endpoint: " + selectedProvider[0].uri);
+                bootstrapInput.setHint("Default: " + selectedProvider[0].defaultBootstrapIp);
+            }
+        };
+
+        for (int i = 0; i < modes.length; i++) {
+            final BrowserSettings.DohMode m = modes[i];
+            modeChips[i].setOnClickListener(v -> {
+                selectedMode[0] = m;
+                updateUi.run();
+            });
+        }
+        for (int i = 0; i < providers.length; i++) {
+            final BrowserSettings.DnsProvider p = providers[i];
+            providerChips[i].setOnClickListener(v -> {
+                selectedProvider[0] = p;
+                updateUi.run();
+            });
+        }
+        updateUi.run();
+
+        final LinearLayout bottomRow = new LinearLayout(this);
+        bottomRow.setOrientation(LinearLayout.HORIZONTAL);
+        final LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(12);
+
+        final TextView resetBtn = button("Reset", false);
+        final LinearLayout.LayoutParams rblp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        rblp.setMarginEnd(dp(4));
+        bottomRow.addView(resetBtn, rblp);
+
+        final TextView cancelBtn = button("Cancel", false);
+        final LinearLayout.LayoutParams cblp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        cblp.setMarginStart(dp(4));
+        cblp.setMarginEnd(dp(4));
+        bottomRow.addView(cancelBtn, cblp);
+
+        final TextView saveBtn = button("Save", false);
+        saveBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        final LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        sblp.setMarginStart(dp(4));
+        bottomRow.addView(saveBtn, sblp);
+
+        content.addView(bottomRow, blp);
+
+        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        resetBtn.setOnClickListener(v -> {
+            selectedMode[0] = BrowserSettings.DohMode.FIRST;
+            selectedProvider[0] = BrowserSettings.DnsProvider.DEFAULT;
+            customUrlInput.setText("");
+            bootstrapInput.setText("");
+            allowLocal[0] = true;
+            cbLocal.setChecked(true);
+            updateUi.run();
+        });
+        cancelBtn.setOnClickListener(v -> dialog.dismiss());
+        saveBtn.setOnClickListener(v -> {
+            final String customUrl = customUrlInput.getText().toString().trim();
+            final String bootstrap = bootstrapInput.getText().toString().trim();
+            if (selectedMode[0] != BrowserSettings.DohMode.OFF
+                    && selectedProvider[0] == BrowserSettings.DnsProvider.CUSTOM
+                    && !BrowserSettings.isValidDohUrl(customUrl)) {
+                Toast.makeText(this, "Enter a valid https:// DoH server URL", Toast.LENGTH_SHORT).show();
+                customUrlInput.requestFocus();
+                return;
+            }
+            if (!bootstrap.isEmpty() && !BrowserSettings.isValidBootstrapIp(bootstrap)) {
+                Toast.makeText(this, "Enter a valid IPv4 or IPv6 bootstrap address", Toast.LENGTH_SHORT).show();
+                bootstrapInput.requestFocus();
+                return;
+            }
+            BrowserSettings.setDnsConfig(this, selectedMode[0], selectedProvider[0],
+                    customUrl, bootstrap, allowLocal[0]);
             BrowserSettings.applyRuntimeSettings(this, ExtensionManager.ensureRuntime(this));
             refreshValues();
+            dialog.dismiss();
+            Toast.makeText(this, "DNS settings updated", Toast.LENGTH_SHORT).show();
         });
     }
 
