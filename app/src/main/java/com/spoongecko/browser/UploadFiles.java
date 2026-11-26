@@ -69,6 +69,17 @@ final class UploadFiles {
         return true;
     }
 
+    /** True when the page strictly requests audio files. */
+    static boolean isAudioOnly(String[] mimeTypes) {
+        if (mimeTypes == null || mimeTypes.length == 0) return false;
+        for (String mime : mimeTypes) {
+            if (mime == null) return false;
+            final String m = mime.toLowerCase(Locale.ROOT);
+            if (!m.startsWith("audio/")) return false;
+        }
+        return true;
+    }
+
     static boolean hasImageTypes(String[] mimeTypes) {
         if (mimeTypes == null) return false;
         for (String mime : mimeTypes) {

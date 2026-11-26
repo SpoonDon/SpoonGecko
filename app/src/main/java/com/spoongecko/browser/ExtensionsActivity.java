@@ -385,6 +385,12 @@ public class ExtensionsActivity extends Activity {
         if (extraMimes != null && extraMimes.length > 0) {
             intent.putExtra(Intent.EXTRA_MIME_TYPES, extraMimes);
         }
+        if (Intent.ACTION_OPEN_DOCUMENT.equals(action)
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                    android.provider.DocumentsContract.buildDocumentUri(
+                            "com.android.externalstorage.documents", "primary:Download"));
+        }
         try {
             startActivityForResult(intent, requestCode);
             return true;

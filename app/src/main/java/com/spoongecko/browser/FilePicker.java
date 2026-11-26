@@ -21,6 +21,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Log;
@@ -213,6 +214,29 @@ final class FilePicker {
             return "SecurityException".equals(summary);
         }
 
+        boolean isDownloadsProviderSecurityError() {
+            if (!isSecurityError() || sourceUri == null) return false;
+            return "com.android.providers.downloads.documents".equals(sourceUri.getAuthority());
+        }
+
+        boolean causeMentionsMediaUri() {
+            if (cause == null) return false;
+            final String msg = cause.getMessage();
+            return msg != null && msg.contains("content://media/");
+        }
+
+        boolean causeMentionsImage() {
+            if (cause == null) return false;
+            final String msg = cause.getMessage();
+            return msg != null && msg.contains("content://media/") && msg.contains("/images/");
+        }
+
+        boolean causeMentionsVideo() {
+            if (cause == null) return false;
+            final String msg = cause.getMessage();
+            return msg != null && msg.contains("content://media/") && msg.contains("/video/");
+        }
+
         String formatReport(Context context) {
             final StringBuilder sb = new StringBuilder();
             sb.append("SpoonGecko attachment diagnostic\n");
@@ -397,11 +421,7 @@ final class FilePicker {
 
     private void launchInitialPickerOrMenu(FilePrompt prompt, GeckoResult<PromptResponse> result,
                                            String[] types, boolean multiple) {
-        final boolean mediaSpecific = types != null
-                && (UploadFiles.hasImageTypes(types)
-                || UploadFiles.hasVideoTypes(types)
-                || UploadFiles.hasAudioTypes(types));
-        if (mediaSpecific && showSourceChooserDialog(prompt, result, types, multiple)) {
+        if (showSourceChooserDialog(prompt, result, types, multiple)) {
             return;
         }
         launchPrimaryDocumentPicker(prompt, result, types, multiple);
@@ -409,7 +429,9 @@ final class FilePicker {
 
     private void launchPrimaryDocumentPicker(FilePrompt prompt, GeckoResult<PromptResponse> result,
                                              String[] types, boolean multiple) {
-        if (launchPickerMode(prompt, result, types, multiple, PickerMode.OPEN_DOCUMENT)) return;
+        if (launchOpenDocument(prompt, result, types, multiple, defaultInitialDocumentUri(types))) {
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && UploadFiles.isVisualMediaOnly(types)
                 && launchPickerMode(prompt, result, types, multiple, PickerMode.PICK_IMAGES)) {
@@ -468,13 +490,25 @@ final class FilePicker {
         return true;
     }
 
+    private boolean launchOpenDocument(FilePrompt prompt, GeckoResult<PromptResponse> result,
+                                       String[] types, boolean multiple, Uri initialUri) {
+        final int slot = nextSlot();
+        final Intent intent = buildOpenDocumentIntent(types, multiple, initialUri);
+        if (!launch(intent, slot)) {
+            return false;
+        }
+        setPendingPicker(prompt, result, types, multiple, PickerMode.OPEN_DOCUMENT, slot,
+                null, null, null, null);
+        return true;
+    }
+
     private boolean launchPickerMode(FilePrompt prompt, GeckoResult<PromptResponse> result,
                                      String[] types, boolean multiple, PickerMode mode) {
         final int slot = nextSlot();
         final Intent intent;
         switch (mode) {
             case OPEN_DOCUMENT:
-                intent = buildOpenDocumentIntent(types, multiple);
+                intent = buildOpenDocumentIntent(types, multiple, defaultInitialDocumentUri(types));
                 break;
             case PICK_IMAGES:
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false;
@@ -488,6 +522,7 @@ final class FilePicker {
                 final CharSequence title = (prompt.title != null && !prompt.title.trim().isEmpty())
                         ? prompt.title : null;
                 intent = Intent.createChooser(buildGetContentIntent(types, multiple), title);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 break;
             }
             default:
@@ -523,18 +558,52 @@ final class FilePicker {
     }
 
     private static Intent buildOpenDocumentIntent(String[] types, boolean multiple) {
+        return buildOpenDocumentIntent(types, multiple, defaultInitialDocumentUri(types));
+    }
+
+    private static Intent buildOpenDocumentIntent(String[] types, boolean multiple, Uri initialUri) {
         final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         applyMimeTypes(intent, types);
         if (multiple) {
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && initialUri != null) {
+            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri);
+        }
         return intent;
+    }
+
+    private static Uri defaultInitialDocumentUri(String[] types) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null;
+        if (types != null && types.length > 0) {
+            if (UploadFiles.isVisualMediaOnly(types)) {
+                final boolean hasImg = UploadFiles.hasImageTypes(types);
+                final boolean hasVid = UploadFiles.hasVideoTypes(types);
+                if (hasImg && !hasVid) return mediaDocumentsRootUri("images_root");
+                if (hasVid && !hasImg) return mediaDocumentsRootUri("videos_root");
+            }
+            if (UploadFiles.isAudioOnly(types)) {
+                return mediaDocumentsRootUri("audio_root");
+            }
+        }
+        return externalDownloadDocumentUri();
+    }
+
+    private static Uri mediaDocumentsRootUri(String rootId) {
+        return DocumentsContract.buildRootUri("com.android.providers.media.documents", rootId);
+    }
+
+    private static Uri externalDownloadDocumentUri() {
+        return DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents", "primary:Download");
     }
 
     private static Intent buildGetContentIntent(String[] types, boolean multiple) {
         final Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         applyMimeTypes(intent, types);
         if (multiple) {
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -648,30 +717,42 @@ final class FilePicker {
         final List<SourceOption> options = new ArrayList<>();
         final boolean[] handedOff = {false};
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && (UploadFiles.allowsImage(types) || UploadFiles.allowsVideo(types))) {
-            final Intent photoPicker = buildPhotoPickerIntent(types, multiple);
-            if (canResolve(photoPicker)) {
-                options.add(new SourceOption("Photos & videos", () -> {
+        final boolean preferVisualFirst = types != null
+                && (UploadFiles.hasImageTypes(types) || UploadFiles.hasVideoTypes(types));
+
+        final boolean canPhotoPicker = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && (UploadFiles.allowsImage(types) || UploadFiles.allowsVideo(types))
+                && canResolve(buildPhotoPickerIntent(types, multiple));
+        final SourceOption photoPickerOption = canPhotoPicker
+                ? new SourceOption("Photos & videos (Photo Picker)", () -> {
                     handedOff[0] = true;
                     if (!launchPickerMode(prompt, result, types, multiple, PickerMode.PICK_IMAGES)) {
                         launchPrimaryDocumentPicker(prompt, result, types, multiple);
                     }
-                }));
-            }
-        }
+                })
+                : null;
 
-        if (canResolve(buildOpenDocumentIntent(types, multiple))) {
-            options.add(new SourceOption("Browse files (System Files)", () -> {
-                handedOff[0] = true;
-                launchPrimaryDocumentPicker(prompt, result, types, multiple);
-            }));
+        final boolean canOpenDocument = canResolve(buildOpenDocumentIntent(types, multiple));
+        final SourceOption systemFilesOption = canOpenDocument
+                ? new SourceOption("Browse files (System Files)", () -> {
+                    handedOff[0] = true;
+                    launchPrimaryDocumentPicker(prompt, result, types, multiple);
+                })
+                : null;
+
+        if (preferVisualFirst) {
+            if (photoPickerOption != null) options.add(photoPickerOption);
+            if (systemFilesOption != null) options.add(systemFilesOption);
+        } else {
+            if (systemFilesOption != null) options.add(systemFilesOption);
+            if (photoPickerOption != null) options.add(photoPickerOption);
         }
 
         if (canResolve(buildGetContentIntent(types, multiple))) {
-            options.add(new SourceOption("Other file apps", () -> {
+            options.add(new SourceOption("Other file apps (Gallery, File Manager)", () -> {
                 handedOff[0] = true;
-                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.GET_CONTENT)) {
+                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.SYSTEM_CHOOSER)
+                        && !launchPickerMode(prompt, result, types, multiple, PickerMode.GET_CONTENT)) {
                     launchPrimaryDocumentPicker(prompt, result, types, multiple);
                 }
             }));
@@ -1086,19 +1167,31 @@ final class FilePicker {
         root.addView(dialogTitleView("Couldn't attach file"));
 
         final TextView subtitle = new TextView(activity);
-        subtitle.setText(diagnostic.isSecurityError()
-                ? "Android denied permission to read the selected file from that picker. "
-                + "Try a fallback picker below or copy the details."
-                : "The selected file couldn't be attached ("
-                + (diagnostic.summary != null ? diagnostic.summary : "error")
-                + "). Try a fallback picker below or copy the details.");
+        final String subtitleText;
+        if (diagnostic.isDownloadsProviderSecurityError()) {
+            subtitleText = diagnostic.causeMentionsMediaUri()
+                    ? "Android's Downloads/Recent picker couldn't read that media file "
+                    + "(system Downloads provider permission bug).\n\n"
+                    + "Use Photo Picker below, choose another Gallery/File Manager app, or in "
+                    + "System Files open \u2630 and pick from Images or Internal storage \u2192 Download."
+                    : "Android's Downloads/Recent picker denied permission to read that file.\n\n"
+                    + "Try Photo Picker, another app, or browse Internal storage \u2192 Download instead of Downloads/Recent.";
+        } else if (diagnostic.isSecurityError()) {
+            subtitleText = "Android denied permission to read the selected file from that picker. "
+                    + "Try a fallback picker below or copy the details.";
+        } else {
+            subtitleText = "The selected file couldn't be attached ("
+                    + (diagnostic.summary != null ? diagnostic.summary : "error")
+                    + "). Try a fallback picker below or copy the details.";
+        }
+        subtitle.setText(subtitleText);
         subtitle.setTextColor(0xCCFFFFFF);
         subtitle.setTextSize(13f);
         subtitle.setPadding(0, dp(4), 0, dp(10));
         root.addView(subtitle);
 
         final List<SourceOption> fallbacks = buildFallbackOptions(
-                prompt, result, types, multiple, diagnostic.pickerMode, dialog, handedOff);
+                prompt, result, types, multiple, diagnostic, handedOff);
         for (int i = 0; i < fallbacks.size(); i++) {
             final SourceOption opt = fallbacks.get(i);
             final TextView btn = chipButton(opt.label, i == 0 ? dp(2) : dp(8));
@@ -1125,13 +1218,13 @@ final class FilePicker {
         final int boxPad = dp(10);
         detailsText.setPadding(boxPad, boxPad, boxPad, boxPad);
 
-        final ScrollView scroll = new ScrollView(activity);
-        scroll.setBackgroundColor(0x44000000);
-        scroll.addView(detailsText, new ViewGroup.LayoutParams(
+        final ScrollView detailsScroll = new ScrollView(activity);
+        detailsScroll.setBackgroundColor(0x44000000);
+        detailsScroll.addView(detailsText, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         final LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(150));
-        root.addView(scroll, slp);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(130));
+        root.addView(detailsScroll, slp);
 
         final LinearLayout bottomRow = new LinearLayout(activity);
         bottomRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1174,7 +1267,11 @@ final class FilePicker {
 
         root.addView(bottomRow, blp);
 
-        dialog.setContentView(root);
+        final ScrollView outerScroll = new ScrollView(activity);
+        outerScroll.setVerticalScrollBarEnabled(false);
+        outerScroll.addView(root, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        dialog.setContentView(outerScroll);
         dialog.setOnDismissListener(d -> {
             activeDialogs.remove(dialog);
             if (!handedOff[0]) {
@@ -1193,32 +1290,85 @@ final class FilePicker {
                                                     final GeckoResult<PromptResponse> result,
                                                     final String[] types,
                                                     final boolean multiple,
-                                                    final PickerMode failedMode,
-                                                    final Dialog dialog,
+                                                    final AttachmentDiagnostic diagnostic,
                                                     final boolean[] handedOff) {
         final List<SourceOption> out = new ArrayList<>();
+        final PickerMode failedMode = diagnostic.pickerMode;
+        final boolean downloadsBug = diagnostic.isDownloadsProviderSecurityError();
+        final boolean canPhotoPicker = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && (UploadFiles.allowsImage(types) || UploadFiles.allowsVideo(types))
+                && canResolve(buildPhotoPickerIntent(types, multiple));
 
-        if (canResolve(buildOpenDocumentIntent(types, multiple))) {
+        final SourceOption photoPickerOption = canPhotoPicker
+                ? new SourceOption(
+                failedMode == PickerMode.PICK_IMAGES
+                        ? "Retry Photo Picker"
+                        : "Use Photo Picker (Photos & videos)",
+                () -> {
+                    handedOff[0] = true;
+                    if (!launchPickerMode(prompt, result, types, multiple, PickerMode.PICK_IMAGES)) {
+                        toast("Photo Picker unavailable");
+                        completeDismissed(prompt, result);
+                    }
+                })
+                : null;
+
+        final boolean prioritizePhotoPicker = photoPickerOption != null
+                && (downloadsBug || UploadFiles.isVisualMediaOnly(types));
+        if (prioritizePhotoPicker) {
+            out.add(photoPickerOption);
+        }
+
+        if (downloadsBug && canResolve(buildOpenDocumentIntent(types, multiple))) {
+            if (diagnostic.causeMentionsImage() && UploadFiles.allowsImage(types)) {
+                out.add(new SourceOption("System Files \u2014 Images folder", () -> {
+                    handedOff[0] = true;
+                    if (!launchOpenDocument(prompt, result, types, multiple,
+                            mediaDocumentsRootUri("images_root"))) {
+                        toast("System Files app unavailable");
+                        completeDismissed(prompt, result);
+                    }
+                }));
+            } else if (diagnostic.causeMentionsVideo() && UploadFiles.allowsVideo(types)) {
+                out.add(new SourceOption("System Files \u2014 Videos folder", () -> {
+                    handedOff[0] = true;
+                    if (!launchOpenDocument(prompt, result, types, multiple,
+                            mediaDocumentsRootUri("videos_root"))) {
+                        toast("System Files app unavailable");
+                        completeDismissed(prompt, result);
+                    }
+                }));
+            }
+            out.add(new SourceOption("System Files \u2014 Internal Storage (Download)", () -> {
+                handedOff[0] = true;
+                if (!launchOpenDocument(prompt, result, types, multiple,
+                        externalDownloadDocumentUri())) {
+                    toast("System Files app unavailable");
+                    completeDismissed(prompt, result);
+                }
+            }));
+        } else if (canResolve(buildOpenDocumentIntent(types, multiple))) {
             final String label = failedMode == PickerMode.OPEN_DOCUMENT
                     ? "Retry System Files (SAF)" : "Try System Files (SAF)";
             out.add(new SourceOption(label, () -> {
                 handedOff[0] = true;
-                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.OPEN_DOCUMENT)) {
+                if (!launchOpenDocument(prompt, result, types, multiple,
+                        defaultInitialDocumentUri(types))) {
                     toast("System Files app unavailable");
                     completeDismissed(prompt, result);
                 }
             }));
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && (UploadFiles.allowsImage(types) || UploadFiles.allowsVideo(types))
-                && canResolve(buildPhotoPickerIntent(types, multiple))) {
-            final String label = failedMode == PickerMode.PICK_IMAGES
-                    ? "Retry Photo Picker" : "Try Photo Picker";
-            out.add(new SourceOption(label, () -> {
+        if (!prioritizePhotoPicker && photoPickerOption != null) {
+            out.add(photoPickerOption);
+        }
+
+        if (failedMode != PickerMode.SYSTEM_CHOOSER && canResolve(buildGetContentIntent(types, multiple))) {
+            out.add(new SourceOption("Choose another app (Gallery, File Manager)", () -> {
                 handedOff[0] = true;
-                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.PICK_IMAGES)) {
-                    toast("Photo Picker unavailable");
+                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.SYSTEM_CHOOSER)) {
+                    toast("No file chooser available");
                     completeDismissed(prompt, result);
                 }
             }));
@@ -1228,14 +1378,6 @@ final class FilePicker {
             out.add(new SourceOption("Try File Chooser (Direct)", () -> {
                 handedOff[0] = true;
                 if (!launchPickerMode(prompt, result, types, multiple, PickerMode.GET_CONTENT)) {
-                    toast("No file chooser available");
-                    completeDismissed(prompt, result);
-                }
-            }));
-        } else if (failedMode != PickerMode.SYSTEM_CHOOSER) {
-            out.add(new SourceOption("Try System Chooser", () -> {
-                handedOff[0] = true;
-                if (!launchPickerMode(prompt, result, types, multiple, PickerMode.SYSTEM_CHOOSER)) {
                     toast("No file chooser available");
                     completeDismissed(prompt, result);
                 }
@@ -1559,6 +1701,50 @@ final class FilePicker {
             Log.w(TAG, "openFileDescriptor failed: " + source, e);
         }
 
+        final ResolvedStream localFallback = tryReadableLocalPathFallback(cr, source);
+        if (localFallback != null) {
+            return localFallback;
+        }
+
+        return null;
+    }
+
+    private static ResolvedStream tryReadableLocalPathFallback(ContentResolver cr, Uri source) {
+        if (source == null || !ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(source.getScheme())) {
+            return null;
+        }
+        String docId = null;
+        try {
+            docId = DocumentsContract.getDocumentId(source);
+        } catch (RuntimeException ignored) {
+        }
+        if (docId != null && docId.startsWith("raw:")) {
+            final ResolvedStream rs = openLocalPathIfReadable(docId.substring(4));
+            if (rs != null) return rs;
+        }
+        Cursor c = null;
+        try {
+            c = cr.query(source, new String[]{"_data"}, null, null, null);
+            if (c != null && c.moveToFirst() && !c.isNull(0)) {
+                final ResolvedStream rs = openLocalPathIfReadable(c.getString(0));
+                if (rs != null) return rs;
+            }
+        } catch (RuntimeException ignored) {
+        } finally {
+            if (c != null) c.close();
+        }
+        return null;
+    }
+
+    private static ResolvedStream openLocalPathIfReadable(String path) {
+        if (path == null || path.isEmpty()) return null;
+        try {
+            final File f = new File(path);
+            if (f.isFile() && f.canRead()) {
+                return new ResolvedStream(new FileInputStream(f), null, null);
+            }
+        } catch (IOException | SecurityException ignored) {
+        }
         return null;
     }
 
