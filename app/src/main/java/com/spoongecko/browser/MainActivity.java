@@ -122,6 +122,7 @@ public class MainActivity extends Activity
 
     private TabManager tabManager;
     private GeckoView geckoView;
+    private PullToRefreshLayout pullRefresh;
     private HistoryStore history;
 
     private EditText urlBar;
@@ -209,6 +210,7 @@ public class MainActivity extends Activity
         setContentView(R.layout.activity_main);
 
         geckoView = findViewById(R.id.geckoview);
+        pullRefresh = findViewById(R.id.pull_refresh);
         urlBar = findViewById(R.id.url_bar);
         searchBar = findViewById(R.id.search_bar);
         final String searchHint = BrowserSettings.homeSearchHint(this);
@@ -229,7 +231,33 @@ public class MainActivity extends Activity
         screen.makeImmersive();
         screen.installFlashGuard();
         screen.setupWindowInsets();
+        applyToolbarChrome();
         new Handler(Looper.getMainLooper()).postDelayed(screen::removeFlashGuard, 1500);
+
+        if (pullRefresh != null) {
+            pullRefresh.setCanPullCallback(() -> {
+                final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+                return !destroying
+                        && screen != null
+                        && !screen.isHomePanelVisible()
+                        && fullScreenTab == null
+                        && t != null
+                        && !t.awaitingOpen
+                        && t.session.isOpen()
+                        && t.url != null
+                        && !t.url.isEmpty()
+                        && t.scrollY <= 2;
+            });
+            pullRefresh.setOnRefreshListener(() -> {
+                final Tab t = tabManager == null ? null : tabManager.getActiveTab();
+                if (t != null && !t.awaitingOpen && t.session.isOpen()
+                        && t.url != null && !t.url.isEmpty()) {
+                    t.session.reload();
+                } else if (pullRefresh != null) {
+                    pullRefresh.setRefreshing(false);
+                }
+            });
+        }
 
         suggestions = new SuggestionsController(this, urlBar, suggestionsList, history);
         suggestions.setListener(this);
@@ -931,6 +959,7 @@ public class MainActivity extends Activity
         // [PERF] A lazily restored tab has a session that was never opened;
         // open it the first time it is shown (open() must precede setSession()).
         // [KILL] The same goes for a tab revived after its page process died.
+        if (pullRefresh != null) pullRefresh.cancelPendingPull();
         openSessionIfNeeded(tab);
         geckoView.setSession(tab.session);
         CompositorController cc = tab.session.getCompositorController();
@@ -954,6 +983,23 @@ public class MainActivity extends Activity
     /** [INCOGNITO] What the window currently shows (so nothing is redone when the kind does not change). */
     private boolean privateUiShown = false;
 
+    private void applyToolbarChrome() {
+        final boolean bottom = BrowserSettings.isBottomToolbar(this);
+        if (screen != null) screen.applyToolbarPosition(bottom);
+        final View bar = findViewById(R.id.url_bar_panel);
+        if (bar != null) {
+            if (privateUiShown) {
+                bar.setBackgroundResource(bottom
+                        ? R.drawable.bg_glass_url_bar_incognito_bottom
+                        : R.drawable.bg_glass_url_bar_incognito);
+            } else {
+                bar.setBackgroundResource(bottom
+                        ? R.drawable.bg_glass_url_bar_bottom
+                        : R.drawable.bg_glass_url_bar);
+            }
+        }
+    }
+
     /**
      * [INCOGNITO] Makes the window show what kind of tab is on screen, and protects an incognito
      * tab from being captured:
@@ -968,11 +1014,7 @@ public class MainActivity extends Activity
         privateUiShown = priv;
         if (priv) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        final View bar = findViewById(R.id.url_bar_panel);
-        if (bar != null) {
-            bar.setBackgroundResource(priv ? R.drawable.bg_glass_url_bar_incognito
-                                           : R.drawable.bg_glass_url_bar);
-        }
+        applyToolbarChrome();
         tabCountText.setTextColor(priv ? INCOGNITO_ACCENT : 0xFFFFFFFF);
         final TextView logo = findViewById(R.id.logo_text);
         if (logo != null) {
@@ -1193,6 +1235,7 @@ public class MainActivity extends Activity
     @Override public void removeFlashGuard() { screen.removeFlashGuard(); }
     @Override public void setProgressBarVisible(boolean visible) {
         screen.setProgressBarVisible(visible);
+        if (!visible && pullRefresh != null) pullRefresh.setRefreshing(false);
     }
 
     @Override public void setLoadProgress(int progress) {
@@ -1272,6 +1315,12 @@ public class MainActivity extends Activity
 
     @Override public void onNewSessionReturned(Tab t) {
         showWhenOpened(t, false);
+    }
+
+    @Override public void onTabScrollChanged(Tab tab, int scrollX, int scrollY) {
+        if (pullRefresh != null && tab == tabManager.getActiveTab() && scrollY > 2) {
+            pullRefresh.onPageScrolledAwayFromTop();
+        }
     }
 
     /**
@@ -1743,6 +1792,7 @@ public class MainActivity extends Activity
 
     @Override protected void onResume() {
         super.onResume();
+        applyToolbarChrome();
         if (searchBar != null) {
             final String hint = BrowserSettings.homeSearchHint(this);
             searchBar.setHint(hint);

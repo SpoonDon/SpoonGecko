@@ -26,6 +26,7 @@ final class BrowserSettings {
     private static final String KEY_SEARCH_ENGINE = "pref_search_engine";
     private static final String KEY_SEARCH_SUGGESTIONS = "pref_search_suggestions";
     private static final String KEY_DEFAULT_DESKTOP = "pref_default_desktop";
+    private static final String KEY_BOTTOM_TOOLBAR = "pref_bottom_toolbar";
     private static final String KEY_AUTO_DOWNLOAD_LINKS = "pref_auto_download_links";
     private static final String KEY_PDF_VIEWER = "pref_pdf_viewer";
     private static final String KEY_AUTOPLAY_POLICY = "pref_autoplay_policy";
@@ -220,6 +221,14 @@ final class BrowserSettings {
 
     static void setDefaultDesktopMode(Context ctx, boolean enabled) {
         prefs(ctx).edit().putBoolean(KEY_DEFAULT_DESKTOP, enabled).apply();
+    }
+
+    static boolean isBottomToolbar(Context ctx) {
+        return prefs(ctx).getBoolean(KEY_BOTTOM_TOOLBAR, false);
+    }
+
+    static void setBottomToolbar(Context ctx, boolean enabled) {
+        prefs(ctx).edit().putBoolean(KEY_BOTTOM_TOOLBAR, enabled).apply();
     }
 
     static boolean isPdfViewerEnabled(Context ctx) {

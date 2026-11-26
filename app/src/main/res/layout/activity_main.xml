@@ -112,11 +112,17 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <org.mozilla.geckoview.GeckoView
-            android:id="@+id/geckoview"
+        <com.spoongecko.browser.PullToRefreshLayout
+            android:id="@+id/pull_refresh"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#FF000000" />
+            android:layout_height="match_parent">
+
+            <com.spoongecko.browser.BrowserGeckoView
+                android:id="@+id/geckoview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#FF000000" />
+        </com.spoongecko.browser.PullToRefreshLayout>
 
         <!-- Solid Black Home Panel (Full Screen) -->
         <LinearLayout

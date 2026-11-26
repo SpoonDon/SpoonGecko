@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -12,12 +13,12 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 
 /**
  * Owns visual chrome: flash-guard, progress bar, home panel visibility,
- * edge-to-edge insets, fullscreen mode, and AMOLED theme. Holds no
- * application state (no tabs, no history).
+ * top/bottom toolbar positioning, edge-to-edge insets, fullscreen mode, and AMOLED theme.
  */
 public final class ScreenController {
 
@@ -27,11 +28,15 @@ public final class ScreenController {
     private final ProgressBar progressBar;
     private final EditText urlBar;
     private final EditText searchBar;
-    private final View root;
+    private final View suggestionsList;
+    private final LinearLayout root;
     private final View urlPanel;
 
     private final int originalPaddingTop;
+    private final int originalPaddingBottom;
     private View flashGuard;
+    private boolean bottomToolbar = false;
+    private boolean fullScreenMode = false;
 
     public ScreenController(Activity activity) {
         this.activity = activity;
@@ -42,15 +47,11 @@ public final class ScreenController {
         this.progressBar = activity.findViewById(R.id.progress_bar);
         this.urlBar = activity.findViewById(R.id.url_bar);
         this.searchBar = activity.findViewById(R.id.search_bar);
+        this.suggestionsList = activity.findViewById(R.id.suggestions_list);
         this.originalPaddingTop = urlPanel.getPaddingTop();
+        this.originalPaddingBottom = urlPanel.getPaddingBottom();
     }
 
-    /**
-     * [C2] Window-only immersive setup, deliberately free of any view lookup so
-     * it is safe to call before setContentView() (the old code instantiated
-     * ScreenController before the content view existed and crashed on the null
-     * views in the constructor).
-     */
     @SuppressWarnings("deprecation")
     public static void applyImmersiveWindow(Window w) {
         w.setStatusBarColor(Color.TRANSPARENT);
@@ -67,6 +68,71 @@ public final class ScreenController {
 
     public void makeImmersive() {
         applyImmersiveWindow(activity.getWindow());
+    }
+
+    public boolean isBottomToolbar() {
+        return bottomToolbar;
+    }
+
+    /**
+     * Moves the browser toolbar (url_bar_panel + progress_bar + optional find bar) between the
+     * top and bottom of the screen without detaching content_container (keeping GeckoView's
+     * surface intact).
+     */
+    public void applyToolbarPosition(boolean bottom) {
+        this.bottomToolbar = bottom;
+
+        View findBar = null;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            final View child = root.getChildAt(i);
+            if ("find_in_page_bar".equals(child.getTag())) {
+                findBar = child;
+                break;
+            }
+        }
+
+        final int contentIdx = root.indexOfChild(contentContainer);
+        final int urlIdx = root.indexOfChild(urlPanel);
+        final boolean currentlyBottom = urlIdx > contentIdx;
+
+        if (currentlyBottom != bottom) {
+            root.removeView(urlPanel);
+            if (progressBar != null) root.removeView(progressBar);
+            if (findBar != null) root.removeView(findBar);
+
+            if (bottom) {
+                if (findBar != null) root.addView(findBar);
+                if (progressBar != null) root.addView(progressBar);
+                root.addView(urlPanel);
+            } else {
+                int insertAt = 0;
+                root.addView(urlPanel, insertAt++);
+                if (progressBar != null) root.addView(progressBar, insertAt++);
+                if (findBar != null) root.addView(findBar, insertAt);
+            }
+        }
+
+        if (progressBar != null && progressBar.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+            final LinearLayout.LayoutParams pLp =
+                    (LinearLayout.LayoutParams) progressBar.getLayoutParams();
+            final int overlap = Math.round(activity.getResources().getDisplayMetrics().density);
+            pLp.topMargin = bottom ? 0 : -overlap;
+            pLp.bottomMargin = bottom ? -overlap : 0;
+            progressBar.setLayoutParams(pLp);
+        }
+
+        if (suggestionsList != null
+                && suggestionsList.getLayoutParams() instanceof FrameLayout.LayoutParams) {
+            final FrameLayout.LayoutParams sLp =
+                    (FrameLayout.LayoutParams) suggestionsList.getLayoutParams();
+            final int targetGravity = bottom ? Gravity.BOTTOM : Gravity.TOP;
+            if (sLp.gravity != targetGravity) {
+                sLp.gravity = targetGravity;
+                suggestionsList.setLayoutParams(sLp);
+            }
+        }
+
+        root.requestApplyInsets();
     }
 
     public void installFlashGuard() {
@@ -89,8 +155,6 @@ public final class ScreenController {
                 } catch (Exception ignored) {
                 }
             }
-            // [fix] The field used to stay non-null when the guard had already
-            // been detached, so every later call re-posted a no-op runnable.
             flashGuard = null;
         });
     }
@@ -130,30 +194,42 @@ public final class ScreenController {
     public void setupWindowInsets() {
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             int topInset;
-            int imeInset;
+            int navBottom;
+            int imeBottom;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                topInset = insets.getInsets(WindowInsets.Type.statusBars()).top;
-                imeInset = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                topInset = insets.getInsets(
+                        WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout()).top;
+                navBottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom;
             } else {
                 topInset = insets.getSystemWindowInsetTop();
-                imeInset = insets.getSystemWindowInsetBottom();
+                navBottom = 0;
+                imeBottom = insets.getSystemWindowInsetBottom();
             }
-            urlPanel.setPadding(
-                    urlPanel.getPaddingLeft(),
-                    originalPaddingTop + topInset,
-                    urlPanel.getPaddingRight(),
-                    urlPanel.getPaddingBottom());
-            // [M6] Always apply the IME inset. It used to be applied only while
-            // the home panel was visible; combined with
-            // SYSTEM_UI_FLAG_LAYOUT_STABLE (which stops the window itself from
-            // resizing) the keyboard covered inputs inside web pages.
-            contentContainer.setPadding(0, 0, 0, imeInset);
+
+            final int bottomInset = Math.max(imeBottom, fullScreenMode ? 0 : navBottom);
+            if (bottomToolbar) {
+                urlPanel.setPadding(
+                        urlPanel.getPaddingLeft(),
+                        originalPaddingBottom,
+                        urlPanel.getPaddingRight(),
+                        originalPaddingTop + bottomInset);
+                contentContainer.setPadding(0, fullScreenMode ? 0 : topInset, 0, 0);
+            } else {
+                urlPanel.setPadding(
+                        urlPanel.getPaddingLeft(),
+                        originalPaddingTop + topInset,
+                        urlPanel.getPaddingRight(),
+                        originalPaddingBottom);
+                contentContainer.setPadding(0, 0, 0, bottomInset);
+            }
             return insets;
         });
     }
 
     @SuppressWarnings("deprecation")
     public void setFullScreenMode(boolean fullScreen) {
+        this.fullScreenMode = fullScreen;
         if (fullScreen) {
             urlPanel.setVisibility(View.GONE);
             if (progressBar != null) progressBar.setVisibility(View.GONE);
@@ -171,7 +247,7 @@ public final class ScreenController {
                             | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
-        contentContainer.requestApplyInsets();
+        root.requestApplyInsets();
     }
 
     public void hideKeyboard() {

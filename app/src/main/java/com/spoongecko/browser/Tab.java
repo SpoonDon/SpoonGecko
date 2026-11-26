@@ -53,6 +53,8 @@ public class Tab {
     public boolean historyStepPending = false;
     /** Something has actually been shown in this tab (not just an empty window or a download). */
     public boolean hasContent = false;
+    /** Last reported vertical scroll offset (px) from GeckoSession.ScrollDelegate. */
+    public int scrollY = 0;
     /**
      * [TABS] Small screenshot of the page, shown on this tab's card in the tab switcher. Kept in
      * memory only (never saved to disk, never part of the saved tab state) and taken when the

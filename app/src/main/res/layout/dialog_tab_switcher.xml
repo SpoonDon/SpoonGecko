@@ -16,8 +16,8 @@
 
         <ImageButton
             android:id="@+id/ts_back"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_back"
             android:background="@drawable/bg_glass_button"
             android:scaleType="centerInside"
@@ -38,10 +38,9 @@
         <TextView
             android:id="@+id/ts_close_all"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:layout_marginEnd="6dp"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:layout_height="48dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
             android:gravity="center"
             android:text="Close all"
             android:textColor="#FFFFFFFF"
@@ -49,15 +48,6 @@
             android:background="@drawable/bg_glass_button"
             android:clickable="true"
             android:focusable="true" />
-
-        <ImageButton
-            android:id="@+id/ts_new"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_add"
-            android:background="@drawable/bg_glass_button"
-            android:scaleType="centerInside"
-            android:contentDescription="New tab" />
     </LinearLayout>
 
     <GridView

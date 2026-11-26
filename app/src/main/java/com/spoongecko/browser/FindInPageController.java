@@ -66,6 +66,7 @@ public final class FindInPageController {
         this.host = host;
 
         bar = new LinearLayout(activity);
+        bar.setTag("find_in_page_bar");
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         // Same solid shade as the suggestions list: another full-width strip
@@ -129,13 +130,15 @@ public final class FindInPageController {
         iconButton(R.drawable.ic_close, "Close find in page", v -> close());
         setNavEnabled(false);
 
-        // [FIT] Inserted just above the content container (found by position,
-        // not a hard-coded index), so the order of the root layout's children
-        // stays exactly as activity_main.xml defines it.
+        // [FIT] Inserted directly adjacent to the content container.
         ViewGroup root = activity.findViewById(R.id.root);
         View content = activity.findViewById(R.id.content_container);
         int at = root.indexOfChild(content);
-        if (at < 0) at = root.getChildCount();
+        if (at < 0) {
+            at = root.getChildCount();
+        } else if (BrowserSettings.isBottomToolbar(activity)) {
+            at = at + 1;
+        }
         root.addView(bar, at, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         bar.setVisibility(View.GONE);

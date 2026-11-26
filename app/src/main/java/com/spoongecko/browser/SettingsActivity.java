@@ -39,6 +39,7 @@ public class SettingsActivity extends Activity {
     private TextView valSearchEngine;
     private Switch switchSearchSuggestions;
     private Switch switchDefaultDesktop;
+    private Switch switchBottomToolbar;
     private Switch switchPdfViewer;
     private TextView valTranslateTarget;
     private Switch switchTranslateOffers;
@@ -81,6 +82,7 @@ public class SettingsActivity extends Activity {
         valSearchEngine = findViewById(R.id.val_search_engine);
         switchSearchSuggestions = findViewById(R.id.switch_search_suggestions);
         switchDefaultDesktop = findViewById(R.id.switch_default_desktop);
+        switchBottomToolbar = findViewById(R.id.switch_bottom_toolbar);
         switchPdfViewer = findViewById(R.id.switch_pdf_viewer);
         valTranslateTarget = findViewById(R.id.val_translate_target);
         switchTranslateOffers = findViewById(R.id.switch_translate_offers);
@@ -108,6 +110,8 @@ public class SettingsActivity extends Activity {
 
         wireSwitchRow(R.id.row_default_desktop, switchDefaultDesktop, enabled ->
                 BrowserSettings.setDefaultDesktopMode(this, enabled));
+        wireSwitchRow(R.id.row_bottom_toolbar, switchBottomToolbar, enabled ->
+                BrowserSettings.setBottomToolbar(this, enabled));
         wireSwitchRow(R.id.row_pdf_viewer, switchPdfViewer, enabled ->
                 BrowserSettings.setPdfViewerEnabled(this, enabled));
 
@@ -213,6 +217,9 @@ public class SettingsActivity extends Activity {
         setSwitchSilently(switchDefaultDesktop,
                 BrowserSettings.isDefaultDesktopMode(this),
                 enabled -> BrowserSettings.setDefaultDesktopMode(this, enabled));
+        setSwitchSilently(switchBottomToolbar,
+                BrowserSettings.isBottomToolbar(this),
+                enabled -> BrowserSettings.setBottomToolbar(this, enabled));
         setSwitchSilently(switchPdfViewer,
                 BrowserSettings.isPdfViewerEnabled(this),
                 enabled -> BrowserSettings.setPdfViewerEnabled(this, enabled));
@@ -275,11 +282,14 @@ public class SettingsActivity extends Activity {
         return count;
     }
 
+    @SuppressWarnings("deprecation")
     private String versionLabel() {
         try {
             final PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
             final String vn = pi.versionName == null ? "1.0" : pi.versionName;
-            return "Version " + vn + " (build " + pi.getLongVersionCode() + ")";
+            final long vc = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P
+                    ? pi.getLongVersionCode() : pi.versionCode;
+            return "Version " + vn + " (build " + vc + ")";
         } catch (Exception e) {
             return "SpoonGecko";
         }

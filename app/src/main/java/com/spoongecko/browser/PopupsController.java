@@ -131,9 +131,8 @@ public final class PopupsController {
         addMenuItem(container, "Settings", false, host::onShowSettings);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
-        // [FIT] With the extra row the menu can be taller than the space below the
-        // button (landscape phones). Scroll instead of letting the last rows
-        // (including Exit) fall off the screen.
+        // [FIT] With the extra row the menu can be taller than the available space.
+        // Open upward when the toolbar is positioned at the bottom of the screen.
         final int menuWidth = dp(190);
         container.measure(
                 View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
@@ -143,8 +142,12 @@ public final class PopupsController {
         // freeform window the two differ by the window's own position.
         final int[] anchorInWindow = new int[2];
         menuAnchor.getLocationInWindow(anchorInWindow);
-        final int available = DialogFit.windowHeight(activity)
-                - (anchorInWindow[1] + menuAnchor.getHeight()) - dp(16);
+        final int windowW = DialogFit.windowWidth(activity);
+        final int windowH = DialogFit.windowHeight(activity);
+        final int spaceBelow = windowH - (anchorInWindow[1] + menuAnchor.getHeight()) - dp(16);
+        final int spaceAbove = anchorInWindow[1] - dp(16);
+        final boolean openAbove = spaceBelow < Math.min(wanted, dp(220)) && spaceAbove > spaceBelow;
+        final int available = openAbove ? spaceAbove : spaceBelow;
 
         View content = container;
         int height = ViewGroup.LayoutParams.WRAP_CONTENT;
@@ -165,7 +168,15 @@ public final class PopupsController {
         // watcher belongs to this popup and stops when the popup is dismissed, however that happens.
         final Runnable stopWatching = DialogFit.watch(activity, this::reopenMenu);
         menuPopup.setOnDismissListener(stopWatching::run);
-        menuPopup.showAsDropDown(menuAnchor, 0, dp(8));
+        if (openAbove) {
+            final int popupH = height == ViewGroup.LayoutParams.WRAP_CONTENT ? wanted : height;
+            final int x = Math.max(dp(8), Math.min(windowW - menuWidth - dp(8),
+                    anchorInWindow[0] + menuAnchor.getWidth() - menuWidth));
+            final int y = Math.max(dp(16), anchorInWindow[1] - popupH - dp(8));
+            menuPopup.showAtLocation(menuAnchor, Gravity.TOP | Gravity.START, x, y);
+        } else {
+            menuPopup.showAsDropDown(menuAnchor, 0, dp(8));
+        }
     }
 
     public void showContextMenu(int x, int y,

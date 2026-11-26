@@ -910,7 +910,10 @@ public final class ExtensionManager {
         final int wanted = rows.getMeasuredHeight();
         final int[] anchorInWindow = new int[2];
         anchor.getLocationInWindow(anchorInWindow);
-        final int available = windowH - (anchorInWindow[1] + anchor.getHeight()) - dp(c, 16);
+        final int spaceBelow = windowH - (anchorInWindow[1] + anchor.getHeight()) - dp(c, 16);
+        final int spaceAbove = anchorInWindow[1] - dp(c, 16);
+        final boolean openAbove = spaceBelow < Math.min(wanted, dp(c, 160)) && spaceAbove > spaceBelow;
+        final int available = openAbove ? spaceAbove : spaceBelow;
         int height = ViewGroup.LayoutParams.WRAP_CONTENT;
         if (available > dp(c, 120) && wanted > available) height = available;
 
@@ -935,8 +938,16 @@ public final class ExtensionManager {
         extensionMenu = popup;
         extensionMenuRows = rows;
         try {
-            // Right edge of the list under the right edge of the button, like the main menu.
-            popup.showAsDropDown(anchor, 0, dp(c, 8), Gravity.END);
+            if (openAbove) {
+                final int popupH = height == ViewGroup.LayoutParams.WRAP_CONTENT ? wanted : height;
+                final int x = Math.max(dp(c, 8), Math.min(windowW - width - dp(c, 8),
+                        anchorInWindow[0] + anchor.getWidth() - width));
+                final int y = Math.max(dp(c, 16), anchorInWindow[1] - popupH - dp(c, 8));
+                popup.showAtLocation(anchor, Gravity.TOP | Gravity.START, x, y);
+            } else {
+                // Right edge of the list under the right edge of the button, like the main menu.
+                popup.showAsDropDown(anchor, 0, dp(c, 8), Gravity.END);
+            }
         } catch (Exception e) {
             Log.w(TAG, "could not show the extensions list", e);
             extensionMenu = null;

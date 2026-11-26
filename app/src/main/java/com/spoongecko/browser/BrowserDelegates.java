@@ -72,6 +72,7 @@ public final class BrowserDelegates {
         void onDownloadLink(String url, String referrer);
         /** [POPUP] The new tab has been handed to GeckoView, which opens its session itself. */
         void onNewSessionReturned(Tab tab);
+        void onTabScrollChanged(Tab tab, int scrollX, int scrollY);
     }
 
     private final Activity activity;
@@ -92,6 +93,13 @@ public final class BrowserDelegates {
         // [H1] Without a PromptDelegate, alert()/confirm()/prompt(), <select>
         // menus, <input type=file>, HTTP auth and share requests all did nothing.
         tab.session.setPromptDelegate(prompts);
+        tab.session.setScrollDelegate(new GeckoSession.ScrollDelegate() {
+            @Override
+            public void onScrollChanged(GeckoSession session, int scrollX, int scrollY) {
+                tab.scrollY = scrollY;
+                activity.runOnUiThread(() -> host.onTabScrollChanged(tab, scrollX, scrollY));
+            }
+        });
         // [MEDIA] Lets audio/video keep playing in the background: see MediaPlaybackController.
         tab.session.setMediaSessionDelegate(MediaPlaybackController.get().delegateFor(activity, tab));
     }
@@ -108,6 +116,7 @@ public final class BrowserDelegates {
             public void onPageStart(GeckoSession sess, String url) {
                 if (url == null || url.startsWith("about:") || ErrorPages.isErrorPageUri(url)) return;
                 tab.url = url;
+                tab.scrollY = 0;
                 activity.runOnUiThread(() -> host.onPageStarted(tab, url));
             }
 

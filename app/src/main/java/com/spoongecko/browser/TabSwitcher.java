@@ -255,10 +255,6 @@ public final class TabSwitcher {
         });
 
         d.findViewById(R.id.ts_back).setOnClickListener(v -> d.dismiss());
-        d.findViewById(R.id.ts_new).setOnClickListener(v -> {
-            d.dismiss();
-            host.openNewTab();
-        });
         d.findViewById(R.id.ts_close_all).setOnClickListener(v -> confirmCloseAll());
 
         d.setOnDismissListener(x -> {
@@ -290,6 +286,7 @@ public final class TabSwitcher {
                 insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom()};
     }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.R)
     private static int[] systemInsetsR(WindowInsets insets) {
         final android.graphics.Insets i = insets.getInsets(
                 WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
@@ -456,6 +453,9 @@ public final class TabSwitcher {
     }
 
     private final class CardAdapter extends BaseAdapter {
+        private static final int VIEW_TYPE_TAB = 0;
+        private static final int VIEW_TYPE_ADD = 1;
+
         private final Drawable.ConstantState activeBorderState;
         private final Drawable.ConstantState inactiveBorderState;
         private List<Tab> data = new ArrayList<>(tabManager.getTabs());
@@ -472,12 +472,42 @@ public final class TabSwitcher {
             notifyDataSetChanged();
         }
 
-        @Override public int getCount() { return data.size(); }
-        @Override public Tab getItem(int position) { return data.get(position); }
+        @Override public int getViewTypeCount() { return 2; }
+        @Override public int getItemViewType(int position) {
+            return position < data.size() ? VIEW_TYPE_TAB : VIEW_TYPE_ADD;
+        }
+        @Override public int getCount() { return data.size() + 1; }
+        @Override public Tab getItem(int position) {
+            return position < data.size() ? data.get(position) : null;
+        }
         @Override public long getItemId(int position) { return position; }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
+            final int colW = parent instanceof GridView ? ((GridView) parent).getColumnWidth() : 0;
+            final int previewHeight = Math.round((colW > 0 ? colW : dp(160)) * THUMB_RATIO);
+
+            if (getItemViewType(position) == VIEW_TYPE_ADD) {
+                final View addView = convertView != null
+                        ? convertView
+                        : activity.getLayoutInflater().inflate(R.layout.item_tab_add_card, parent, false);
+                final View body = addView.findViewById(R.id.add_card_body);
+                final int totalHeight = dp(40) + previewHeight;
+                if (body != null) {
+                    final ViewGroup.LayoutParams alp = body.getLayoutParams();
+                    if (alp.height != totalHeight) {
+                        alp.height = totalHeight;
+                        body.setLayoutParams(alp);
+                    }
+                }
+                addView.setOnClickListener(x -> {
+                    final Dialog d = dialog;
+                    if (d != null) d.dismiss();
+                    host.openNewTab();
+                });
+                return addView;
+            }
+
             final View v;
             final CardViewHolder h;
             if (convertView == null) {
@@ -540,11 +570,9 @@ public final class TabSwitcher {
             }
 
             // Preview: sized from the column width so every card has the same proportions.
-            final int colW = parent instanceof GridView ? ((GridView) parent).getColumnWidth() : 0;
-            final int height = Math.round((colW > 0 ? colW : dp(160)) * THUMB_RATIO);
             final ViewGroup.LayoutParams lp = h.preview.getLayoutParams();
-            if (lp.height != height) {
-                lp.height = height;
+            if (lp.height != previewHeight) {
+                lp.height = previewHeight;
                 h.preview.setLayoutParams(lp);
             }
             // [INCOGNITO] Tinted preview area and placeholder text for an incognito card, and the

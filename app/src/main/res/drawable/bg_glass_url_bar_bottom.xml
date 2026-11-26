@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners
+        android:topLeftRadius="18dp"
+        android:topRightRadius="18dp" />
+    <!-- Glassy at the top edge facing page content, solid black blending into nav bar at bottom -->
+    <gradient
+        android:startColor="#CC000000"
+        android:endColor="#FF000000"
+        android:angle="270" />
+</shape>

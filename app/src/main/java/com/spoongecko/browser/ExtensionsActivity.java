@@ -632,11 +632,11 @@ public class ExtensionsActivity extends Activity {
             h.icon.setTag(ext.id);
             h.icon.setImageResource(R.drawable.ic_extension);
             if (ext.metaData != null && ext.metaData.icon != null) {
-                ext.metaData.icon.getBitmap(64).accept(bitmap -> {
+                ext.metaData.icon.getBitmap(64).accept(bitmap -> runOnUiThread(() -> {
                     if (bitmap != null && ext.id.equals(h.icon.getTag())) {
                         h.icon.setImageBitmap(bitmap);
                     }
-                });
+                }));
             }
 
             h.toggle.setOnCheckedChangeListener(null);
