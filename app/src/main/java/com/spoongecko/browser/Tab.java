@@ -53,6 +53,8 @@ public class Tab {
     public boolean historyStepPending = false;
     /** Something has actually been shown in this tab (not just an empty window or a download). */
     public boolean hasContent = false;
+    /** Set when onLoadError fires for the current navigation; cleared on the next non-error load. */
+    public boolean hasLoadError = false;
     /** Last reported vertical scroll offset (px) from GeckoSession.ScrollDelegate. */
     public int scrollY = 0;
     /**

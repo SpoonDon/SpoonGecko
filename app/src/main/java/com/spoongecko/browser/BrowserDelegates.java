@@ -117,6 +117,7 @@ public final class BrowserDelegates {
                 if (url == null || url.startsWith("about:") || ErrorPages.isErrorPageUri(url)) return;
                 tab.url = url;
                 tab.scrollY = 0;
+                tab.hasLoadError = false;
                 activity.runOnUiThread(() -> host.onPageStarted(tab, url));
             }
 
@@ -132,6 +133,16 @@ public final class BrowserDelegates {
             @Override
             public void onPageStop(GeckoSession sess, boolean success) {
                 if (tab == host.getTabManager().getActiveTab()) host.persistAllTabs();
+                // Record completed non-private, non-error page loads with URL and timestamp.
+                if (success
+                        && !tab.isPrivate
+                        && !tab.hasLoadError
+                        && !TextUtils.isEmpty(tab.url)
+                        && !ErrorPages.isErrorPageUri(tab.url)
+                        && !ErrorPages.isErrorTitle(tab.title)) {
+                    host.getHistoryStore().recordVisit(
+                            tab.url, tab.title, System.currentTimeMillis());
+                }
                 activity.runOnUiThread(() -> host.setProgressBarVisible(false));
             }
         });
@@ -148,12 +159,6 @@ public final class BrowserDelegates {
             public void onFirstContentfulPaint(GeckoSession session) {
                 tab.hasContent = true;
                 host.removeFlashGuard();
-                // [LAN] Our own error pages are not visits: keep failed addresses
-                // (e.g. a router IP while off its Wi-Fi) out of history/suggestions.
-                // [INCOGNITO] Pages of an incognito tab are never recorded, anywhere.
-                if (!tab.isPrivate && !TextUtils.isEmpty(tab.url) && !ErrorPages.isErrorTitle(tab.title)) {
-                    host.getHistoryStore().recordVisit(tab.url, tab.title);
-                }
             }
 
             @Override
@@ -283,6 +288,7 @@ public final class BrowserDelegates {
                 // [LAN] Never let the data: URI of our own error page leak into the
                 // URL bar / saved tab URL; the failed address stays shown instead.
                 if (ErrorPages.isErrorPageUri(url)) return;
+                tab.hasLoadError = false;
                 // [F14] tab.url is the sanitized value ("" for about:blank);
                 // the URL bar must receive THAT, not the raw url — otherwise
                 // every fresh tab left "about:blank" sitting in the bar.
@@ -331,6 +337,7 @@ public final class BrowserDelegates {
             @Override
             public GeckoResult<String> onLoadError(
                     GeckoSession sess, String uri, WebRequestError error) {
+                tab.hasLoadError = true;
                 try {
                     final boolean blocked = ErrorPages.isLocalNetworkBlocked(
                             LocalNetworkAccess.isMissing(activity), uri, error);
