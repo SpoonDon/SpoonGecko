@@ -25,6 +25,7 @@ import java.util.Locale;
 public final class UploadFileProvider extends ContentProvider {
 
     private static final String CAPTURE_SUBDIR = "uploads/capture";
+    private static final String STAGED_SUBDIR = "uploads";
     private static final String[] DEFAULT_COLUMNS = {
             OpenableColumns.DISPLAY_NAME,
             OpenableColumns.SIZE
@@ -35,18 +36,27 @@ public final class UploadFileProvider extends ContentProvider {
     }
 
     static Uri uriForCaptureFile(Context context, File file) throws IOException {
-        final File root = captureRoot(context).getCanonicalFile();
+        return uriForFileUnder(context, captureRoot(context), "capture", file);
+    }
+
+    static Uri uriForStagedFile(Context context, File file) throws IOException {
+        return uriForFileUnder(context, stagedRoot(context), "staged", file);
+    }
+
+    private static Uri uriForFileUnder(Context context, File rootDir, String prefix, File file)
+            throws IOException {
+        final File root = rootDir.getCanonicalFile();
         final File target = file.getCanonicalFile();
         final String rootPath = root.getPath();
         final String targetPath = target.getPath();
         if (!targetPath.startsWith(rootPath + File.separator)) {
-            throw new SecurityException("Capture file must live under " + rootPath);
+            throw new SecurityException("Upload file must live under " + rootPath);
         }
         final String relative = targetPath.substring(rootPath.length() + 1);
         final Uri.Builder builder = new Uri.Builder()
                 .scheme(ContentResolver.SCHEME_CONTENT)
                 .authority(authority(context))
-                .appendPath("capture");
+                .appendPath(prefix);
         for (String segment : relative.split(File.separatorChar == '\\' ? "\\\\" : "/")) {
             if (!segment.isEmpty()) builder.appendPath(segment);
         }
@@ -57,6 +67,10 @@ public final class UploadFileProvider extends ContentProvider {
         return new File(context.getCacheDir(), CAPTURE_SUBDIR);
     }
 
+    static File stagedRoot(Context context) {
+        return new File(context.getCacheDir(), STAGED_SUBDIR);
+    }
+
     @Override
     public boolean onCreate() {
         return true;
@@ -65,8 +79,9 @@ public final class UploadFileProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
                         String sortOrder) {
-        final File file = resolveFile(uri);
-        if (file == null) return null;
+        final ResolvedTarget target = resolveTarget(uri);
+        if (target == null) return null;
+        final File file = target.file;
         final String[] cols = projection != null ? projection : DEFAULT_COLUMNS;
         final Object[] row = new Object[cols.length];
         for (int i = 0; i < cols.length; i++) {
@@ -85,9 +100,9 @@ public final class UploadFileProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
-        final File file = resolveFile(uri);
-        if (file == null) return null;
-        final String ext = UploadFiles.extensionOf(file.getName());
+        final ResolvedTarget target = resolveTarget(uri);
+        if (target == null) return null;
+        final String ext = UploadFiles.extensionOf(target.file.getName());
         if (!ext.isEmpty()) {
             final String mime = MimeTypeMap.getSingleton()
                     .getMimeTypeFromExtension(ext.toLowerCase(Locale.ROOT));
@@ -98,14 +113,19 @@ public final class UploadFileProvider extends ContentProvider {
 
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
-        final File file = resolveFile(uri);
-        if (file == null) throw new FileNotFoundException("Invalid capture URI: " + uri);
+        final ResolvedTarget target = resolveTarget(uri);
+        if (target == null) throw new FileNotFoundException("Invalid upload URI: " + uri);
+        final File file = target.file;
+        final String resolvedMode = mode != null ? mode : "r";
+        if (target.readOnly && (resolvedMode.contains("w") || resolvedMode.contains("t")
+                || resolvedMode.contains("+"))) {
+            throw new SecurityException("Staged upload files are read-only");
+        }
         final File parent = file.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+        if (!target.readOnly && parent != null && !parent.exists() && !parent.mkdirs()) {
             throw new FileNotFoundException("Could not create parent directory");
         }
-        final String resolvedMode = mode != null ? mode : "r";
-        if (resolvedMode.contains("w") && !file.exists()) {
+        if (!target.readOnly && resolvedMode.contains("w") && !file.exists()) {
             try {
                 //noinspection ResultOfMethodCallIgnored
                 file.createNewFile();
@@ -124,8 +144,9 @@ public final class UploadFileProvider extends ContentProvider {
 
     @Override
     public int delete(Uri uri, String selection, String[] selectionArgs) {
-        final File file = resolveFile(uri);
-        return file != null && file.delete() ? 1 : 0;
+        final ResolvedTarget target = resolveTarget(uri);
+        if (target == null || target.readOnly) return 0;
+        return target.file.delete() ? 1 : 0;
     }
 
     @Override
@@ -133,15 +154,36 @@ public final class UploadFileProvider extends ContentProvider {
         throw new UnsupportedOperationException("Updates are not supported");
     }
 
-    private File resolveFile(Uri uri) {
+    private static final class ResolvedTarget {
+        final File file;
+        final boolean readOnly;
+
+        ResolvedTarget(File file, boolean readOnly) {
+            this.file = file;
+            this.readOnly = readOnly;
+        }
+    }
+
+    private ResolvedTarget resolveTarget(Uri uri) {
         final Context context = getContext();
         if (context == null || uri == null) return null;
         final List<String> segments = uri.getPathSegments();
-        if (segments == null || segments.size() < 2 || !"capture".equals(segments.get(0))) {
+        if (segments == null || segments.size() < 2) return null;
+        final String kind = segments.get(0);
+        final File baseRoot;
+        final boolean readOnly;
+        if ("capture".equals(kind)) {
+            baseRoot = captureRoot(context);
+            readOnly = false;
+        } else if ("staged".equals(kind)) {
+            if ("capture".equals(segments.get(1))) return null;
+            baseRoot = stagedRoot(context);
+            readOnly = true;
+        } else {
             return null;
         }
         try {
-            final File root = captureRoot(context).getCanonicalFile();
+            final File root = baseRoot.getCanonicalFile();
             File current = root;
             for (int i = 1; i < segments.size(); i++) {
                 final String seg = segments.get(i);
@@ -154,7 +196,7 @@ public final class UploadFileProvider extends ContentProvider {
             if (!canonical.getPath().startsWith(root.getPath() + File.separator)) {
                 return null;
             }
-            return canonical;
+            return new ResolvedTarget(canonical, readOnly);
         } catch (IOException e) {
             return null;
         }

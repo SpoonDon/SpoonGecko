@@ -39,6 +39,9 @@
             <data android:mimeType="*/*" />
         </intent>
         <intent>
+            <action android:name="android.provider.action.PICK_IMAGES" />
+        </intent>
+        <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
         <intent>
