@@ -98,7 +98,7 @@ final class DragDropController {
     private final Map<String, PendingDropOutcome> pendingOutcomes = new HashMap<>();
 
     private TextView dropBanner;
-    private DragEvent lastHandledDropEvent;
+    private boolean dropHandledInCurrentDrag;
     private boolean destroyed;
 
     private final View.OnDragListener dragListener = this::onDragEvent;
@@ -210,6 +210,9 @@ final class DragDropController {
         if (destroyed || event == null) return false;
         switch (event.getAction()) {
             case DragEvent.ACTION_DRAG_STARTED: {
+                dropHandledInCurrentDrag = false;
+                activeDragViews.clear();
+                showDropBanner(false);
                 if (event.getLocalState() != null) return false;
                 if (screen != null && screen.isHomePanelVisible()
                         && (filePicker == null || !filePicker.hasPendingPrompt())) {
@@ -235,16 +238,19 @@ final class DragDropController {
                 return true;
 
             case DragEvent.ACTION_DRAG_ENDED:
+                dropHandledInCurrentDrag = false;
                 activeDragViews.clear();
                 showDropBanner(false);
                 return true;
 
-            case DragEvent.ACTION_DROP:
+            case DragEvent.ACTION_DROP: {
                 activeDragViews.clear();
                 showDropBanner(false);
-                if (event == lastHandledDropEvent) return true;
-                lastHandledDropEvent = event;
-                return handleDrop(v, event);
+                if (dropHandledInCurrentDrag) return true;
+                final boolean handled = handleDrop(v, event);
+                if (handled) dropHandledInCurrentDrag = true;
+                return handled;
+            }
 
             default:
                 return false;

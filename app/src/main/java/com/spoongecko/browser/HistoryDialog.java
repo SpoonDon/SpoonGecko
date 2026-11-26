@@ -10,6 +10,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -174,6 +175,16 @@ final class HistoryDialog {
             });
         }
 
+        adapter.setOnOpen(entry -> {
+            if (entry == null || entry.url == null || entry.url.trim().isEmpty()) return;
+            actions.onOpenDefault(entry.url);
+            d.dismiss();
+        });
+        adapter.setOnLongPress(entry -> {
+            if (entry == null || entry.url == null || entry.url.trim().isEmpty()) return;
+            showItemActionsDialog(d, entry, actions);
+        });
+
         list.setOnItemClickListener((parent, view, position, id) -> {
             final HistoryRows.Row row = adapter.getItem(position);
             if (row == null || row.entry == null) return;       // a section heading
@@ -322,12 +333,13 @@ final class HistoryDialog {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setDimAmount(0.55f);
         }
+        ctx.setCanceledOnTouchOutside(true);
         ctx.setOnDismissListener(x -> {
             if (contextDialog == ctx) contextDialog = null;
         });
         contextDialog = ctx;
-        ctx.show();
         DialogFit.fitAndFollow(activity, ctx, 0.86f, 0f, null);
+        ctx.show();
     }
 
     private void addActionRow(LinearLayout parent, String label, boolean muted, Runnable onClick) {
@@ -501,6 +513,7 @@ final class HistoryDialog {
     private static final class RowViewHolder {
         final boolean isHeader;
         final TextView headerText;
+        final View mainArea;
         final TextView title;
         final TextView sub;
         final TextView time;
@@ -510,6 +523,7 @@ final class HistoryDialog {
         RowViewHolder(View headerView) {
             this.isHeader = true;
             this.headerText = (TextView) headerView;
+            this.mainArea = null;
             this.title = null;
             this.sub = null;
             this.time = null;
@@ -519,6 +533,7 @@ final class HistoryDialog {
         RowViewHolder(View itemView, boolean unused) {
             this.isHeader = false;
             this.headerText = null;
+            this.mainArea = itemView.findViewById(R.id.row_main);
             this.title = itemView.findViewById(R.id.row_title);
             this.sub = itemView.findViewById(R.id.row_subtitle);
             this.time = itemView.findViewById(R.id.row_time);
@@ -530,6 +545,8 @@ final class HistoryDialog {
         private List<HistoryRows.Row> rows = new ArrayList<>();
         /** Called when the X on a page line is tapped. */
         private Consumer<HistoryStore.Entry> onRemove;
+        private Consumer<HistoryStore.Entry> onOpen;
+        private Consumer<HistoryStore.Entry> onLongPress;
 
         void set(List<HistoryRows.Row> newRows) {
             rows = new ArrayList<>(newRows);
@@ -582,6 +599,14 @@ final class HistoryDialog {
             this.onRemove = onRemove;
         }
 
+        void setOnOpen(Consumer<HistoryStore.Entry> onOpen) {
+            this.onOpen = onOpen;
+        }
+
+        void setOnLongPress(Consumer<HistoryStore.Entry> onLongPress) {
+            this.onLongPress = onLongPress;
+        }
+
         @Override public int getCount() { return rows.size(); }
         @Override public HistoryRows.Row getItem(int p) { return rows.get(p); }
         @Override public long getItemId(int p) { return p; }
@@ -605,6 +630,21 @@ final class HistoryDialog {
                 holder = header ? new RowViewHolder(v) : new RowViewHolder(v, false);
                 if (!header) {
                     final RowViewHolder h = holder;
+                    if (holder.mainArea != null) {
+                        holder.mainArea.setOnClickListener(x -> {
+                            if (onOpen != null && h.boundEntry != null) {
+                                onOpen.accept(h.boundEntry);
+                            }
+                        });
+                        holder.mainArea.setOnLongClickListener(x -> {
+                            if (onLongPress != null && h.boundEntry != null) {
+                                x.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                onLongPress.accept(h.boundEntry);
+                                return true;
+                            }
+                            return false;
+                        });
+                    }
                     holder.delete.setOnClickListener(x -> {
                         if (onRemove != null && h.boundEntry != null) {
                             onRemove.accept(h.boundEntry);
