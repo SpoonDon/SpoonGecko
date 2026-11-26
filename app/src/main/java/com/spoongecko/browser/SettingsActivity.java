@@ -137,7 +137,23 @@ public class SettingsActivity extends Activity {
         findViewById(R.id.row_bookmarks).setOnClickListener(v ->
                 bookmarksDialog.show(null, null, this::openUrlInBrowser));
         findViewById(R.id.row_history).setOnClickListener(v ->
-                historyDialog.show(this::openUrlInBrowser));
+                historyDialog.show(new HistoryDialog.Actions() {
+                    @Override public void onOpenDefault(String url) {
+                        openHistoryUrl(url, MainActivity.OPEN_MODE_HISTORY_DEFAULT);
+                    }
+                    @Override public void onOpenInNewTab(String url) {
+                        openHistoryUrl(url, MainActivity.OPEN_MODE_NEW_TAB);
+                    }
+                    @Override public void onOpenInNewIncognitoTab(String url) {
+                        openHistoryUrl(url, MainActivity.OPEN_MODE_NEW_INCOGNITO_TAB);
+                    }
+                    @Override public void onOpenInNewWindow(String url) {
+                        openUrlInNewWindow(false, url);
+                    }
+                    @Override public void onOpenInNewIncognitoWindow(String url) {
+                        openUrlInNewWindow(true, url);
+                    }
+                }));
         findViewById(R.id.row_clear_data).setOnClickListener(v -> showClearDataDialog());
 
         findViewById(R.id.row_app_permissions).setOnClickListener(v -> openAppPermissions());
@@ -645,21 +661,51 @@ public class SettingsActivity extends Activity {
     // ------------------------------------------------------------------
 
     private void openUrlInBrowser(String url) {
+        openHistoryUrl(url, null);
+    }
+
+    private void openHistoryUrl(String url, String openMode) {
         if (url == null || url.trim().isEmpty()) return;
-        final String lower = url.trim().toLowerCase(Locale.ROOT);
+        final String trimmed = url.trim();
+        final String lower = trimmed.toLowerCase(Locale.ROOT);
         if (lower.startsWith("http://") || lower.startsWith("https://")) {
             final Intent intent = new Intent(this, MainActivity.class)
                     .setAction(Intent.ACTION_VIEW)
-                    .setData(Uri.parse(url.trim()))
+                    .setData(Uri.parse(trimmed))
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (openMode != null) {
+                intent.putExtra(MainActivity.EXTRA_OPEN_MODE, openMode);
+            }
             startActivity(intent);
             finish();
         } else {
-            ExtensionManager.get().openInBrowserTab(url.trim());
+            ExtensionManager.get().openInBrowserTab(trimmed);
             final Intent intent = new Intent(this, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(intent);
             finish();
+        }
+    }
+
+    private void openUrlInNewWindow(boolean incognito, String url) {
+        if (url == null || url.trim().isEmpty()) return;
+        final String trimmed = url.trim();
+        final String lower = trimmed.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            openHistoryUrl(trimmed, MainActivity.OPEN_MODE_NEW_TAB);
+            return;
+        }
+        final Intent intent = new Intent(this, BrowserWindowActivity.class);
+        intent.putExtra(MainActivity.EXTRA_START_PRIVATE, incognito);
+        intent.putExtra(MainActivity.EXTRA_INITIAL_URL, trimmed);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
+        try {
+            startActivity(intent);
+            finish();
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Couldn't open a new window", Toast.LENGTH_SHORT).show();
         }
     }
 

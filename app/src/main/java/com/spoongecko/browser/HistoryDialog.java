@@ -5,16 +5,22 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.BaseAdapter;
+import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -58,9 +64,18 @@ final class HistoryDialog {
     private static final String PREFS_NAME = "spoongecko_prefs";
     private static final String PREF_SORT = "history_sort";
 
+    interface Actions {
+        void onOpenDefault(String url);
+        void onOpenInNewTab(String url);
+        void onOpenInNewIncognitoTab(String url);
+        void onOpenInNewWindow(String url);
+        void onOpenInNewIncognitoWindow(String url);
+    }
+
     private final Activity activity;
     private final HistoryStore history;
     private Dialog dialog;
+    private Dialog contextDialog;
 
     /**
      * [RESIZE] Watches the app window while the dialog is open (see followWindowSize). The
@@ -77,7 +92,27 @@ final class HistoryDialog {
     }
 
     void show(final Consumer<String> onNavigate) {
-        if (activity.isFinishing() || activity.isDestroyed()) return;
+        show(new Actions() {
+            @Override public void onOpenDefault(String url) {
+                if (onNavigate != null) onNavigate.accept(url);
+            }
+            @Override public void onOpenInNewTab(String url) {
+                if (onNavigate != null) onNavigate.accept(url);
+            }
+            @Override public void onOpenInNewIncognitoTab(String url) {
+                if (onNavigate != null) onNavigate.accept(url);
+            }
+            @Override public void onOpenInNewWindow(String url) {
+                if (onNavigate != null) onNavigate.accept(url);
+            }
+            @Override public void onOpenInNewIncognitoWindow(String url) {
+                if (onNavigate != null) onNavigate.accept(url);
+            }
+        });
+    }
+
+    void show(final Actions actions) {
+        if (activity.isFinishing() || activity.isDestroyed() || actions == null) return;
         if (dialog != null && dialog.isShowing()) return;
 
         final Dialog d = new Dialog(activity);
@@ -141,9 +176,20 @@ final class HistoryDialog {
 
         list.setOnItemClickListener((parent, view, position, id) -> {
             final HistoryRows.Row row = adapter.getItem(position);
-            if (row.entry == null) return;       // a section heading
-            onNavigate.accept(row.entry.url);
+            if (row == null || row.entry == null) return;       // a section heading
+            actions.onOpenDefault(row.entry.url);
             d.dismiss();
+        });
+
+        list.setOnItemLongClickListener((parent, view, position, id) -> {
+            if (position < 0 || position >= adapter.getCount()) return false;
+            final HistoryRows.Row row = adapter.getItem(position);
+            if (row == null || row.entry == null
+                    || row.entry.url == null || row.entry.url.trim().isEmpty()) {
+                return false;
+            }
+            showItemActionsDialog(d, row.entry, actions);
+            return true;
         });
 
         // The X on a page line: remove that page only, and leave the list where it was (the
@@ -179,6 +225,7 @@ final class HistoryDialog {
 
         d.setOnDismissListener(x -> {
             loadGen[0]++;
+            dismissContextDialog();
             if (dialog == d) dialog = null;
             stopFollowingWindowSize();
         });
@@ -186,6 +233,127 @@ final class HistoryDialog {
         load.run();
         d.show();
         followWindowSize(d, list, adapter);
+    }
+
+    private void showItemActionsDialog(final Dialog parentDialog,
+                                       final HistoryStore.Entry entry,
+                                       final Actions actions) {
+        if (activity.isFinishing() || activity.isDestroyed()) return;
+        dismissContextDialog();
+
+        final Dialog ctx = new Dialog(activity);
+        ctx.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        final ScrollView scroll = new ScrollView(activity);
+        final LinearLayout content = new LinearLayout(activity);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setBackgroundResource(R.drawable.bg_glass_dialog);
+        final int pad = dp(18);
+        content.setPadding(pad, pad, pad, dp(14));
+
+        final String shortUrl = SuggestionRanker.shortUrl(entry.url);
+        final String displayTitle = (entry.title == null || entry.title.trim().isEmpty())
+                ? shortUrl : entry.title.trim();
+
+        final TextView titleView = new TextView(activity);
+        titleView.setText(displayTitle);
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(16);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setMaxLines(2);
+        titleView.setEllipsize(TextUtils.TruncateAt.END);
+        content.addView(titleView);
+
+        final TextView subView = new TextView(activity);
+        subView.setText(shortUrl);
+        subView.setTextColor(0x88FFFFFF);
+        subView.setTextSize(12);
+        subView.setSingleLine(true);
+        subView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        subView.setPadding(0, dp(3), 0, dp(10));
+        content.addView(subView);
+
+        final BookmarkRepository repo = BookmarkRepository.get(activity);
+        final boolean alreadyBookmarked = repo.isCachedBookmarked(entry.url);
+        final String bookmarkLabel = alreadyBookmarked ? "Remove bookmark" : "Bookmark";
+        addActionRow(content, bookmarkLabel, false, () -> {
+            ctx.dismiss();
+            if (!BookmarkRepository.isBookmarkable(entry.url, entry.title)) {
+                Toast.makeText(activity, "This page can't be bookmarked", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            repo.toggleBookmark(entry.url, entry.title, state -> {
+                if (activity.isFinishing() || activity.isDestroyed() || state == null) return;
+                Toast.makeText(activity, state ? "Bookmarked" : "Bookmark removed",
+                        Toast.LENGTH_SHORT).show();
+            });
+        });
+
+        addActionRow(content, "Open in new tab", false, () -> {
+            ctx.dismiss();
+            parentDialog.dismiss();
+            actions.onOpenInNewTab(entry.url);
+        });
+
+        addActionRow(content, "Open in new incognito tab", false, () -> {
+            ctx.dismiss();
+            parentDialog.dismiss();
+            actions.onOpenInNewIncognitoTab(entry.url);
+        });
+
+        addActionRow(content, "Open in new window", false, () -> {
+            ctx.dismiss();
+            parentDialog.dismiss();
+            actions.onOpenInNewWindow(entry.url);
+        });
+
+        addActionRow(content, "Open in new incognito window", false, () -> {
+            ctx.dismiss();
+            parentDialog.dismiss();
+            actions.onOpenInNewIncognitoWindow(entry.url);
+        });
+
+        addActionRow(content, "Cancel", true, ctx::dismiss);
+
+        scroll.addView(content);
+        ctx.setContentView(scroll);
+        final Window w = ctx.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            w.setDimAmount(0.55f);
+        }
+        ctx.setOnDismissListener(x -> {
+            if (contextDialog == ctx) contextDialog = null;
+        });
+        contextDialog = ctx;
+        ctx.show();
+        DialogFit.fitAndFollow(activity, ctx, 0.86f, 0f, null);
+    }
+
+    private void addActionRow(LinearLayout parent, String label, boolean muted, Runnable onClick) {
+        final TextView btn = new TextView(activity);
+        btn.setText(label);
+        btn.setTextColor(muted ? 0xB3FFFFFF : 0xFFFFFFFF);
+        btn.setTextSize(14);
+        btn.setGravity(Gravity.CENTER_VERTICAL);
+        btn.setPadding(dp(16), dp(12), dp(16), dp(12));
+        btn.setMinHeight(dp(48));
+        btn.setBackgroundResource(R.drawable.bg_glass_button);
+        btn.setClickable(true);
+        btn.setFocusable(true);
+        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(6);
+        btn.setOnClickListener(v -> onClick.run());
+        parent.addView(btn, lp);
+    }
+
+    private void dismissContextDialog() {
+        final Dialog ctx = contextDialog;
+        contextDialog = null;
+        if (ctx != null) {
+            try { ctx.dismiss(); } catch (RuntimeException ignored) { }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -259,6 +427,7 @@ final class HistoryDialog {
 
     /** Closes the dialog if it is showing (called when the activity is destroyed). */
     void dismiss() {
+        dismissContextDialog();
         final Dialog d = dialog;
         dialog = null;
         stopFollowingWindowSize();

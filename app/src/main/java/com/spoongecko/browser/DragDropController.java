@@ -215,16 +215,16 @@ final class DragDropController {
                         && (filePicker == null || !filePicker.hasPendingPrompt())) {
                     return false;
                 }
+                return true;
+            }
+            case DragEvent.ACTION_DRAG_ENTERED: {
+                activeDragViews.add(v);
                 final ClipDescription desc = event.getClipDescription();
-                if (desc != null && isPlainTextOnlyDrag(desc)) {
-                    return false;
+                if (desc == null || !isPlainTextOnlyDrag(desc)) {
+                    showDropBanner(true);
                 }
                 return true;
             }
-            case DragEvent.ACTION_DRAG_ENTERED:
-                activeDragViews.add(v);
-                showDropBanner(true);
-                return true;
 
             case DragEvent.ACTION_DRAG_LOCATION:
                 return true;
@@ -270,6 +270,12 @@ final class DragDropController {
             Uri u = item.getUri();
             if (u == null && item.getIntent() != null) {
                 u = item.getIntent().getData();
+            }
+            if (u == null && item.getText() != null) {
+                final String raw = item.getText().toString().trim();
+                if (raw.startsWith("content://") || raw.startsWith("file://")) {
+                    u = Uri.parse(raw);
+                }
             }
             if (u != null && !uris.contains(u)) {
                 uris.add(u);
@@ -417,7 +423,7 @@ final class DragDropController {
                     if (destroyed) return;
                     if (!filePicker.deliverExternalFiles(localUris, failedCount, diag)) {
                         dispatchStagedFilesToPage(targetSession, xRatio, yRatio,
-                                localUris, localMimes, failedCount, diag);
+                                localUris, localMimes, failedCount, diag, 0);
                     }
                 });
                 return;
@@ -436,7 +442,7 @@ final class DragDropController {
             }
 
             dispatchStagedFilesToPage(targetSession, xRatio, yRatio,
-                    localUris, localMimes, failedCount, diag);
+                    localUris, localMimes, failedCount, diag, 0);
         });
 
         return true;
@@ -448,10 +454,17 @@ final class DragDropController {
                                            List<Uri> localUris,
                                            List<String> localMimes,
                                            int failedCount,
-                                           FilePicker.AttachmentDiagnostic diag) {
+                                           FilePicker.AttachmentDiagnostic diag,
+                                           int attempt) {
         if (destroyed || localUris.isEmpty()) return;
         final WebExtension.Port port = session != null ? portsBySession.get(session) : null;
         if (port == null) {
+            if (session != null && attempt < 1) {
+                main.postDelayed(() -> worker.execute(() -> dispatchStagedFilesToPage(
+                        session, xRatio, yRatio, localUris, localMimes, failedCount, diag, attempt + 1)),
+                        500L);
+                return;
+            }
             main.post(() -> {
                 if (destroyed) return;
                 if (failedCount > 0 && diag != null && filePicker != null) {

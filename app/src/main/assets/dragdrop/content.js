@@ -7,6 +7,14 @@
   let port = null;
   let reconnectTimer = null;
 
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 400);
+  }
+
   function connect() {
     if (port) return;
     try {
@@ -14,17 +22,17 @@
       port.onMessage.addListener(handleMessage);
       port.onDisconnect.addListener(() => {
         port = null;
-        if (!reconnectTimer) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connect();
-          }, 400);
-        }
+        scheduleReconnect();
       });
     } catch (e) {
       port = null;
+      scheduleReconnect();
     }
   }
+
+  window.addEventListener("pageshow", () => {
+    if (!port) connect();
+  });
 
   function decodeBase64ToBytes(b64) {
     const bin = atob(b64);
@@ -34,6 +42,71 @@
       out[i] = bin.charCodeAt(i);
     }
     return out;
+  }
+
+  function pageWindow(win) {
+    return (win && win.wrappedJSObject) ? win.wrappedJSObject : win;
+  }
+
+  function canClone(win) {
+    return typeof cloneInto === "function" && !!win && !!win.wrappedJSObject;
+  }
+
+  function unwrapElement(el) {
+    return (el && el.wrappedJSObject) ? el.wrappedJSObject : el;
+  }
+
+  function dispatchInPage(el, event) {
+    const rawEl = unwrapElement(el);
+    try {
+      return rawEl.dispatchEvent(event);
+    } catch (e) {
+      return el.dispatchEvent(event);
+    }
+  }
+
+  function buildFilesForWindow(win, metaList, drop) {
+    const pWin = pageWindow(win);
+    const useClone = canClone(win);
+    const FileCtor = (pWin && pWin.File) ? pWin.File : File;
+    const BlobCtor = (pWin && pWin.Blob) ? pWin.Blob : Blob;
+    const ArrayCtor = (pWin && pWin.Array) ? pWin.Array : Array;
+    const built = [];
+
+    for (let i = 0; i < metaList.length; i++) {
+      const meta = metaList[i] || {};
+      const parts = drop ? (drop.get(i) || []) : [];
+      const mime = meta.mime || "application/octet-stream";
+      const fileName = meta.name || "file";
+
+      try {
+        const pageParts = new ArrayCtor();
+        for (let j = 0; j < parts.length; j++) {
+          pageParts.push(useClone ? cloneInto(parts[j], pWin) : parts[j]);
+        }
+        const optsPlain = { type: mime, lastModified: Date.now() };
+        const opts = useClone ? cloneInto(optsPlain, pWin) : optsPlain;
+        let file = null;
+        try {
+          file = new FileCtor(pageParts, fileName, opts);
+        } catch (err) {
+          const blobOptsPlain = { type: mime };
+          const blobOpts = useClone ? cloneInto(blobOptsPlain, pWin) : blobOptsPlain;
+          const blob = new BlobCtor(pageParts, blobOpts);
+          const blobArr = new ArrayCtor();
+          blobArr.push(blob);
+          file = new FileCtor(blobArr, fileName, opts);
+        }
+        if (file) built.push(file);
+      } catch (fallbackErr) {
+        const blob = new Blob(parts, { type: mime });
+        built.push(new File([blob], fileName, {
+          type: mime,
+          lastModified: Date.now()
+        }));
+      }
+    }
+    return built;
   }
 
   function resolveTarget(xRatio, yRatio) {
@@ -101,62 +174,88 @@
     return null;
   }
 
-  function assignFilesToInput(input, files) {
+  function createPageDataTransfer(win, fileObjs, maxCount) {
+    const pWin = pageWindow(win);
+    const DtCtor = (pWin && pWin.DataTransfer) ? pWin.DataTransfer : DataTransfer;
+    const dt = new DtCtor();
+    const limit = typeof maxCount === "number" ? Math.min(maxCount, fileObjs.length) : fileObjs.length;
+    for (let i = 0; i < limit; i++) {
+      dt.items.add(fileObjs[i]);
+    }
     try {
-      const dt = new DataTransfer();
+      dt.effectAllowed = "all";
+      dt.dropEffect = "copy";
+    } catch (ignored) {}
+    return dt;
+  }
+
+  function createPageEventInit(win, dt, cx, cy) {
+    const pWin = pageWindow(win);
+    const ObjCtor = (pWin && pWin.Object) ? pWin.Object : Object;
+    const init = new ObjCtor();
+    init.bubbles = true;
+    init.cancelable = true;
+    init.composed = true;
+    init.view = pWin;
+    init.dataTransfer = dt;
+    init.clientX = cx;
+    init.clientY = cy;
+    init.screenX = cx;
+    init.screenY = cy;
+    return init;
+  }
+
+  function assignFilesToInput(win, input, files) {
+    try {
+      const pWin = pageWindow(win);
+      const useClone = canClone(win);
       const count = input.multiple ? files.length : Math.min(1, files.length);
-      for (let i = 0; i < count; i++) {
-        dt.items.add(files[i]);
-      }
-      input.files = dt.files;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return input.files && input.files.length > 0;
+      const dt = createPageDataTransfer(win, files, count);
+      const rawInput = unwrapElement(input);
+      rawInput.files = dt.files;
+
+      const EvCtor = (pWin && pWin.Event) ? pWin.Event : Event;
+      const evOpts = useClone ? cloneInto({ bubbles: true }, pWin) : { bubbles: true };
+      dispatchInPage(input, new EvCtor("input", evOpts));
+      dispatchInPage(input, new EvCtor("change", evOpts));
+      return !!(rawInput.files && rawInput.files.length > 0);
     } catch (e) {
       return false;
     }
   }
 
-  function performDrop(xRatio, yRatio, fileObjs) {
-    const dt = new DataTransfer();
-    for (let i = 0; i < fileObjs.length; i++) {
-      dt.items.add(fileObjs[i]);
-    }
-
-    const { doc, el, cx, cy } = resolveTarget(xRatio, yRatio);
+  function performDrop(target, fileObjs) {
+    const { doc, win, el, cx, cy } = target;
     if (!el) return false;
 
+    const pWin = pageWindow(win);
+    const DragEvCtor = (pWin && pWin.DragEvent) ? pWin.DragEvent : DragEvent;
+    const dt = createPageDataTransfer(win, fileObjs);
+    const eventInit = createPageEventInit(win, dt, cx, cy);
+
     const directInput = (el.tagName === "INPUT" && el.type === "file" && !el.disabled) ? el : null;
-    const eventInit = {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      dataTransfer: dt,
-      clientX: cx,
-      clientY: cy
-    };
 
     try {
-      el.dispatchEvent(new DragEvent("dragenter", eventInit));
+      dispatchInPage(el, new DragEvCtor("dragenter", eventInit));
     } catch (ignored) {}
     try {
-      el.dispatchEvent(new DragEvent("dragover", eventInit));
+      dispatchInPage(el, new DragEvCtor("dragover", eventInit));
     } catch (ignored) {}
 
     let dropHandled = false;
     try {
-      const dropEvent = new DragEvent("drop", eventInit);
-      el.dispatchEvent(dropEvent);
+      const dropEvent = new DragEvCtor("drop", eventInit);
+      dispatchInPage(el, dropEvent);
       dropHandled = !!dropEvent.defaultPrevented;
     } catch (ignored) {}
 
     let inputAssigned = false;
     if (directInput) {
-      inputAssigned = assignFilesToInput(directInput, fileObjs);
+      inputAssigned = assignFilesToInput(win, directInput, fileObjs);
     } else if (!dropHandled) {
       const nearby = findNearbyFileInput(doc, el);
       if (nearby) {
-        inputAssigned = assignFilesToInput(nearby, fileObjs);
+        inputAssigned = assignFilesToInput(win, nearby, fileObjs);
       }
     }
 
@@ -188,25 +287,14 @@
       pendingDrops.delete(msg.dropId);
 
       const metaList = Array.isArray(msg.files) ? msg.files : [];
-      const builtFiles = [];
-      for (let i = 0; i < metaList.length; i++) {
-        const meta = metaList[i];
-        const parts = drop ? (drop.get(i) || []) : [];
-        const blob = new Blob(parts, { type: meta.mime || "application/octet-stream" });
-        const file = new File([blob], meta.name || "file", {
-          type: meta.mime || "application/octet-stream",
-          lastModified: Date.now()
-        });
-        builtFiles.push(file);
-      }
+      const xRatio = typeof msg.xRatio === "number" ? msg.xRatio : 0.5;
+      const yRatio = typeof msg.yRatio === "number" ? msg.yRatio : 0.5;
+      const target = resolveTarget(xRatio, yRatio);
+      const builtFiles = buildFilesForWindow(target.win, metaList, drop);
 
       let handled = false;
       try {
-        handled = builtFiles.length > 0 && performDrop(
-          typeof msg.xRatio === "number" ? msg.xRatio : 0.5,
-          typeof msg.yRatio === "number" ? msg.yRatio : 0.5,
-          builtFiles
-        );
+        handled = builtFiles.length > 0 && performDrop(target, builtFiles);
       } catch (err) {
         handled = false;
       }

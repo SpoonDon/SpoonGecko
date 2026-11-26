@@ -100,6 +100,11 @@ public class MainActivity extends Activity
 
     /** [INCOGNITO] Intent extra of a new window: its first tab is an incognito tab. */
     static final String EXTRA_START_PRIVATE = "com.spoongecko.browser.START_PRIVATE";
+    static final String EXTRA_INITIAL_URL = "com.spoongecko.browser.INITIAL_URL";
+    static final String EXTRA_OPEN_MODE = "com.spoongecko.browser.OPEN_MODE";
+    static final String OPEN_MODE_HISTORY_DEFAULT = "history_default";
+    static final String OPEN_MODE_NEW_TAB = "new_tab";
+    static final String OPEN_MODE_NEW_INCOGNITO_TAB = "new_incognito_tab";
 
     /**
      * [WINDOW] Every browser window that exists: the MainActivity and any BrowserWindowActivity
@@ -292,7 +297,17 @@ public class MainActivity extends Activity
         // [DEFAULT] The app was started by a link from another app (it is the default browser, or
         // was picked in "Open with"). Only on a fresh start: when Android re-creates the activity
         // it hands back savedInstanceState, and the same intent must not open the page again.
-        if (savedInstanceState == null) openLinkFromIntent(getIntent());
+        if (savedInstanceState == null) {
+            final String initialUrl = safeWebUrl(getIntent() != null
+                    ? getIntent().getStringExtra(EXTRA_INITIAL_URL) : null);
+            if (initialUrl != null) {
+                navigateToUrl(initialUrl);
+                updateToolbarState();
+                updateTabCount();
+            } else {
+                openLinkFromIntent(getIntent());
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -312,6 +327,18 @@ public class MainActivity extends Activity
         if (linkFromIntent(intent) == null) return;
         setIntent(intent);
         openLinkFromIntent(intent);
+    }
+
+    private static String safeWebUrl(String raw) {
+        if (raw == null) return null;
+        final String trimmed = raw.trim();
+        if (trimmed.isEmpty()) return null;
+        final Uri uri = Uri.parse(trimmed);
+        final String scheme = uri.getScheme();
+        if (scheme == null) return null;
+        final String lower = scheme.toLowerCase(java.util.Locale.ROOT);
+        if (!"http".equals(lower) && !"https".equals(lower)) return null;
+        return trimmed;
     }
 
     /**
@@ -342,6 +369,21 @@ public class MainActivity extends Activity
         if (popups != null) popups.dismissAll();
         if (historyDialog != null) historyDialog.dismiss();
         if (bookmarksDialog != null) bookmarksDialog.dismiss();
+
+        final String mode = intent != null ? intent.getStringExtra(EXTRA_OPEN_MODE) : null;
+        if (OPEN_MODE_NEW_TAB.equals(mode)) {
+            openUrlInNewTab(url, false);
+            return;
+        }
+        if (OPEN_MODE_NEW_INCOGNITO_TAB.equals(mode)) {
+            openUrlInNewTab(url, true);
+            return;
+        }
+        if (OPEN_MODE_HISTORY_DEFAULT.equals(mode)) {
+            openUrlFromHistory(url);
+            return;
+        }
+
         final Tab active = tabManager.getActiveTab();
         // A tab whose session is not open (revived after its page process died, see
         // onSessionGone) cannot be loaded into: it gets the same treatment as a tab in use.
@@ -665,9 +707,17 @@ public class MainActivity extends Activity
      * @param incognito the first tab of the new window is an incognito tab
      */
     private void openNewWindow(boolean incognito) {
+        openNewWindow(incognito, null);
+    }
+
+    private void openNewWindow(boolean incognito, String initialUrl) {
         if (destroying || isFinishing()) return;
         final Intent intent = new Intent(this, BrowserWindowActivity.class);
         intent.putExtra(EXTRA_START_PRIVATE, incognito);
+        final String safe = safeWebUrl(initialUrl);
+        if (safe != null) {
+            intent.putExtra(EXTRA_INITIAL_URL, safe);
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                 | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                 | Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT);
@@ -678,6 +728,35 @@ public class MainActivity extends Activity
             android.widget.Toast.makeText(this, "Couldn't open a new window",
                     android.widget.Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void openUrlFromHistory(String url) {
+        if (url == null || url.trim().isEmpty() || destroying || tabManager == null) return;
+        final Tab active = tabManager.getActiveTab();
+        final boolean onHome = screen != null && screen.isHomePanelVisible() && isActiveTabEmpty();
+        if (active != null && !active.awaitingOpen && active.session.isOpen() && onHome) {
+            urlBar.clearFocus();
+            screen.hideKeyboard();
+            suggestions.hide();
+            navigateToUrl(url);
+            updateToolbarState();
+            updateTabCount();
+        } else {
+            openUrlInNewTab(url, false);
+        }
+    }
+
+    private void openUrlInNewTab(String url, boolean privateMode) {
+        if (url == null || url.trim().isEmpty() || destroying || tabManager == null) return;
+        addNewTab(null, privateMode);
+        suggestions.setText("");
+        urlBar.clearFocus();
+        screen.hideKeyboard();
+        suggestions.hide();
+        navigateToUrl(url);
+        updateToolbarState();
+        updateTabCount();
+        persistAllTabs();
     }
 
     /** The menu's "Home": a normal navigation to the blank home page (Back returns to the page). */
@@ -957,7 +1036,23 @@ public class MainActivity extends Activity
         PopupsController.shareText(this, t.url);
     }
     @Override public void onShowHistory() {
-        historyDialog.show(this::navigateToUrl);   // [HISTORY]
+        historyDialog.show(new HistoryDialog.Actions() {
+            @Override public void onOpenDefault(String url) {
+                openUrlFromHistory(url);
+            }
+            @Override public void onOpenInNewTab(String url) {
+                openUrlInNewTab(url, false);
+            }
+            @Override public void onOpenInNewIncognitoTab(String url) {
+                openUrlInNewTab(url, true);
+            }
+            @Override public void onOpenInNewWindow(String url) {
+                openNewWindow(false, url);
+            }
+            @Override public void onOpenInNewIncognitoWindow(String url) {
+                openNewWindow(true, url);
+            }
+        });
     }
     @Override public String bookmarkMenuLabel() {
         final Tab t = tabManager == null ? null : tabManager.getActiveTab();
