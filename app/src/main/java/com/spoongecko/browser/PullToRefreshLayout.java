@@ -40,9 +40,11 @@ public class PullToRefreshLayout extends FrameLayout {
     }
 
     private static final long REFRESH_TIMEOUT_MS = 2500L;
+    private static final long DETAIL_WAIT_FALLBACK_MS = 100L;
 
     private final int touchSlop;
     private final float disarmUpSlop;
+    private final float stepDisarmSlop;
     private final float pullStartSlop;
     private final float triggerDistance;
     private final float maxDropPx;
@@ -86,6 +88,7 @@ public class PullToRefreshLayout extends FrameLayout {
         super(context, attrs, defStyleAttr);
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         disarmUpSlop = Math.max(touchSlop * 0.45f, dpF(4f));
+        stepDisarmSlop = Math.max(touchSlop * 0.75f, dpF(6f));
         pullStartSlop = Math.max(touchSlop * 1.75f, dpF(14f));
         triggerDistance = dpF(88f);
         maxDropPx = dpF(76f);
@@ -156,6 +159,14 @@ public class PullToRefreshLayout extends FrameLayout {
                                             PanZoomController.InputResultDetail detail) {
                 handleInputResultDetail(downTime, actionMasked, detail);
             }
+
+            @Override
+            public void onInputResultUnavailable(long downTime) {
+                if (downTime == activeDownTime && !disarmed) {
+                    gotDownDetail = true;
+                    detailSafe = true;
+                }
+            }
         });
         indicatorPill.bringToFront();
     }
@@ -205,13 +216,14 @@ public class PullToRefreshLayout extends FrameLayout {
     private void handleInputResultDetail(long downTime, int actionMasked,
                                          PanZoomController.InputResultDetail detail) {
         if (downTime != activeDownTime || disarmed || pulling || refreshing) return;
-        final int handled = detail.handledResult();
-        final boolean jsOwned = handled == PanZoomController.INPUT_RESULT_HANDLED_CONTENT
-                || handled == PanZoomController.INPUT_RESULT_IGNORED;
+        // Do NOT disarm on INPUT_RESULT_HANDLED_CONTENT: pages with touchstart/touchmove
+        // listeners (e.g. reader tap/swipe handlers or ad scripts) report HANDLED_CONTENT
+        // even when at the top of the page and vertical pull-to-refresh should still work.
+        // Only disarm when Gecko reports the touched scroll container can scroll upward.
         final boolean canScrollUp = (detail.scrollableDirections()
                 & PanZoomController.SCROLLABLE_FLAG_TOP) != 0;
 
-        if (jsOwned || canScrollUp) {
+        if (canScrollUp) {
             disarmed = true;
             detailSafe = false;
             return;
@@ -266,7 +278,7 @@ public class PullToRefreshLayout extends FrameLayout {
                 lastY = y;
 
                 // Any upward finger movement (scrolling down) or direction reversal disarms permanently.
-                if (dy < -disarmUpSlop || stepY < -disarmUpSlop) {
+                if (dy < -disarmUpSlop || stepY < -stepDisarmSlop) {
                     disarmed = true;
                     return false;
                 }
@@ -277,8 +289,13 @@ public class PullToRefreshLayout extends FrameLayout {
                     return false;
                 }
 
-                // Wait for GeckoView's InputResultDetail on ACTION_DOWN before hijacking the touch.
-                if (!gotDownDetail || !detailSafe) {
+                // Wait briefly for GeckoView's InputResultDetail on ACTION_DOWN so inner
+                // scrollable containers are respected, but don't stall on heavy pages.
+                final boolean detailReady = gotDownDetail && detailSafe;
+                final boolean fallbackReady = !gotDownDetail
+                        && ((ev.getEventTime() - ev.getDownTime()) >= DETAIL_WAIT_FALLBACK_MS
+                                || dy > pullStartSlop * 1.8f);
+                if (!detailReady && !fallbackReady) {
                     return false;
                 }
 

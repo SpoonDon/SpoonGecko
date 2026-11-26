@@ -57,10 +57,12 @@ public final class SuggestionsController {
     private final Adapter adapter;
     private final Handler debounce = new Handler(Looper.getMainLooper());
     private final int maxListHeightPx;
+    private final View.OnLayoutChangeListener parentLayoutListener;
 
     private Runnable pending;
     private boolean suppress = false;
     private Listener listener;
+    private int lastParentAvailHeight = -1;
 
     /**
      * Bumped by every new query AND by hide()/dispose(), so an answer still in flight when
@@ -108,6 +110,19 @@ public final class SuggestionsController {
         urlBar.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) hide();
         });
+
+        this.parentLayoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (!isVisible()) return;
+            final int avail = v.getHeight() - v.getPaddingTop() - v.getPaddingBottom();
+            if (avail > 0 && avail != lastParentAvailHeight) {
+                v.post(() -> {
+                    if (isVisible()) fitListHeight();
+                });
+            }
+        };
+        if (list.getParent() instanceof View) {
+            ((View) list.getParent()).addOnLayoutChangeListener(parentLayoutListener);
+        }
     }
 
     private void runQuery(final String q) {
@@ -136,6 +151,7 @@ public final class SuggestionsController {
             adapter.setData(merged);
             fitListHeight();
             list.setVisibility(View.VISIBLE);
+            list.setSelection(0);
         };
 
         history.suggestAsync(q, MAX_TOTAL_SUGGESTIONS, results -> {
@@ -195,18 +211,35 @@ public final class SuggestionsController {
     private void fitListHeight() {
         final int count = adapter.getCount();
         if (count <= 0) return;
-        int total = 0;
-        View rowView = null;
+
+        final View parent = list.getParent() instanceof View ? (View) list.getParent() : null;
+        int maxAllowed = maxListHeightPx;
+        int parentInnerWidth = 0;
+        if (parent != null) {
+            final int avail = parent.getHeight() - parent.getPaddingTop() - parent.getPaddingBottom();
+            if (avail > 0) {
+                lastParentAvailHeight = avail;
+                maxAllowed = Math.min(maxListHeightPx, avail);
+            }
+            parentInnerWidth = Math.max(0,
+                    parent.getWidth() - parent.getPaddingLeft() - parent.getPaddingRight());
+        }
+
+        final int measureWidth = list.getWidth() > 0 ? list.getWidth() : parentInnerWidth;
         final int widthSpec = View.MeasureSpec.makeMeasureSpec(
-                Math.max(0, list.getWidth()),
-                list.getWidth() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.UNSPECIFIED);
-        for (int i = 0; i < count && total < maxListHeightPx; i++) {
+                Math.max(0, measureWidth),
+                measureWidth > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.UNSPECIFIED);
+
+        int total = list.getPaddingTop() + list.getPaddingBottom()
+                + Math.max(0, count - 1) * Math.max(0, list.getDividerHeight());
+        View rowView = null;
+        for (int i = 0; i < count && total < maxAllowed; i++) {
             rowView = adapter.getView(i, rowView, list);
             rowView.measure(widthSpec, View.MeasureSpec.UNSPECIFIED);
             total += rowView.getMeasuredHeight();
         }
         final ViewGroup.LayoutParams lp = list.getLayoutParams();
-        final int target = total == 0 ? maxListHeightPx : Math.min(total, maxListHeightPx);
+        final int target = total == 0 ? maxAllowed : Math.min(total, maxAllowed);
         if (lp.height != target) {
             lp.height = target;
             list.setLayoutParams(lp);
@@ -236,6 +269,9 @@ public final class SuggestionsController {
         if (pending != null) {
             debounce.removeCallbacks(pending);
             pending = null;
+        }
+        if (list.getParent() instanceof View) {
+            ((View) list.getParent()).removeOnLayoutChangeListener(parentLayoutListener);
         }
         searchClient.shutdown();
     }

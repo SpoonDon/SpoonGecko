@@ -4,13 +4,14 @@ import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckoview.PanZoomController;
 
 /**
- * GeckoView subclass that forwards PanZoomController input-result details for touch gestures
- * so PullToRefreshLayout can distinguish top-of-page overscroll from inner scrollable areas
- * and JS touch-handled content without double-dispatching events.
+ * GeckoView subclass that forwards PanZoomController input-result details for touch-down
+ * gestures so PullToRefreshLayout can detect inner scrollable containers without
+ * double-dispatching or stalling move events.
  */
 public class BrowserGeckoView extends GeckoView {
 
@@ -18,6 +19,7 @@ public class BrowserGeckoView extends GeckoView {
         boolean wantsInputResult(long downTime);
         void onInputResultDetail(long downTime, int actionMasked,
                                  PanZoomController.InputResultDetail detail);
+        void onInputResultUnavailable(long downTime);
     }
 
     private InputResultListener inputResultListener;
@@ -43,18 +45,23 @@ public class BrowserGeckoView extends GeckoView {
         final long downTime = event.getDownTime();
         final InputResultListener listener = inputResultListener;
         if (listener != null
-                && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE)
+                && action == MotionEvent.ACTION_DOWN
                 && listener.wantsInputResult(downTime)) {
-            final org.mozilla.geckoview.GeckoResult<PanZoomController.InputResultDetail> result =
+            final GeckoResult<PanZoomController.InputResultDetail> result =
                     super.onTouchEventForDetailResult(event);
             if (result != null) {
                 result.accept(detail -> {
                     final InputResultListener current = inputResultListener;
-                    if (detail != null && current != null) {
+                    if (current == null) return;
+                    if (detail != null) {
                         current.onInputResultDetail(downTime, action, detail);
+                    } else {
+                        current.onInputResultUnavailable(downTime);
                     }
                 });
                 return true;
+            } else {
+                listener.onInputResultUnavailable(downTime);
             }
         }
         return super.onTouchEvent(event);

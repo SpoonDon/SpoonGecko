@@ -246,7 +246,7 @@ public class MainActivity extends Activity
                         && t.session.isOpen()
                         && t.url != null
                         && !t.url.isEmpty()
-                        && t.scrollY <= 2;
+                        && t.scrollY <= 6;
             });
             pullRefresh.setOnRefreshListener(() -> {
                 final Tab t = tabManager == null ? null : tabManager.getActiveTab();
@@ -1318,7 +1318,7 @@ public class MainActivity extends Activity
     }
 
     @Override public void onTabScrollChanged(Tab tab, int scrollX, int scrollY) {
-        if (pullRefresh != null && tab == tabManager.getActiveTab() && scrollY > 2) {
+        if (pullRefresh != null && tab == tabManager.getActiveTab() && scrollY > 6) {
             pullRefresh.onPageScrolledAwayFromTop();
         }
     }

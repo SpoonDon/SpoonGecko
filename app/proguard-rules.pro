@@ -46,3 +46,4 @@
 -keep class com.spoongecko.browser.UploadFileProvider { *; }
 -keep class * extends androidx.room.RoomDatabase
 -keep class com.spoongecko.browser.BookmarkDatabase_Impl { *; }
+-keep class com.spoongecko.browser.HistoryDatabase_Impl { *; }

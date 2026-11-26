@@ -223,6 +223,9 @@ public final class ScreenController {
                         originalPaddingBottom);
                 contentContainer.setPadding(0, 0, 0, bottomInset);
             }
+            if (suggestionsList != null && suggestionsList.getVisibility() == View.VISIBLE) {
+                suggestionsList.requestLayout();
+            }
             return insets;
         });
     }
