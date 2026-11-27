@@ -117,11 +117,35 @@ final class DownloadStore {
         return new Loaded(Math.max(storedNextId, maxSeenId + 1), out);
     }
 
-    /** Persists a snapshot asynchronously in strict order. */
+    /** Persists a snapshot asynchronously in strict order, keeping active/paused and newest entries. */
     void saveAsync(final long nextId, final List<DownloadEntry> snapshot) {
-        final List<DownloadEntry> copy = new ArrayList<>(Math.min(snapshot.size(), MAX_ENTRIES));
-        for (int i = 0; i < snapshot.size() && i < MAX_ENTRIES; i++) {
-            copy.add(snapshot.get(i).copy());
+        final int n = snapshot.size();
+        final List<DownloadEntry> copy = new ArrayList<>(Math.min(n, MAX_ENTRIES));
+        if (n <= MAX_ENTRIES) {
+            for (int i = 0; i < n; i++) {
+                copy.add(snapshot.get(i).copy());
+            }
+        } else {
+            final boolean[] keep = new boolean[n];
+            int remaining = MAX_ENTRIES;
+            for (int i = 0; i < n && remaining > 0; i++) {
+                final DownloadEntry e = snapshot.get(i);
+                if (e.status.isActive() || e.status == DownloadEntry.Status.PAUSED) {
+                    keep[i] = true;
+                    remaining--;
+                }
+            }
+            for (int i = n - 1; i >= 0 && remaining > 0; i--) {
+                if (!keep[i]) {
+                    keep[i] = true;
+                    remaining--;
+                }
+            }
+            for (int i = 0; i < n; i++) {
+                if (keep[i]) {
+                    copy.add(snapshot.get(i).copy());
+                }
+            }
         }
         io.execute(() -> writeSync(nextId, copy));
     }

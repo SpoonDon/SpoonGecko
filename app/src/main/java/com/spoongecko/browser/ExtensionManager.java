@@ -298,7 +298,8 @@ public final class ExtensionManager {
             installed.clear();
             if (extensions != null) {
                 for (WebExtension ext : extensions) {
-                    if (ext != null && DROP_HELPER_ID.equals(ext.id)) {
+                    if (ext == null) continue;
+                    if (DROP_HELPER_ID.equals(ext.id)) {
                         dropHelperExtension = ext;
                         attachPendingDropDelegates();
                         continue;
@@ -336,9 +337,26 @@ public final class ExtensionManager {
     // Install / uninstall / toggle / update
     // ------------------------------------------------------------------
 
+    public static boolean isHttpUrl(String url) {
+        if (url == null) return false;
+        final String trimmed = url.trim();
+        if (trimmed.isEmpty()) return false;
+        final Uri parsed = Uri.parse(trimmed);
+        final String scheme = parsed.getScheme();
+        if (scheme == null) return false;
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return false;
+        final String host = parsed.getHost();
+        return host != null && !host.trim().isEmpty();
+    }
+
     public void installFromUrl(String url, GeckoResult.Consumer<WebExtension> onDone) {
         if (controller == null || url == null || url.trim().isEmpty()) return;
         final String target = url.trim();
+        if (!isHttpUrl(target)) {
+            toast("Install failed: invalid URL");
+            if (onDone != null) onDone.accept(null);
+            return;
+        }
         controller.install(target, WebExtensionController.INSTALLATION_METHOD_MANAGER)
                 .accept(ext -> {
                     if (ext != null) {
@@ -435,8 +453,20 @@ public final class ExtensionManager {
             if (callback != null) callback.onUpdateCheckFinished(0, 0, 0);
             return;
         }
-        final List<WebExtension> snapshot = new ArrayList<>(installed.values());
-        updateNext(c, snapshot, 0, 0, 0, callback);
+        c.list().accept(extensions -> {
+            final List<WebExtension> snapshot = new ArrayList<>();
+            if (extensions != null) {
+                for (WebExtension ext : extensions) {
+                    if (ext != null && !DROP_HELPER_ID.equals(ext.id)) {
+                        snapshot.add(ext);
+                    }
+                }
+            }
+            updateNext(c, snapshot, 0, 0, 0, callback);
+        }, error -> {
+            Log.w(TAG, "listing extensions for update failed", error);
+            if (callback != null) callback.onUpdateCheckFinished(0, 0, 0);
+        });
     }
 
     private void updateNext(final WebExtensionController c, final List<WebExtension> list,
@@ -550,17 +580,16 @@ public final class ExtensionManager {
         try {
             JSONObject map = new JSONObject(prefs().getString(KEY_INSTALL_URLS, "{}"));
             String recorded = map.optString(ext.id, "");
-            if (recorded.startsWith("http")) return recorded;
+            if (isHttpUrl(recorded)) return recorded;
         } catch (Exception ignored) {}
-        if (ext.metaData != null && ext.metaData.downloadUrl != null
-                && ext.metaData.downloadUrl.startsWith("http")) {
+        if (ext.metaData != null && isHttpUrl(ext.metaData.downloadUrl)) {
             return ext.metaData.downloadUrl;
         }
         return null;
     }
 
     private void recordInstallUrl(String id, String url) {
-        if (id == null || url == null || !url.startsWith("http")) return;  // file:// is not portable
+        if (id == null || !isHttpUrl(url)) return;  // file:// is not portable
         try {
             JSONObject map = new JSONObject(prefs().getString(KEY_INSTALL_URLS, "{}"));
             map.put(id, url);
@@ -604,7 +633,7 @@ public final class ExtensionManager {
             restoreNext(entries, index + 1, restored + 1, failed, failures, callback);
             return;
         }
-        if (!url.startsWith("http")) {
+        if (!isHttpUrl(url)) {
             restoreNext(entries, index + 1, restored, failed + 1,
                     failures + name + ": no download URL\n", callback);
             return;
@@ -1166,15 +1195,16 @@ public final class ExtensionManager {
         return a != null && !a.isFinishing() && !a.isDestroyed();
     }
 
-    /** Opens a URL in a browser tab (or externally when no browser is alive). */
+    /** Opens a URL in a browser tab (or externally for http/https when no browser is alive). */
     public void openInBrowserTab(String url) {
         if (url == null || url.isEmpty()) return;
         Host h = host;
         if (h != null) {
             h.openExtensionTab(url);
-        } else if (appContext != null) {
+        } else if (appContext != null && isHttpUrl(url)) {
             try {
                 appContext.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addCategory(Intent.CATEGORY_BROWSABLE)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } catch (Exception e) {
                 Log.w(TAG, "open url failed", e);

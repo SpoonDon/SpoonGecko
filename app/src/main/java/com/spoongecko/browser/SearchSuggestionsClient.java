@@ -120,7 +120,7 @@ final class SearchSuggestionsClient {
                 return Collections.emptyList();
             }
 
-            final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            final ByteArrayOutputStream bos = new ByteArrayOutputStream(1024);
             final byte[] buf = new byte[4096];
             int total = 0;
             try (InputStream in = conn.getInputStream()) {

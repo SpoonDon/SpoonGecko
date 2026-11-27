@@ -11,7 +11,6 @@ import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
 import org.mozilla.geckoview.GeckoSession;
 
-import java.net.InetAddress;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -353,14 +352,8 @@ final class BrowserSettings {
         final String s = raw.trim();
         if (s.isEmpty()) return true;
         if (NUMERIC_IPV4.matcher(s).matches()) return true;
-        // IPv6 literal check without performing DNS resolution
-        if (!s.contains(":")) return false;
-        try {
-            final InetAddress addr = InetAddress.getByName(s);
-            return addr != null && s.indexOf('%') < 0;
-        } catch (Exception e) {
-            return false;
-        }
+        // Pure-Java IPv6 literal check without performing blocking DNS resolution on UI thread.
+        return s.indexOf('%') < 0 && LocalAddress.parseIPv6(s) != null;
     }
 
     static String dohSummary(Context ctx) {

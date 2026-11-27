@@ -279,7 +279,7 @@ final class DragDropController {
             }
             if (u == null && item.getText() != null) {
                 final String raw = item.getText().toString().trim();
-                if (raw.startsWith("content://") || raw.startsWith("file://")) {
+                if (raw.startsWith("content://")) {
                     u = Uri.parse(raw);
                 }
             }
@@ -314,12 +314,23 @@ final class DragDropController {
         final List<FilePicker.OpenedSource> openedSources = new ArrayList<>(uris.size());
         boolean big = false;
 
+        final String ownUploadAuthority = UploadFileProvider.authority(appContext);
         for (Uri u : uris) {
             Log.i(TAG, "drag drop URI scheme=" + u.getScheme() + " authority=" + u.getAuthority());
+            if (ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(u.getScheme())
+                    && ownUploadAuthority.equalsIgnoreCase(u.getAuthority())) {
+                openedSources.add(new FilePicker.OpenedSource(
+                        u, null, null, null, null,
+                        "dragDrop", "internal upload URI blocked", null));
+                continue;
+            }
             if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(u.getScheme())) {
                 final String path = u.getPath();
                 final File f = path != null ? new File(path) : null;
-                if (f != null && f.isFile() && f.length() >= FilePicker.BIG_FILE_BYTES) big = true;
+                if (f != null && !FilePicker.isRestrictedLocalFile(appContext, f)
+                        && f.isFile() && f.length() >= FilePicker.BIG_FILE_BYTES) {
+                    big = true;
+                }
                 openedSources.add(new FilePicker.OpenedSource(
                         u, null, null, null, guessMimeFromUri(u), null, null, null));
             } else {
@@ -346,9 +357,9 @@ final class DragDropController {
 
                 final FilePicker.StreamError streamErr = new FilePicker.StreamError();
                 FilePicker.ResolvedStream stream =
-                        FilePicker.openBestStreamInternal(activityCr, u, streamErr);
+                        FilePicker.openBestStreamInternal(appContext, activityCr, u, streamErr);
                 if (stream == null && activityCr != appCr) {
-                    stream = FilePicker.openBestStreamInternal(appCr, u, streamErr);
+                    stream = FilePicker.openBestStreamInternal(appContext, appCr, u, streamErr);
                 }
                 openedSources.add(new FilePicker.OpenedSource(
                         u, null, stream, meta.name, mime,
@@ -562,6 +573,13 @@ final class DragDropController {
             }
         } catch (Exception e) {
             Log.w(TAG, "failed sending dropped files to page", e);
+            try {
+                final JSONObject abortMsg = new JSONObject();
+                abortMsg.put("type", "abort");
+                abortMsg.put("dropId", dropId);
+                postOnMain(port, abortMsg);
+            } catch (Exception ignored) {
+            }
             main.post(() -> {
                 final PendingDropOutcome out = pendingOutcomes.remove(dropId);
                 if (out != null) main.removeCallbacks(out.timeoutTask);

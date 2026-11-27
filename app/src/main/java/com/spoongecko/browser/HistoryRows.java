@@ -126,11 +126,16 @@ final class HistoryRows {
                                     List<Row> rows) {
         final DateTimeFormatter fmt =
                 DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withLocale(locale);
+        final int n = sorted.size();
+        final String[] hosts = new String[n];
+        for (int idx = 0; idx < n; idx++) {
+            hosts[idx] = SuggestionRanker.hostOf(sorted.get(idx).url);
+        }
         int i = 0;
-        while (i < sorted.size()) {
-            final String site = SuggestionRanker.hostOf(sorted.get(i).url);
-            int j = i;
-            while (j < sorted.size() && SuggestionRanker.hostOf(sorted.get(j).url).equals(site)) j++;
+        while (i < n) {
+            final String site = hosts[i];
+            int j = i + 1;
+            while (j < n && hosts[j].equals(site)) j++;
             final int count = j - i;
             rows.add(Row.heading((site.isEmpty() ? "Other" : site) + "  \u00B7  " + count));
             for (int k = i; k < j; k++) {

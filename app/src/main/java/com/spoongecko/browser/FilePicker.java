@@ -1052,9 +1052,9 @@ final class FilePicker {
                 }
 
                 final StreamError streamErr = new StreamError();
-                ResolvedStream stream = openBestStreamInternal(activityCr, u, streamErr);
+                ResolvedStream stream = openBestStreamInternal(appContext, activityCr, u, streamErr);
                 if (stream == null && activityCr != appCr) {
-                    stream = openBestStreamInternal(appCr, u, streamErr);
+                    stream = openBestStreamInternal(appContext, appCr, u, streamErr);
                 }
                 openedSources.add(new OpenedSource(
                         u, null, stream, meta.name, mime,
@@ -1758,6 +1758,60 @@ final class FilePicker {
         return new File(context.getCacheDir(), UPLOAD_DIR);
     }
 
+    static boolean isRestrictedLocalFile(Context context, File file) {
+        if (file == null) return true;
+        try {
+            final File canon = file.getCanonicalFile();
+            final String path = canon.getPath();
+            if (isUnderPath(path, "/proc") || isUnderPath(path, "/sys") || isUnderPath(path, "/dev")) {
+                return true;
+            }
+            if (context != null) {
+                final File downloads = UploadFileProvider.downloadsRoot(context).getCanonicalFile();
+                if (isUnderPath(path, downloads.getPath())) {
+                    return false;
+                }
+                if (isUnderContextDir(path, context.getFilesDir())
+                        || isUnderContextDir(path, context.getCacheDir())
+                        || isUnderContextDir(path, context.getCodeCacheDir())
+                        || isUnderContextDir(path, context.getNoBackupFilesDir())) {
+                    return true;
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    if (isUnderContextDir(path, context.getDataDir())) return true;
+                } else {
+                    final File filesDir = context.getFilesDir();
+                    if (filesDir != null && isUnderContextDir(path, filesDir.getParentFile())) {
+                        return true;
+                    }
+                }
+                final String pkg = context.getPackageName();
+                if (pkg != null && !pkg.isEmpty() && path.contains("/" + pkg + "/")
+                        && (path.startsWith("/data/data/")
+                        || path.startsWith("/data/user/")
+                        || path.startsWith("/data/user_de/"))) {
+                    return true;
+                }
+                return false;
+            }
+            return path.startsWith("/data/data/")
+                    || path.startsWith("/data/user/")
+                    || path.startsWith("/data/user_de/");
+        } catch (IOException | SecurityException e) {
+            return true;
+        }
+    }
+
+    private static boolean isUnderContextDir(String canonPath, File dir) throws IOException {
+        return dir != null && isUnderPath(canonPath, dir.getCanonicalFile().getPath());
+    }
+
+    private static boolean isUnderPath(String canonPath, String dirPath) {
+        if (canonPath == null || dirPath == null || dirPath.isEmpty()) return false;
+        if ("/".equals(dirPath)) return true;
+        return canonPath.equals(dirPath) || canonPath.startsWith(dirPath + File.separator);
+    }
+
     static Uri copyLocalFileToCache(Context context, ContentResolver activityCr,
                                     ContentResolver appCr, Uri source,
                                     StreamError errOut) {
@@ -1766,11 +1820,15 @@ final class FilePicker {
             final String path = source.getPath();
             if (path == null) return null;
             final File existing = new File(path);
+            if (isRestrictedLocalFile(context, existing)) {
+                if (errOut != null) {
+                    errOut.stage = "copyLocalFileToCache";
+                    errOut.summary = "restricted local file";
+                }
+                return null;
+            }
             final File root = uploadRoot(context).getCanonicalFile();
             if (existing.isFile() && existing.canRead()) {
-                if (existing.getCanonicalFile().getPath().startsWith(root.getPath() + File.separator)) {
-                    return Uri.fromFile(existing);
-                }
                 dir = new File(root, UUID.randomUUID().toString());
                 if (!dir.mkdirs() && !dir.isDirectory()) return null;
                 final File out = new File(dir, UploadFiles.safeFileName(existing.getName()));
@@ -1781,9 +1839,9 @@ final class FilePicker {
                 return Uri.fromFile(out);
             }
             // Fallback via ContentResolver if direct POSIX read fails
-            ResolvedStream stream = openBestStreamInternal(activityCr, source, errOut);
+            ResolvedStream stream = openBestStreamInternal(context, activityCr, source, errOut);
             if (stream == null && activityCr != appCr) {
-                stream = openBestStreamInternal(appCr, source, errOut);
+                stream = openBestStreamInternal(context, appCr, source, errOut);
             }
             if (stream != null) {
                 return writeStreamToCache(context, stream, existing.getName(), null, errOut);
@@ -1882,12 +1940,20 @@ final class FilePicker {
     // ------------------------------------------------------------------
 
     static ResolvedStream openBestStream(ContentResolver cr, Uri source) {
-        return openBestStream(cr, source, null);
+        return openBestStream(null, cr, source, null);
+    }
+
+    static ResolvedStream openBestStream(Context context, ContentResolver cr, Uri source) {
+        return openBestStream(context, cr, source, null);
     }
 
     static ResolvedStream openBestStream(ContentResolver cr, Uri source, String[] errOut) {
+        return openBestStream(null, cr, source, errOut);
+    }
+
+    static ResolvedStream openBestStream(Context context, ContentResolver cr, Uri source, String[] errOut) {
         final StreamError err = new StreamError();
-        final ResolvedStream resolved = openBestStreamInternal(cr, source, err);
+        final ResolvedStream resolved = openBestStreamInternal(context, cr, source, err);
         if (resolved == null && errOut != null && err.summary != null) {
             errOut[0] = err.summary;
         }
@@ -1896,6 +1962,30 @@ final class FilePicker {
 
     static ResolvedStream openBestStreamInternal(ContentResolver cr, Uri source,
                                                  StreamError errOut) {
+        return openBestStreamInternal(null, cr, source, errOut);
+    }
+
+    static ResolvedStream openBestStreamInternal(Context context, ContentResolver cr, Uri source,
+                                                 StreamError errOut) {
+        if (source == null || cr == null) return null;
+        if (context != null && ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(source.getScheme())
+                && UploadFileProvider.authority(context).equalsIgnoreCase(source.getAuthority())) {
+            if (errOut != null) {
+                errOut.stage = "openBestStream";
+                errOut.summary = "internal upload URI blocked";
+            }
+            return null;
+        }
+        if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(source.getScheme())) {
+            final String path = source.getPath();
+            if (path == null || isRestrictedLocalFile(context, new File(path))) {
+                if (errOut != null) {
+                    errOut.stage = "openBestStream";
+                    errOut.summary = "restricted local file";
+                }
+                return null;
+            }
+        }
         try {
             final InputStream direct = cr.openInputStream(source);
             if (direct != null) return new ResolvedStream(direct, null, null);
@@ -1941,7 +2031,7 @@ final class FilePicker {
             Log.w(TAG, "openFileDescriptor failed: " + source, e);
         }
 
-        final ResolvedStream localFallback = tryReadableLocalPathFallback(cr, source);
+        final ResolvedStream localFallback = tryReadableLocalPathFallback(context, cr, source);
         if (localFallback != null) {
             return localFallback;
         }
@@ -1949,7 +2039,8 @@ final class FilePicker {
         return null;
     }
 
-    private static ResolvedStream tryReadableLocalPathFallback(ContentResolver cr, Uri source) {
+    private static ResolvedStream tryReadableLocalPathFallback(Context context, ContentResolver cr,
+                                                               Uri source) {
         if (source == null || !ContentResolver.SCHEME_CONTENT.equalsIgnoreCase(source.getScheme())) {
             return null;
         }
@@ -1959,14 +2050,14 @@ final class FilePicker {
         } catch (RuntimeException ignored) {
         }
         if (docId != null && docId.startsWith("raw:")) {
-            final ResolvedStream rs = openLocalPathIfReadable(docId.substring(4));
+            final ResolvedStream rs = openLocalPathIfReadable(context, docId.substring(4));
             if (rs != null) return rs;
         }
         Cursor c = null;
         try {
             c = cr.query(source, new String[]{"_data"}, null, null, null);
             if (c != null && c.moveToFirst() && !c.isNull(0)) {
-                final ResolvedStream rs = openLocalPathIfReadable(c.getString(0));
+                final ResolvedStream rs = openLocalPathIfReadable(context, c.getString(0));
                 if (rs != null) return rs;
             }
         } catch (RuntimeException ignored) {
@@ -1976,10 +2067,11 @@ final class FilePicker {
         return null;
     }
 
-    private static ResolvedStream openLocalPathIfReadable(String path) {
+    private static ResolvedStream openLocalPathIfReadable(Context context, String path) {
         if (path == null || path.isEmpty()) return null;
         try {
             final File f = new File(path);
+            if (isRestrictedLocalFile(context, f)) return null;
             if (f.isFile() && f.canRead()) {
                 return new ResolvedStream(new FileInputStream(f), null, null);
             }

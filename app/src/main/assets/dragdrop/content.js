@@ -3,6 +3,7 @@
   window.__spoonGeckoDropInit = true;
 
   const PORT_NAME = "spoongeckoDrop";
+  const MAX_DROP_BYTES = 50 * 1024 * 1024;
   const pendingDrops = new Map();
   let port = null;
   let reconnectTimer = null;
@@ -22,6 +23,7 @@
       port.onMessage.addListener(handleMessage);
       port.onDisconnect.addListener(() => {
         port = null;
+        pendingDrops.clear();
         scheduleReconnect();
       });
     } catch (e) {
@@ -265,19 +267,30 @@
   function handleMessage(msg) {
     if (!msg || !msg.type) return;
 
+    if (msg.type === "abort") {
+      if (msg.dropId) pendingDrops.delete(msg.dropId);
+      return;
+    }
+
     if (msg.type === "chunk") {
       let drop = pendingDrops.get(msg.dropId);
       if (!drop) {
-        drop = new Map();
+        drop = { files: new Map(), totalBytes: 0 };
         pendingDrops.set(msg.dropId, drop);
       }
-      let parts = drop.get(msg.fileIndex);
-      if (!parts) {
-        parts = [];
-        drop.set(msg.fileIndex, parts);
-      }
       if (msg.data) {
-        parts.push(decodeBase64ToBytes(msg.data));
+        const bytes = decodeBase64ToBytes(msg.data);
+        drop.totalBytes += bytes.byteLength;
+        if (drop.totalBytes > MAX_DROP_BYTES) {
+          pendingDrops.delete(msg.dropId);
+          return;
+        }
+        let parts = drop.files.get(msg.fileIndex);
+        if (!parts) {
+          parts = [];
+          drop.files.set(msg.fileIndex, parts);
+        }
+        parts.push(bytes);
       }
       return;
     }
@@ -290,7 +303,7 @@
       const xRatio = typeof msg.xRatio === "number" ? msg.xRatio : 0.5;
       const yRatio = typeof msg.yRatio === "number" ? msg.yRatio : 0.5;
       const target = resolveTarget(xRatio, yRatio);
-      const builtFiles = buildFilesForWindow(target.win, metaList, drop);
+      const builtFiles = buildFilesForWindow(target.win, metaList, drop ? drop.files : null);
 
       let handled = false;
       try {

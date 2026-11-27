@@ -218,8 +218,15 @@ public class ExtensionsActivity extends Activity {
 
         install.setOnClickListener(v -> {
             String u = url.getText().toString().trim();
+            if (u.isEmpty()) {
+                toast("Enter a .xpi URL first");
+                return;
+            }
+            if (!ExtensionManager.isHttpUrl(u)) {
+                toast("Enter a valid https:// or http:// .xpi URL");
+                return;
+            }
             dialog.dismiss();
-            if (u.isEmpty()) { toast("Enter a .xpi URL first"); return; }
             ExtensionManager.get().installFromUrl(u, null);
         });
         ubo.setOnClickListener(v -> {
@@ -530,9 +537,13 @@ public class ExtensionsActivity extends Activity {
         if (ContentResolver.SCHEME_FILE.equalsIgnoreCase(uri.getScheme())) {
             final String path = uri.getPath();
             if (path == null) throw new Exception("could not open file");
-            return new FilePicker.ResolvedStream(new FileInputStream(new File(path)), null, null);
+            final File file = new File(path);
+            if (FilePicker.isRestrictedLocalFile(this, file)) {
+                throw new SecurityException("Restricted local file path");
+            }
+            return new FilePicker.ResolvedStream(new FileInputStream(file), null, null);
         }
-        final FilePicker.ResolvedStream stream = FilePicker.openBestStream(getContentResolver(), uri);
+        final FilePicker.ResolvedStream stream = FilePicker.openBestStream(this, getContentResolver(), uri);
         if (stream == null) throw new Exception("could not open file");
         return stream;
     }
@@ -552,24 +563,48 @@ public class ExtensionsActivity extends Activity {
         ok.setOnClickListener(v -> dialog.dismiss());
     }
 
+    private static final long MAX_XPI_BYTES = 128L * 1024L * 1024L;
+    private static final int MAX_BACKUP_BYTES = 4 * 1024 * 1024;
+
     private File copyStreamToCache(FilePicker.ResolvedStream resolved) throws Exception {
+        File file = null;
         try (FilePicker.ResolvedStream stream = resolved) {
-            File file = new File(getCacheDir(), "ext-" + System.currentTimeMillis() + ".xpi");
+            file = new File(getCacheDir(), "ext-" + System.currentTimeMillis() + ".xpi");
             try (OutputStream out = new FileOutputStream(file)) {
                 byte[] buf = new byte[8192];
+                long total = 0L;
                 int n;
-                while ((n = stream.inputStream.read(buf)) > 0) out.write(buf, 0, n);
+                while ((n = stream.inputStream.read(buf)) > 0) {
+                    total += n;
+                    if (total > MAX_XPI_BYTES) {
+                        throw new Exception("Extension file is too large");
+                    }
+                    out.write(buf, 0, n);
+                }
                 out.flush();
             }
             return file;
+        } catch (Exception e) {
+            if (file != null && file.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+            throw e;
         }
     }
 
     private byte[] readFully(InputStream in) throws Exception {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         byte[] buf = new byte[8192];
+        int total = 0;
         int n;
-        while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+        while ((n = in.read(buf)) > 0) {
+            total += n;
+            if (total > MAX_BACKUP_BYTES) {
+                throw new Exception("Backup file is too large");
+            }
+            bos.write(buf, 0, n);
+        }
         return bos.toByteArray();
     }
 

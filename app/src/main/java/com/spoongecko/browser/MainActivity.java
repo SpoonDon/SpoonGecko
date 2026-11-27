@@ -1423,9 +1423,41 @@ public class MainActivity extends Activity
         if (afterHistoryStep) screen.showHomePanel(url == null || url.isEmpty());
     }
 
+    private static boolean isBlockedExternalScheme(String scheme) {
+        if (scheme == null || scheme.isEmpty()) return true;
+        final String s = scheme.toLowerCase(java.util.Locale.ROOT);
+        return "file".equals(s)
+                || "content".equals(s)
+                || "javascript".equals(s)
+                || "data".equals(s)
+                || "blob".equals(s)
+                || "about".equals(s)
+                || "android-app".equals(s)
+                || "moz-extension".equals(s)
+                || "extension".equals(s)
+                || "resource".equals(s);
+    }
+
     @Override public void openExternalUri(String uri) {
+        if (uri == null || uri.trim().isEmpty()) return;
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
+            final Uri parsed = Uri.parse(uri);
+            final String scheme = parsed.getScheme();
+            if ("intent".equalsIgnoreCase(scheme)) {
+                final Intent intent = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
+                intent.setComponent(null);
+                intent.setSelector(null);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                if (getPackageName().equals(intent.getPackage())) return;
+                final Uri dataUri = intent.getData();
+                if (dataUri != null && isBlockedExternalScheme(dataUri.getScheme())) return;
+                startActivity(intent);
+                return;
+            }
+            if (isBlockedExternalScheme(scheme)) return;
+            final Intent intent = new Intent(Intent.ACTION_VIEW, parsed);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            startActivity(intent);
         } catch (Exception e) {
             Log.e(TAG, "open external uri failed", e);
         }
@@ -1570,12 +1602,14 @@ public class MainActivity extends Activity
 
     /** Fallback only: Android's DownloadManager can't use cookies, POST bodies or blob: URLs. */
     @Override public void downloadFile(String url, String mime, String contentDisposition) {
+        final String webUrl = safeWebUrl(url);
+        if (webUrl == null) return;
         try {
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(webUrl));
             if (mime != null) req.setMimeType(mime);
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            String fileName = URLUtil.guessFileName(url, contentDisposition, mime);
+            String fileName = URLUtil.guessFileName(webUrl, contentDisposition, mime);
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
             dm.enqueue(req);
         } catch (Exception e) {

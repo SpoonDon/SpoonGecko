@@ -15,7 +15,8 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
@@ -74,7 +75,8 @@ public class App extends Application {
                 : String.join(",", Build.SUPPORTED_ABIS)).append('\n');
         sb.append("\n----- stack trace -----\n").append(sw);
         File f = new File(c.getFilesDir(), CRASH_FILE);
-        try (FileWriter w = new FileWriter(f, false)) {
+        try (OutputStreamWriter w = new OutputStreamWriter(
+                new FileOutputStream(f, false), StandardCharsets.UTF_8)) {
             w.write(sb.toString());
         } catch (Exception e) {
             // [C5] Never let the crash logger itself throw — the uncaught
@@ -87,9 +89,11 @@ public class App extends Application {
         try {
             File f = new File(c.getFilesDir(), CRASH_FILE);
             if (!f.exists()) return null;
-            byte[] buf = new byte[(int) f.length()];
+            final int maxBytes = 512 * 1024;
+            final int capacity = (int) Math.min(Math.max(f.length(), 0L), maxBytes);
+            byte[] buf = new byte[capacity];
+            int read = 0;
             try (FileInputStream in = new FileInputStream(f)) {
-                int read = 0;
                 int n;
                 while (read < buf.length
                         && (n = in.read(buf, read, buf.length - read)) > 0) {
@@ -97,7 +101,7 @@ public class App extends Application {
                 }
             }
             if (!f.delete()) f.deleteOnExit();
-            return new String(buf, StandardCharsets.UTF_8);
+            return read == 0 ? null : new String(buf, 0, read, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return null;
         }

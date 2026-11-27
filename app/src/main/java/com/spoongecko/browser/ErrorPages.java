@@ -6,6 +6,7 @@ import org.mozilla.geckoview.WebRequestError;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -13,8 +14,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -44,6 +47,15 @@ final class ErrorPages {
             TITLE_CERT, TITLE_SSL, TITLE_LOCAL_BLOCKED, TITLE_UNREACHABLE, TITLE_GENERIC));
 
     static final String DATA_PREFIX = "data:text/html;charset=utf-8;base64,";
+    private static final int MAX_ISSUED_URIS = 64;
+    private static final SecureRandom NONCE_RNG = new SecureRandom();
+    private static final Map<String, Boolean> ISSUED_URI_DIGESTS =
+            new LinkedHashMap<String, Boolean>(MAX_ISSUED_URIS, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                    return size() > MAX_ISSUED_URIS;
+                }
+            };
 
     /**
      * ERROR_LOCAL_NETWORK_ACCESS_DENIED only exists in newer GeckoView builds.
@@ -65,7 +77,12 @@ final class ErrorPages {
     }
 
     static boolean isErrorPageUri(String uri) {
-        return uri != null && uri.startsWith(DATA_PREFIX);
+        if (uri == null || !uri.startsWith(DATA_PREFIX)) return false;
+        final String digest = sha256Hex(uri);
+        if (digest == null) return false;
+        synchronized (ISSUED_URI_DIGESTS) {
+            return ISSUED_URI_DIGESTS.containsKey(digest);
+        }
     }
 
     /**
@@ -85,11 +102,42 @@ final class ErrorPages {
 
     /** The data: URI to hand back from onLoadError(). */
     static String build(String uri, WebRequestError e, boolean localNetworkBlocked) {
-        return dataUri(ErrorPageHtml.render(model(uri, e, localNetworkBlocked)));
+        final byte[] nonce = new byte[16];
+        NONCE_RNG.nextBytes(nonce);
+        final String html = ErrorPageHtml.render(model(uri, e, localNetworkBlocked))
+                + "\n<!-- sg-err:" + toHex(nonce) + " -->";
+        return dataUri(html);
     }
 
     static String dataUri(String html) {
-        return DATA_PREFIX + Base64.encodeToString(html.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        final String uri = DATA_PREFIX
+                + Base64.encodeToString(html.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+        final String digest = sha256Hex(uri);
+        if (digest != null) {
+            synchronized (ISSUED_URI_DIGESTS) {
+                ISSUED_URI_DIGESTS.put(digest, Boolean.TRUE);
+            }
+        }
+        return uri;
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            final byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return toHex(hash);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String toHex(byte[] bytes) {
+        final StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >>> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------
