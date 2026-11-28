@@ -17,7 +17,6 @@ import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -528,7 +527,7 @@ public class SettingsActivity extends Activity {
 
         content.addView(bottomRow, blp);
 
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
         resetBtn.setOnClickListener(v -> {
             selectedMode[0] = BrowserSettings.DohMode.FIRST;
             selectedProvider[0] = BrowserSettings.DnsProvider.DEFAULT;
@@ -592,7 +591,7 @@ public class SettingsActivity extends Activity {
         final TextView cancel = button("Cancel", false);
         cancel.setOnClickListener(v -> dialogRef[0].dismiss());
         content.addView(cancel);
-        dialogRef[0] = glassDialog(new ScrollView(this), content);
+        dialogRef[0] = glassDialog(content);
     }
 
     // ------------------------------------------------------------------
@@ -618,7 +617,7 @@ public class SettingsActivity extends Activity {
         content.addView(clearBtn);
         content.addView(cancelBtn);
 
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
         clearBtn.setOnClickListener(v -> {
             final boolean delHistory = cbHistory.isChecked();
             final boolean delCache = cbCache.isChecked();
@@ -740,9 +739,8 @@ public class SettingsActivity extends Activity {
     private LinearLayout dialogContent(int padDp) {
         final LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setBackgroundResource(R.drawable.bg_glass_dialog);
-        final int pad = dp(padDp);
-        content.setPadding(pad, pad, pad, dp(12));
+        final int pad = dp(Math.max(0, padDp - 6));
+        content.setPadding(pad, pad, pad, dp(6));
         return content;
     }
 
@@ -768,9 +766,10 @@ public class SettingsActivity extends Activity {
         return b;
     }
 
-    private AlertDialog glassDialog(ScrollView scroll, View content) {
-        scroll.addView(content);
-        final AlertDialog dialog = new AlertDialog.Builder(this).setView(scroll).create();
+    private AlertDialog glassDialog(View content) {
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(DialogFit.wrapGlassScroll(this, content))
+                .create();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(
                     new ColorDrawable(android.graphics.Color.TRANSPARENT));

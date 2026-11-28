@@ -32,7 +32,9 @@ public final class ScreenController {
     private final LinearLayout root;
     private final View urlPanel;
 
+    private final int originalPaddingLeft;
     private final int originalPaddingTop;
+    private final int originalPaddingRight;
     private final int originalPaddingBottom;
     private View flashGuard;
     private boolean bottomToolbar = false;
@@ -48,7 +50,9 @@ public final class ScreenController {
         this.urlBar = activity.findViewById(R.id.url_bar);
         this.searchBar = activity.findViewById(R.id.search_bar);
         this.suggestionsList = activity.findViewById(R.id.suggestions_list);
+        this.originalPaddingLeft = urlPanel.getPaddingLeft();
         this.originalPaddingTop = urlPanel.getPaddingTop();
+        this.originalPaddingRight = urlPanel.getPaddingRight();
         this.originalPaddingBottom = urlPanel.getPaddingBottom();
     }
 
@@ -192,36 +196,65 @@ public final class ScreenController {
 
     @SuppressWarnings("deprecation")
     public void setupWindowInsets() {
+        final int findBaseH = Math.round(6f * activity.getResources().getDisplayMetrics().density);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int leftInset;
             int topInset;
+            int rightInset;
             int navBottom;
             int imeBottom;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                topInset = insets.getInsets(
-                        WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout()).top;
+                final android.graphics.Insets sysAndCutout = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                leftInset = sysAndCutout.left;
+                topInset = sysAndCutout.top;
+                rightInset = sysAndCutout.right;
                 navBottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
                 imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom;
             } else {
+                leftInset = insets.getSystemWindowInsetLeft();
                 topInset = insets.getSystemWindowInsetTop();
+                rightInset = insets.getSystemWindowInsetRight();
                 navBottom = 0;
                 imeBottom = insets.getSystemWindowInsetBottom();
             }
 
+            final int horizLeft = fullScreenMode ? 0 : leftInset;
+            final int horizRight = fullScreenMode ? 0 : rightInset;
             final int bottomInset = Math.max(imeBottom, fullScreenMode ? 0 : navBottom);
             if (bottomToolbar) {
                 urlPanel.setPadding(
-                        urlPanel.getPaddingLeft(),
+                        originalPaddingLeft + horizLeft,
                         originalPaddingBottom,
-                        urlPanel.getPaddingRight(),
+                        originalPaddingRight + horizRight,
                         originalPaddingTop + bottomInset);
-                contentContainer.setPadding(0, fullScreenMode ? 0 : topInset, 0, 0);
+                contentContainer.setPadding(
+                        horizLeft,
+                        fullScreenMode ? 0 : topInset,
+                        horizRight,
+                        0);
             } else {
                 urlPanel.setPadding(
-                        urlPanel.getPaddingLeft(),
+                        originalPaddingLeft + horizLeft,
                         originalPaddingTop + topInset,
-                        urlPanel.getPaddingRight(),
+                        originalPaddingRight + horizRight,
                         originalPaddingBottom);
-                contentContainer.setPadding(0, 0, 0, bottomInset);
+                contentContainer.setPadding(
+                        horizLeft,
+                        0,
+                        horizRight,
+                        bottomInset);
+            }
+            for (int i = 0; i < root.getChildCount(); i++) {
+                final View child = root.getChildAt(i);
+                if ("find_in_page_bar".equals(child.getTag())) {
+                    child.setPadding(
+                            findBaseH + horizLeft,
+                            child.getPaddingTop(),
+                            findBaseH + horizRight,
+                            child.getPaddingBottom());
+                    break;
+                }
             }
             if (suggestionsList != null && suggestionsList.getVisibility() == View.VISIBLE) {
                 suggestionsList.requestLayout();

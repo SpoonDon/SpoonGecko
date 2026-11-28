@@ -248,12 +248,21 @@ public final class PopupsController {
                 || element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_AUDIO);
 
         if (!hasLink && !hasSrc) return;
+        if (activity.isFinishing() || activity.isDestroyed() || !geckoView.isAttachedToWindow()) {
+            return;
+        }
 
-        LinearLayout container = new LinearLayout(activity);
+        final int pad = dp(6);
+        final FrameLayout card = new FrameLayout(activity);
+        card.setBackgroundResource(R.drawable.bg_glass_dialog);
+        card.setPadding(pad, pad, pad, pad);
+        card.setClipToOutline(true);
+
+        final ScrollView scroll = new ScrollView(activity);
+        DialogFit.clipRoundedScroll(scroll, 14);
+
+        final LinearLayout container = new LinearLayout(activity);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setBackgroundResource(R.drawable.bg_glass_dialog);
-        int pad = dp(6);
-        container.setPadding(pad, pad, pad, pad);
 
         if (hasLink) {
             addMenuItem(container, "Open link in new tab", false,
@@ -270,29 +279,61 @@ public final class PopupsController {
             addMenuItem(container, "Share URL", false, () -> shareText(activity, src));
         }
 
+        scroll.addView(container, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final int windowW = DialogFit.windowWidth(activity);
+        final int windowH = DialogFit.windowHeight(activity);
+        final Rect visible = DialogFit.visibleBounds(activity);
+        final int safeLeft = Math.max(dp(8), visible.left + dp(8));
+        final int safeRight = Math.min(windowW - dp(8), visible.right - dp(8));
+        final int safeTop = Math.max(dp(16), visible.top + dp(8));
+        final int safeBottom = Math.min(windowH - dp(16), visible.bottom - dp(8));
+
+        final int popupW = Math.min(dp(220), Math.max(dp(120), safeRight - safeLeft));
+        final int contentW = Math.max(dp(60), popupW - pad * 2);
+        container.measure(
+                View.MeasureSpec.makeMeasureSpec(contentW, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        final int wantedH = container.getMeasuredHeight() + pad * 2;
+        final int availH = Math.max(dp(48), safeBottom - safeTop);
+        final int popupH = Math.min(wantedH, availH);
+
         if (contextMenuPopup != null && contextMenuPopup.isShowing()) contextMenuPopup.dismiss();
-        contextMenuPopup = new PopupWindow(container, dp(220),
-                ViewGroup.LayoutParams.WRAP_CONTENT, true);
-        contextMenuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        contextMenuPopup.setOutsideTouchable(true);
-        contextMenuPopup.setElevation(dp(8));
+        final PopupWindow popup = new PopupWindow(card, popupW, popupH, true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(dp(8));
+        popup.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        contextMenuPopup = popup;
         // [RESIZE] The menu sits at the spot that was pressed. When the app window is resized that
         // spot is somewhere else (or gone), so the menu is closed rather than left in the wrong
         // place; the watcher stops when the popup is dismissed, however that happens.
         final Runnable stopWatching = DialogFit.watch(activity, this::dismissContextMenu);
-        contextMenuPopup.setOnDismissListener(stopWatching::run);
+        popup.setOnDismissListener(() -> {
+            stopWatching.run();
+            if (contextMenuPopup == popup) contextMenuPopup = null;
+        });
         // [F9] onContextMenu delivers *screen* coordinates (screenX/screenY per
         // the ContentDelegate javadoc), but PopupWindow.showAtLocation() takes
-        // window-relative offsets. The old code passed them through unchanged
-        // (plus a made-up +40dp), so the menu appeared below/right of the press.
-        int[] inWindow = new int[2];
-        int[] onScreen = new int[2];
+        // window-relative offsets.
+        final int[] inWindow = new int[2];
+        final int[] onScreen = new int[2];
         geckoView.getLocationInWindow(inWindow);
         geckoView.getLocationOnScreen(onScreen);
         int winX = x - (onScreen[0] - inWindow[0]);
         int winY = y - (onScreen[1] - inWindow[1]);
-        contextMenuPopup.showAtLocation(geckoView,
-                Gravity.TOP | Gravity.START, winX, winY);
+        if (winX + popupW > safeRight && winX - popupW >= safeLeft) {
+            winX -= popupW;
+        }
+        winX = Math.max(safeLeft, Math.min(safeRight - popupW, winX));
+        if (winY + popupH > safeBottom && (winY - safeTop) > (safeBottom - winY)) {
+            winY -= popupH;
+        }
+        winY = Math.max(safeTop, Math.min(safeBottom - popupH, winY));
+        popup.showAtLocation(geckoView, Gravity.TOP | Gravity.LEFT, winX, winY);
     }
 
     public void dismissAll() {

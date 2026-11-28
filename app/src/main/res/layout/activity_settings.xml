@@ -66,6 +66,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout
@@ -172,6 +173,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout
@@ -320,6 +322,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout
@@ -470,6 +473,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout
@@ -727,6 +731,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout
@@ -1007,6 +1012,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_glass_dialog"
+                android:clipToOutline="true"
                 android:padding="4dp">
 
                 <LinearLayout

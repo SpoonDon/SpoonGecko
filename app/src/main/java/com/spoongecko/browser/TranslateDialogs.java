@@ -14,6 +14,7 @@ import android.view.WindowManager;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.mozilla.geckoview.TranslationsController.RuntimeTranslation;
@@ -132,6 +133,8 @@ final class TranslateDialogs {
         final List<String> fromCodes = codes(translator.fromLanguages());
         final List<String> toCodes = codes(translator.toLanguages());
         final Dialog d = newDialog(R.layout.dialog_translate, 0.92f, 0f);
+        final ScrollView scroll = d.findViewById(R.id.tr_scroll);
+        if (scroll != null) DialogFit.clipRoundedScroll(scroll, 14);
 
         final TextView status = d.findViewById(R.id.tr_status);
         final View pageGroup = d.findViewById(R.id.tr_page_group);
@@ -466,17 +469,22 @@ final class TranslateDialogs {
      * window is short (split screen, landscape), so the buttons under the list stay in view.
      */
     private int maxListHeight() {
-        final int room = (int) (DialogFit.windowHeight(activity) * 0.92f) - dp(RULES_CHROME_DP);
+        final int availH = Math.min((int) (DialogFit.windowHeight(activity) * 0.92f),
+                DialogFit.visibleBounds(activity).height() - dp(16));
+        final int room = availH - dp(RULES_CHROME_DP);
         return Math.max(dp(LIST_MIN_DP), Math.min(dp(LIST_MAX_DP), room));
     }
 
     /** The list is as tall as its rows, up to a limit (a ListView ignores maxHeight). */
     private void fitHeight(ListView list, BaseAdapter adapter) {
         final int max = maxListHeight();
-        int total = 0;
+        final int listW = Math.max(dp(120), (int) (DialogFit.windowWidth(activity) * 0.92f) - dp(32));
+        final int widthSpec = View.MeasureSpec.makeMeasureSpec(listW, View.MeasureSpec.EXACTLY);
+        int total = list.getPaddingTop() + list.getPaddingBottom();
+        View row = null;
         for (int i = 0; i < adapter.getCount() && total < max; i++) {
-            final View row = adapter.getView(i, null, list);
-            row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            row = adapter.getView(i, row, list);
+            row.measure(widthSpec, View.MeasureSpec.UNSPECIFIED);
             total += row.getMeasuredHeight();
         }
         final ViewGroup.LayoutParams lp = list.getLayoutParams();

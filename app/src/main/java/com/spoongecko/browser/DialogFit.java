@@ -2,14 +2,20 @@ package com.spoongecko.browser;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.Context;
 import android.graphics.Insets;
+import android.graphics.Outline;
 import android.graphics.Rect;
 import android.os.Build;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ScrollView;
 
 /**
  * [RESIZE] Keeps dialogs and popups the right size when the app's window changes size.
@@ -25,6 +31,42 @@ import android.view.WindowManager;
 final class DialogFit {
 
     private DialogFit() { }
+
+    /**
+     * Wraps scrollable dialog content in a non-scrolling bg_glass_dialog FrameLayout with 6dp
+     * border padding and a rounded-clipped ScrollView, so scrolling never clips or moves the
+     * outer glass border.
+     */
+    static FrameLayout wrapGlassScroll(Context context, View content) {
+        final float density = context.getResources().getDisplayMetrics().density;
+        final int pad = Math.round(6f * density);
+        final FrameLayout card = new FrameLayout(context);
+        card.setBackgroundResource(R.drawable.bg_glass_dialog);
+        card.setPadding(pad, pad, pad, pad);
+        card.setClipToOutline(true);
+
+        final ScrollView scroll = new ScrollView(context);
+        clipRoundedScroll(scroll, 14);
+        scroll.addView(content, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return card;
+    }
+
+    /** Clips a ScrollView cleanly to rounded inner corners and hides raw scrollbars inside glass cards. */
+    static void clipRoundedScroll(ScrollView scroll, int cornerDp) {
+        final int radius = Math.round(cornerDp * scroll.getResources().getDisplayMetrics().density);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radius);
+            }
+        });
+        scroll.setClipToOutline(true);
+    }
 
     /** Width of the app window in pixels: its real size, which a split screen or freeform window changes. */
     static int windowWidth(Activity activity) {

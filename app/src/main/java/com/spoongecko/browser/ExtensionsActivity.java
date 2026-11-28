@@ -21,7 +21,6 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -214,7 +213,7 @@ public class ExtensionsActivity extends Activity {
         content.addView(fromFile);
         content.addView(cancel);
 
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
 
         install.setOnClickListener(v -> {
             String u = url.getText().toString().trim();
@@ -312,7 +311,7 @@ public class ExtensionsActivity extends Activity {
         TextView close = button("Close", false);
         content.addView(close);
 
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
 
         update.setOnClickListener(v -> {
             dialog.dismiss();
@@ -559,7 +558,7 @@ public class ExtensionsActivity extends Activity {
         content.addView(details);
         TextView ok = button("OK", false);
         content.addView(ok);
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
         ok.setOnClickListener(v -> dialog.dismiss());
     }
 
@@ -690,9 +689,8 @@ public class ExtensionsActivity extends Activity {
     private LinearLayout dialogContent(int padDp) {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setBackgroundResource(R.drawable.bg_glass_dialog);
-        int pad = dp(padDp);
-        content.setPadding(pad, pad, pad, dp(12));
+        int pad = dp(Math.max(0, padDp - 6));
+        content.setPadding(pad, pad, pad, dp(6));
         return content;
     }
 
@@ -718,10 +716,9 @@ public class ExtensionsActivity extends Activity {
         return b;
     }
 
-    private AlertDialog glassDialog(ScrollView scroll, View content) {
-        scroll.addView(content);
+    private AlertDialog glassDialog(View content) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setView(scroll);
+        builder.setView(DialogFit.wrapGlassScroll(this, content));
         AlertDialog dialog = builder.create();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(

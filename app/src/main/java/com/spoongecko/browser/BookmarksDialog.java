@@ -167,7 +167,9 @@ final class BookmarksDialog {
     }
 
     private int maxListHeightPx() {
-        final int room = (int) (windowHeightPx() * HEIGHT_FRACTION) - dp(CHROME_DP);
+        final int availH = Math.min((int) (windowHeightPx() * HEIGHT_FRACTION),
+                DialogFit.visibleBounds(activity).height() - dp(16));
+        final int room = availH - dp(CHROME_DP);
         return Math.max(dp(LIST_MIN_DP), Math.min(dp(LIST_MAX_DP), room));
     }
 
@@ -208,11 +210,13 @@ final class BookmarksDialog {
 
     private void fitListHeight(ListView list, BookmarkAdapter adapter) {
         final int max = maxListHeightPx();
-        int total = 0;
+        final int listW = Math.max(dp(120), dialogWidthPx() - dp(32));
+        final int widthSpec = View.MeasureSpec.makeMeasureSpec(listW, View.MeasureSpec.EXACTLY);
+        int total = list.getPaddingTop() + list.getPaddingBottom();
         View rowView = null;
         for (int i = 0; i < adapter.getCount() && total < max; i++) {
             rowView = adapter.getView(i, rowView, list);
-            rowView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            rowView.measure(widthSpec, View.MeasureSpec.UNSPECIFIED);
             total += rowView.getMeasuredHeight();
         }
         final ViewGroup.LayoutParams lp = list.getLayoutParams();

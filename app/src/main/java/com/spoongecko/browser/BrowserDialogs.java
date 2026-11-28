@@ -67,7 +67,6 @@ public final class BrowserDialogs {
         Dialog d = new Dialog(activity);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         d.setContentView(R.layout.dialog_list);
-        styleDialog(d, 0.9f);
 
         TextView title = d.findViewById(R.id.dlg_title);
         title.setText("Tabs");
@@ -75,9 +74,12 @@ public final class BrowserDialogs {
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);
 
-        TabListAdapter adapter = new TabListAdapter(d, list);
+        final Runnable refitList = () -> capListHeight(list, maxDialogListHeightPx(), 0.9f);
+        styleDialog(d, 0.9f, refitList);
+
+        TabListAdapter adapter = new TabListAdapter(d, list, refitList);
         list.setAdapter(adapter);
-        capListHeight(list, dp(360));                 // [F10]
+        refitList.run();                              // [F10]
         list.setOnItemClickListener((parent, view, pos1, id) -> {
             onTabSelected.accept(pos1);
             d.dismiss();
@@ -99,7 +101,6 @@ public final class BrowserDialogs {
         Dialog d = new Dialog(activity);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         d.setContentView(R.layout.dialog_list);
-        styleDialog(d, 0.9f);
 
         TextView title = d.findViewById(R.id.dlg_title);
         title.setText("History");
@@ -107,10 +108,13 @@ public final class BrowserDialogs {
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);
 
+        final Runnable refitList = () -> capListHeight(list, maxDialogListHeightPx(), 0.9f);
+        styleDialog(d, 0.9f, refitList);
+
         List<HistoryStore.Entry> entries = history.recent(100);
         ItemAdapter adapter = new ItemAdapter(d, entries);
         list.setAdapter(adapter);
-        capListHeight(list, dp(360));                 // [F10]
+        refitList.run();                              // [F10]
         list.setOnItemClickListener((parent, view, pos1, id) -> {
             onNavigate.accept(adapter.getItem(pos1).url);
             d.dismiss();
@@ -282,13 +286,13 @@ public final class BrowserDialogs {
     // ------------------------------------------------------------------
     // Shared dialog styling
     // ------------------------------------------------------------------
-    private void styleDialog(Dialog d, float widthFraction) {
+    private void styleDialog(Dialog d, float widthFraction, Runnable alsoOnResize) {
         Window w = d.getWindow();
         if (w == null) return;
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         w.setDimAmount(0.7f);
         // [RESIZE] A fraction of the app window's width, kept in step when the window is resized.
-        DialogFit.fitAndFollow(activity, d, widthFraction, 0f, null);
+        DialogFit.fitAndFollow(activity, d, widthFraction, 0f, alsoOnResize);
 
         TextView neg = d.findViewById(R.id.dlg_negative);
         TextView pos = d.findViewById(R.id.dlg_positive);
@@ -304,28 +308,42 @@ public final class BrowserDialogs {
         }
     }
 
+    private int maxDialogListHeightPx() {
+        final int availH = Math.min((int) (DialogFit.windowHeight(activity) * 0.92f),
+                DialogFit.visibleBounds(activity).height() - dp(16));
+        final int room = availH - dp(160);
+        return Math.max(dp(96), Math.min(dp(360), room));
+    }
+
     /**
      * [F10] ListView ignores android:maxHeight, and a 0dp/weighted ListView
      * inside a wrap_content dialog grows with its content — a long tab or
      * history list made the dialog taller than the screen. Measure the rows
      * and clamp the height here instead.
      */
-    private void capListHeight(ListView list, int maxPx) {
+    private void capListHeight(ListView list, int maxPx, float widthFraction) {
         if (list == null || maxPx <= 0) return;
         ListAdapter adapter = list.getAdapter();
         if (adapter == null) {
             list.getLayoutParams().height = maxPx;
             return;
         }
-        int total = 0;
+        final int listW = Math.max(dp(120), (int) (DialogFit.windowWidth(activity) * widthFraction) - dp(32));
+        final int widthSpec = View.MeasureSpec.makeMeasureSpec(listW, View.MeasureSpec.EXACTLY);
+        int total = list.getPaddingTop() + list.getPaddingBottom();
         View row = null;
         for (int i = 0; i < adapter.getCount() && total < maxPx; i++) {
             row = adapter.getView(i, row, list);
-            row.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            row.measure(widthSpec, View.MeasureSpec.UNSPECIFIED);
             total += row.getMeasuredHeight();
         }
         if (total == 0) total = maxPx;
-        list.getLayoutParams().height = Math.min(total, maxPx);
+        final int target = Math.min(total, maxPx);
+        final ViewGroup.LayoutParams lp = list.getLayoutParams();
+        if (lp.height != target) {
+            lp.height = target;
+            list.setLayoutParams(lp);
+        }
     }
 
     private int dp(int v) {
@@ -338,8 +356,13 @@ public final class BrowserDialogs {
     private final class TabListAdapter extends BaseAdapter {
         private final Dialog owner;
         private final ListView list;
+        private final Runnable onCountChanged;
 
-        TabListAdapter(Dialog owner, ListView list) { this.owner = owner; this.list = list; }
+        TabListAdapter(Dialog owner, ListView list, Runnable onCountChanged) {
+            this.owner = owner;
+            this.list = list;
+            this.onCountChanged = onCountChanged;
+        }
 
         @Override public int getCount() { return tabManager.count(); }
         @Override public Tab getItem(int p) { return tabManager.getTabs().get(p); }
@@ -362,6 +385,7 @@ public final class BrowserDialogs {
                 int idx = tabManager.getTabs().indexOf(t);
                 if (idx >= 0) tabManager.closeTab(idx);
                 notifyDataSetChanged();
+                if (onCountChanged != null) onCountChanged.run();
             });
             v.setBackgroundColor(pos == tabManager.getActiveIndex()
                     ? 0x22FFFFFF : Color.TRANSPARENT);

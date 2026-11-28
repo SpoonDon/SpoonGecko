@@ -20,7 +20,6 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -252,7 +251,7 @@ public class DownloadsActivity extends Activity implements DownloadEngine.Listen
         content.addView(startBtn);
         content.addView(cancelBtn);
 
-        final AlertDialog dialog = glassDialog(new ScrollView(this), content);
+        final AlertDialog dialog = glassDialog(content);
         startBtn.setOnClickListener(v -> {
             String raw = input.getText().toString().trim();
             if (raw.isEmpty()) {
@@ -378,7 +377,7 @@ public class DownloadsActivity extends Activity implements DownloadEngine.Listen
         closeBtn.setOnClickListener(v -> dialogRef[0].dismiss());
         content.addView(closeBtn);
 
-        dialogRef[0] = glassDialog(new ScrollView(this), content);
+        dialogRef[0] = glassDialog(content);
     }
 
     private void addDetailRow(LinearLayout parent, String label, String value) {
@@ -574,9 +573,8 @@ public class DownloadsActivity extends Activity implements DownloadEngine.Listen
     private LinearLayout dialogContent(int padDp) {
         final LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setBackgroundResource(R.drawable.bg_glass_dialog);
-        final int pad = dp(padDp);
-        content.setPadding(pad, pad, pad, dp(12));
+        final int pad = dp(Math.max(0, padDp - 6));
+        content.setPadding(pad, pad, pad, dp(6));
         return content;
     }
 
@@ -602,9 +600,10 @@ public class DownloadsActivity extends Activity implements DownloadEngine.Listen
         return b;
     }
 
-    private AlertDialog glassDialog(ScrollView scroll, View content) {
-        scroll.addView(content);
-        final AlertDialog dialog = new AlertDialog.Builder(this).setView(scroll).create();
+    private AlertDialog glassDialog(View content) {
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(DialogFit.wrapGlassScroll(this, content))
+                .create();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(
                     new ColorDrawable(android.graphics.Color.TRANSPARENT));
