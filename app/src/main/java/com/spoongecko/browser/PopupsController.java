@@ -6,10 +6,15 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
@@ -87,25 +92,27 @@ public final class PopupsController {
         openMenu();
     }
 
-    /**
-     * [RESIZE] The app window changed size while the menu was open: build it again for the new
-     * size, under the button, which has moved with the layout. (A PopupWindow keeps the size it
-     * was given, so without this the menu could be taller than the window, or cut off.)
-     */
-    private void reopenMenu() {
-        final PopupWindow p = menuPopup;
-        if (p == null || !p.isShowing()) return;
-        p.dismiss();
-        menuPopup = null;
-        openMenu();
-    }
-
     private void openMenu() {
-        LinearLayout container = new LinearLayout(activity);
+        final int pad = dp(6);
+        final FrameLayout card = new FrameLayout(activity);
+        card.setBackgroundResource(R.drawable.bg_glass_dialog);
+        card.setPadding(pad, pad, pad, pad);
+        card.setClipToOutline(true);
+
+        final ScrollView scroll = new ScrollView(activity);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.setVerticalScrollBarEnabled(false);
+        final int innerRadius = dp(14);
+        scroll.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), innerRadius);
+            }
+        });
+        scroll.setClipToOutline(true);
+
+        final LinearLayout container = new LinearLayout(activity);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setBackgroundResource(R.drawable.bg_glass_dialog);
-        int pad = dp(6);
-        container.setPadding(pad, pad, pad, pad);
 
         addMenuItem(container, "New tab", false, host::onNewTab);
         addMenuItem(container, "New incognito tab", false, host::onNewIncognitoTab);   // [INCOGNITO]
@@ -131,52 +138,102 @@ public final class PopupsController {
         addMenuItem(container, "Settings", false, host::onShowSettings);
         addMenuItem(container, "Exit", true, host::onShowExit);
 
-        // [FIT] With the extra row the menu can be taller than the available space.
-        // Open upward when the toolbar is positioned at the bottom of the screen.
-        final int menuWidth = dp(190);
-        container.measure(
-                View.MeasureSpec.makeMeasureSpec(menuWidth, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        final int wanted = container.getMeasuredHeight();
-        // [RESIZE] Measured inside the app window, not on the screen: in a split screen or a
-        // freeform window the two differ by the window's own position.
-        final int[] anchorInWindow = new int[2];
-        menuAnchor.getLocationInWindow(anchorInWindow);
-        final int windowW = DialogFit.windowWidth(activity);
-        final int windowH = DialogFit.windowHeight(activity);
-        final int spaceBelow = windowH - (anchorInWindow[1] + menuAnchor.getHeight()) - dp(16);
-        final int spaceAbove = anchorInWindow[1] - dp(16);
-        final boolean openAbove = spaceBelow < Math.min(wanted, dp(220)) && spaceAbove > spaceBelow;
-        final int available = openAbove ? spaceAbove : spaceBelow;
+        scroll.addView(container, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        View content = container;
-        int height = ViewGroup.LayoutParams.WRAP_CONTENT;
-        if (available > dp(120) && wanted > available) {
-            ScrollView scroll = new ScrollView(activity);
-            container.setBackground(null);
-            scroll.setBackgroundResource(R.drawable.bg_glass_dialog);
-            scroll.addView(container);
-            content = scroll;
-            height = available;
+        // [FIT] Measure items against the padded inner width and track visible window bounds
+        // (excluding IME + system bars) so bottom-toolbar / keyboard transitions keep the menu
+        // strictly framed inside bg_glass_dialog without items bleeding past the border.
+        final int baseMenuWidth = dp(190);
+        final int[] lastContentW = {-1};
+        final int[] wanted = {0};
+        final int[] lastPlacement = {-1, -1, -1, -1}; // x, y, w, h
+
+        final PopupWindow popup = new PopupWindow(card, baseMenuWidth,
+                ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(dp(8));
+        popup.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        menuPopup = popup;
+
+        final Runnable computeAndApply = () -> {
+            if (activity.isFinishing() || activity.isDestroyed() || !menuAnchor.isAttachedToWindow()) {
+                return;
+            }
+            final int windowW = DialogFit.windowWidth(activity);
+            final int windowH = DialogFit.windowHeight(activity);
+            final Rect visible = DialogFit.visibleBounds(activity);
+            final int safeLeft = Math.max(dp(8), visible.left + dp(8));
+            final int safeRight = Math.min(windowW - dp(8), visible.right - dp(8));
+            final int safeTop = Math.max(dp(16), visible.top + dp(8));
+            final int safeBottom = Math.min(windowH - dp(16), visible.bottom - dp(8));
+
+            final int popupW = Math.min(baseMenuWidth, Math.max(dp(120), safeRight - safeLeft));
+            final int contentW = Math.max(dp(60), popupW - pad * 2);
+            if (contentW != lastContentW[0]) {
+                container.measure(
+                        View.MeasureSpec.makeMeasureSpec(contentW, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                wanted[0] = container.getMeasuredHeight() + pad * 2;
+                lastContentW[0] = contentW;
+            }
+
+            final int[] anchorInWindow = new int[2];
+            menuAnchor.getLocationInWindow(anchorInWindow);
+            final int spaceBelow = Math.max(0,
+                    safeBottom - (anchorInWindow[1] + menuAnchor.getHeight() + dp(8)));
+            final int spaceAbove = Math.max(0, anchorInWindow[1] - dp(8) - safeTop);
+            final boolean openAbove = spaceBelow < Math.min(wanted[0], dp(220))
+                    && spaceAbove > spaceBelow;
+            final int available = Math.max(dp(48), openAbove ? spaceAbove : spaceBelow);
+            final int popupH = Math.min(wanted[0], available);
+
+            final int x = Math.max(safeLeft, Math.min(safeRight - popupW,
+                    anchorInWindow[0] + menuAnchor.getWidth() - popupW));
+            final int y = openAbove
+                    ? Math.max(safeTop, anchorInWindow[1] - popupH - dp(8))
+                    : Math.max(safeTop, Math.min(safeBottom - popupH,
+                            anchorInWindow[1] + menuAnchor.getHeight() + dp(8)));
+
+            if (popupH >= wanted[0] && scroll.getScrollY() != 0) {
+                scroll.scrollTo(0, 0);
+            }
+
+            if (!popup.isShowing()) {
+                lastPlacement[0] = x;
+                lastPlacement[1] = y;
+                lastPlacement[2] = popupW;
+                lastPlacement[3] = popupH;
+                popup.setWidth(popupW);
+                popup.setHeight(popupH);
+                popup.showAtLocation(menuAnchor, Gravity.TOP | Gravity.LEFT, x, y);
+            } else if (x != lastPlacement[0] || y != lastPlacement[1]
+                    || popupW != lastPlacement[2] || popupH != lastPlacement[3]) {
+                lastPlacement[0] = x;
+                lastPlacement[1] = y;
+                lastPlacement[2] = popupW;
+                lastPlacement[3] = popupH;
+                popup.update(x, y, popupW, popupH);
+            }
+        };
+
+        computeAndApply.run();
+        if (!popup.isShowing()) {
+            if (menuPopup == popup) menuPopup = null;
+            return;
         }
 
-        menuPopup = new PopupWindow(content, menuWidth, height, true);
-        menuPopup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        menuPopup.setOutsideTouchable(true);
-        menuPopup.setElevation(dp(8));
-        // [RESIZE] Rebuilt for the new size if the window is resized while the menu is open; the
-        // watcher belongs to this popup and stops when the popup is dismissed, however that happens.
-        final Runnable stopWatching = DialogFit.watch(activity, this::reopenMenu);
-        menuPopup.setOnDismissListener(stopWatching::run);
-        if (openAbove) {
-            final int popupH = height == ViewGroup.LayoutParams.WRAP_CONTENT ? wanted : height;
-            final int x = Math.max(dp(8), Math.min(windowW - menuWidth - dp(8),
-                    anchorInWindow[0] + menuAnchor.getWidth() - menuWidth));
-            final int y = Math.max(dp(16), anchorInWindow[1] - popupH - dp(8));
-            menuPopup.showAtLocation(menuAnchor, Gravity.TOP | Gravity.START, x, y);
-        } else {
-            menuPopup.showAsDropDown(menuAnchor, 0, dp(8));
-        }
+        // [RESIZE] Keep menu sized and anchored across window resizes AND keyboard show/hide.
+        final Runnable stopResizeWatch = DialogFit.watch(activity, computeAndApply);
+        final Runnable stopAnchorWatch = DialogFit.watchAnchor(menuAnchor, computeAndApply);
+        popup.setOnDismissListener(() -> {
+            stopResizeWatch.run();
+            stopAnchorWatch.run();
+            if (menuPopup == popup) menuPopup = null;
+        });
     }
 
     public void showContextMenu(int x, int y,

@@ -2,8 +2,13 @@ package com.spoongecko.browser;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.graphics.Insets;
+import android.graphics.Rect;
+import android.os.Build;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 
 /**
@@ -123,6 +128,75 @@ final class DialogFit {
             @Override public void run() {
                 stopped[0] = true;
                 appDecor.removeOnLayoutChangeListener(listener);
+            }
+        };
+    }
+
+    /**
+     * Window-relative bounds excluding system bars, display cutouts, and the soft keyboard (IME).
+     * Unlike {@link #windowHeight}, this shrinks while the IME is visible even when the activity
+     * uses {@code fitsSystemWindows="false"} for edge-to-edge rendering.
+     */
+    @SuppressWarnings("deprecation")
+    static Rect visibleBounds(Activity activity) {
+        final View decor = activity.getWindow().getDecorView();
+        final int w = windowWidth(activity);
+        final int h = windowHeight(activity);
+        int left = 0, top = 0, right = w, bottom = h;
+        final WindowInsets insets = decor.getRootWindowInsets();
+        if (insets != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                final Insets bars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                final Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                left = bars.left;
+                top = bars.top;
+                right = Math.max(left, w - bars.right);
+                bottom = Math.max(top, h - Math.max(bars.bottom, ime.bottom));
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                top = insets.getSystemWindowInsetTop();
+                right = Math.max(left, w - insets.getSystemWindowInsetRight());
+                bottom = Math.max(top, h - insets.getSystemWindowInsetBottom());
+            }
+        }
+        return new Rect(left, top, right, bottom);
+    }
+
+    /**
+     * Runs {@code onLayoutChanged} (coalesced on the UI thread after layout) whenever the anchor's
+     * window layout changes, including soft keyboard show/hide and toolbar repositioning.
+     */
+    static Runnable watchAnchor(final View anchor, final Runnable onLayoutChanged) {
+        final ViewTreeObserver vto = anchor.getViewTreeObserver();
+        final boolean[] queued = {false};
+        final boolean[] stopped = {false};
+        final ViewTreeObserver.OnGlobalLayoutListener listener =
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        if (queued[0] || stopped[0]) return;
+                        queued[0] = true;
+                        anchor.post(new Runnable() {
+                            @Override public void run() {
+                                queued[0] = false;
+                                if (!stopped[0] && anchor.isAttachedToWindow()) {
+                                    onLayoutChanged.run();
+                                }
+                            }
+                        });
+                    }
+                };
+        vto.addOnGlobalLayoutListener(listener);
+        return new Runnable() {
+            @Override public void run() {
+                stopped[0] = true;
+                if (vto.isAlive()) {
+                    vto.removeOnGlobalLayoutListener(listener);
+                } else {
+                    final ViewTreeObserver current = anchor.getViewTreeObserver();
+                    if (current.isAlive()) current.removeOnGlobalLayoutListener(listener);
+                }
             }
         };
     }

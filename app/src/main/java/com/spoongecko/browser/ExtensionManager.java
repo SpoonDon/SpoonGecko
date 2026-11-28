@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Handler;
@@ -16,7 +18,10 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.Window;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -131,6 +136,7 @@ public final class ExtensionManager {
     private PopupWindow extensionMenu;
     /** [EXTMENU] The rows inside {@link #extensionMenu}, kept so an open list can follow changes. */
     private LinearLayout extensionMenuRows;
+    private Runnable extensionMenuRelayout;
 
     // ------------------------------------------------------------------
     // Runtime
@@ -888,6 +894,7 @@ public final class ExtensionManager {
                 // off ...) follows the change instead of showing stale rows.
                 if (extensionMenu != null && extensionMenu.isShowing() && extensionMenuRows != null) {
                     fillExtensionMenu(extensionMenuRows, c, generation);
+                    if (extensionMenuRelayout != null) extensionMenuRelayout.run();
                 }
             } catch (Exception e) {
                 Log.w(TAG, "rebuildToolbar failed", e);
@@ -916,72 +923,130 @@ public final class ExtensionManager {
             return;
         }
         final Context c = anchor.getContext();
+        final int pad = dp(c, 6);
+        final FrameLayout card = new FrameLayout(c);
+        card.setBackgroundResource(R.drawable.bg_glass_dialog);
+        card.setPadding(pad, pad, pad, pad);
+        card.setClipToOutline(true);
+
+        final ScrollView scroll = new ScrollView(c);
+        scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        scroll.setVerticalScrollBarEnabled(false);
+        final int innerRadius = dp(c, 14);
+        scroll.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), innerRadius);
+            }
+        });
+        scroll.setClipToOutline(true);
+
         final LinearLayout rows = new LinearLayout(c);
         rows.setOrientation(LinearLayout.VERTICAL);
-        final int pad = dp(c, 6);
-        rows.setPadding(pad, pad, pad, pad);
         fillExtensionMenu(rows, c, toolbarGeneration);
         if (rows.getChildCount() == 0) return;
 
-        // [RESIZE] Sizes come from the app window, not the screen, so they are right in a split
-        // screen or a freeform window; the list is built again if the window is resized.
+        scroll.addView(rows, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         final Activity owner = c instanceof Activity ? (Activity) c : currentActivity;
-        final int windowW = owner != null ? DialogFit.windowWidth(owner)
-                : c.getResources().getDisplayMetrics().widthPixels;
-        final int windowH = owner != null ? DialogFit.windowHeight(owner)
-                : c.getResources().getDisplayMetrics().heightPixels;
-        final int width = Math.min(dp(c, 260), (int) (windowW * 0.92f));
-        // With many extensions the list can be taller than the space under the button
-        // (landscape phones): scroll instead of letting the last rows fall off the screen.
-        rows.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        final int wanted = rows.getMeasuredHeight();
-        final int[] anchorInWindow = new int[2];
-        anchor.getLocationInWindow(anchorInWindow);
-        final int spaceBelow = windowH - (anchorInWindow[1] + anchor.getHeight()) - dp(c, 16);
-        final int spaceAbove = anchorInWindow[1] - dp(c, 16);
-        final boolean openAbove = spaceBelow < Math.min(wanted, dp(c, 160)) && spaceAbove > spaceBelow;
-        final int available = openAbove ? spaceAbove : spaceBelow;
-        int height = ViewGroup.LayoutParams.WRAP_CONTENT;
-        if (available > dp(c, 120) && wanted > available) height = available;
-
-        final ScrollView scroll = new ScrollView(c);
-        scroll.setBackgroundResource(R.drawable.bg_glass_dialog);
-        scroll.addView(rows);
-
-        final PopupWindow popup = new PopupWindow(scroll, width, height, true);
+        final PopupWindow popup = new PopupWindow(card, dp(c, 260),
+                ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
         popup.setElevation(dp(c, 8));
-        // The watcher belongs to this popup and stops when it is dismissed, however that happens.
-        final Runnable stopWatching = owner != null
-                ? DialogFit.watch(owner, this::reopenExtensionMenu) : null;
+        popup.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        extensionMenu = popup;
+        extensionMenuRows = rows;
+
+        final int[] lastPlacement = {-1, -1, -1, -1};
+        final Runnable computeAndApply = () -> {
+            if (!anchor.isAttachedToWindow()) return;
+            if (owner != null && (owner.isFinishing() || owner.isDestroyed())) return;
+            final int windowW = owner != null ? DialogFit.windowWidth(owner)
+                    : c.getResources().getDisplayMetrics().widthPixels;
+            final int windowH = owner != null ? DialogFit.windowHeight(owner)
+                    : c.getResources().getDisplayMetrics().heightPixels;
+            final Rect visible = owner != null ? DialogFit.visibleBounds(owner)
+                    : new Rect(0, 0, windowW, windowH);
+            final int safeLeft = Math.max(dp(c, 8), visible.left + dp(c, 8));
+            final int safeRight = Math.min(windowW - dp(c, 8), visible.right - dp(c, 8));
+            final int safeTop = Math.max(dp(c, 16), visible.top + dp(c, 8));
+            final int safeBottom = Math.min(windowH - dp(c, 16), visible.bottom - dp(c, 8));
+
+            final int width = Math.min(dp(c, 260),
+                    Math.max(dp(c, 120), Math.min((int) (windowW * 0.92f), safeRight - safeLeft)));
+            final int contentW = Math.max(dp(c, 60), width - pad * 2);
+            rows.measure(
+                    View.MeasureSpec.makeMeasureSpec(contentW, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            final int wanted = rows.getMeasuredHeight() + pad * 2;
+
+            final int[] anchorInWindow = new int[2];
+            anchor.getLocationInWindow(anchorInWindow);
+            final int spaceBelow = Math.max(0,
+                    safeBottom - (anchorInWindow[1] + anchor.getHeight() + dp(c, 8)));
+            final int spaceAbove = Math.max(0, anchorInWindow[1] - dp(c, 8) - safeTop);
+            final boolean openAbove = spaceBelow < Math.min(wanted, dp(c, 160))
+                    && spaceAbove > spaceBelow;
+            final int available = Math.max(dp(c, 48), openAbove ? spaceAbove : spaceBelow);
+            final int popupH = Math.min(wanted, available);
+
+            final int x = Math.max(safeLeft, Math.min(safeRight - width,
+                    anchorInWindow[0] + anchor.getWidth() - width));
+            final int y = openAbove
+                    ? Math.max(safeTop, anchorInWindow[1] - popupH - dp(c, 8))
+                    : Math.max(safeTop, Math.min(safeBottom - popupH,
+                            anchorInWindow[1] + anchor.getHeight() + dp(c, 8)));
+
+            if (popupH >= wanted && scroll.getScrollY() != 0) {
+                scroll.scrollTo(0, 0);
+            }
+
+            try {
+                if (!popup.isShowing()) {
+                    lastPlacement[0] = x;
+                    lastPlacement[1] = y;
+                    lastPlacement[2] = width;
+                    lastPlacement[3] = popupH;
+                    popup.setWidth(width);
+                    popup.setHeight(popupH);
+                    popup.showAtLocation(anchor, Gravity.TOP | Gravity.LEFT, x, y);
+                } else if (x != lastPlacement[0] || y != lastPlacement[1]
+                        || width != lastPlacement[2] || popupH != lastPlacement[3]) {
+                    lastPlacement[0] = x;
+                    lastPlacement[1] = y;
+                    lastPlacement[2] = width;
+                    lastPlacement[3] = popupH;
+                    popup.update(x, y, width, popupH);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "could not show the extensions list", e);
+                dismissExtensionMenu();
+            }
+        };
+
+        extensionMenuRelayout = computeAndApply;
+        computeAndApply.run();
+        if (!popup.isShowing()) {
+            dismissExtensionMenu();
+            return;
+        }
+
+        final Runnable stopResizeWatch = owner != null
+                ? DialogFit.watch(owner, computeAndApply) : null;
+        final Runnable stopAnchorWatch = DialogFit.watchAnchor(anchor, computeAndApply);
         popup.setOnDismissListener(() -> {
-            if (stopWatching != null) stopWatching.run();
+            if (stopResizeWatch != null) stopResizeWatch.run();
+            stopAnchorWatch.run();
             if (extensionMenu == popup) {
                 extensionMenu = null;
                 extensionMenuRows = null;
+                extensionMenuRelayout = null;
             }
         });
-        extensionMenu = popup;
-        extensionMenuRows = rows;
-        try {
-            if (openAbove) {
-                final int popupH = height == ViewGroup.LayoutParams.WRAP_CONTENT ? wanted : height;
-                final int x = Math.max(dp(c, 8), Math.min(windowW - width - dp(c, 8),
-                        anchorInWindow[0] + anchor.getWidth() - width));
-                final int y = Math.max(dp(c, 16), anchorInWindow[1] - popupH - dp(c, 8));
-                popup.showAtLocation(anchor, Gravity.TOP | Gravity.START, x, y);
-            } else {
-                // Right edge of the list under the right edge of the button, like the main menu.
-                popup.showAsDropDown(anchor, 0, dp(c, 8), Gravity.END);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "could not show the extensions list", e);
-            extensionMenu = null;
-            extensionMenuRows = null;
-        }
     }
 
     /** [EXTMENU] (Re)builds the rows of the list: icon + name of every active extension. */
@@ -1055,23 +1120,10 @@ public final class ExtensionManager {
         final PopupWindow p = extensionMenu;
         extensionMenu = null;
         extensionMenuRows = null;
+        extensionMenuRelayout = null;
         if (p != null) {
             try { p.dismiss(); } catch (Exception ignored) {}
         }
-    }
-
-    /**
-     * [RESIZE] The app window changed size while the list was open: build it again for the new
-     * size, under the extensions button (which has moved with the layout). A PopupWindow keeps the
-     * size it was given, so without this the list could be taller than the window or cut off.
-     */
-    private void reopenExtensionMenu() {
-        final PopupWindow p = extensionMenu;
-        if (p == null || !p.isShowing()) return;
-        final LinearLayout container = toolbarContainer;
-        final View anchor = container == null ? null : container.getChildAt(0);
-        dismissExtensionMenu();
-        if (anchor != null && anchor.isAttachedToWindow()) toggleExtensionMenu(anchor);
     }
 
     /**
